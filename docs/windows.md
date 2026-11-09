@@ -152,9 +152,10 @@ Run this on a clean Windows VM before calling the Windows build supported:
 
 `.github/workflows/ci.yml` runs a Windows build with the static vcpkg triplet,
 executes the core tests, creates `cmdb-lite-windows-x64.zip`, and uploads it as
-an artifact. GUI launch validation is still a manual clean-VM checklist because
-GitHub-hosted Windows runners do not provide a reliable interactive desktop for
-WebView2 window tests.
+an artifact. The current CI run passes on `windows-2022`; the package contains
+`bin/cmdb.exe` and `bin/web/` and no unexpected DLLs. GUI launch validation is
+still a manual clean-VM checklist because GitHub-hosted Windows runners do not
+provide a reliable interactive desktop for WebView2 window tests.
 
 ## Known limitations
 

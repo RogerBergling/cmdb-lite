@@ -3,14 +3,16 @@
 A local-first, encrypted Configuration Management Database (CMDB) for Linux and
 Windows.
 
-> **Status: vertical slice implemented; Linux core and UI validated.** The
+> **Status: vertical slice implemented; Linux and Windows CI validated.** The
 > repository contains the C17 core, SQLCipher storage layer, Argon2id key
 > derivation, CI/type/relationship model, CSV/TSV import engine, dependency
-> graph builder, `.drawio` export, and the desktop webview shell. The system
-> build passes the test suite and a real GTK3/WebKitGTK smoke test, including
-> loading the UI from its local `file://` assets and creating an encrypted
-> database through the JS bridge. The Windows build is configured for vcpkg and
-> GitHub Actions. Network discovery and the embedded draw.io editor are the next
+> graph builder, `.drawio` export, and the desktop webview shell. The Linux
+> system build passes the test suite and a real GTK3/WebKitGTK smoke test,
+> including loading the UI from local `file://` assets and creating an encrypted
+> database through the JS bridge. The Windows CI job builds with MSVC and the
+> static vcpkg triplet, passes the tests, and produces the portable
+> `cmdb-lite-windows-x64.zip`. A clean-Windows-VM GUI/WebView2 launch check is
+> still required. Network discovery and the embedded draw.io editor are the next
 > milestone.
 
 ## Why this exists
@@ -582,11 +584,11 @@ through the C JSON bridge, and created an encrypted SQLCipher database through
 the bridge. The GTK3/WebKitGTK system build and test suite pass with GCC/CMake on
 the development host.
 
-The Windows build is configured for vcpkg and GitHub Actions, but has not yet
-been executed on this Linux development host. The Windows CI job builds, tests,
-and packages `cmdb-lite-windows-x64.zip`; GUI launch and WebView2 behaviour must
-still be validated on a clean Windows VM using the checklist in
-[`docs/windows.md`](docs/windows.md).
+The Windows CI job (Visual Studio 2022, `x64-windows-static`) builds, tests, and
+packages `cmdb-lite-windows-x64.zip` successfully. The package contains
+`bin/cmdb.exe` and `bin/web/` with no unexpected DLLs (verified by CI). GUI
+launch and WebView2 behaviour must still be validated on a clean Windows VM using
+the checklist in [`docs/windows.md`](docs/windows.md).
 
 ## Import examples
 
