@@ -57,6 +57,57 @@ jobs:
       - name: Whitespace check
         run: git diff --check
 
+  fedora:
+    name: Fedora (GTK3 / WebKitGTK, RPM)
+    runs-on: ubuntu-24.04
+    container: fedora:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          dnf install -y \
+            gcc gcc-c++ cmake ninja-build pkgconf-pkg-config git python3 \
+            findutils rpm-build \
+            sqlcipher-devel libsodium-devel libsodium-static \
+            openssl-devel zlib-devel \
+            gtk3-devel webkit2gtk4.1-devel
+
+      - name: Check embedded web UI
+        run: python3 packaging/embed_web.py --check
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMDB_BUILD_UI=ON \
+            -DCMDB_BUILD_TESTS=ON \
+            -DCMDB_WERROR=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Build Fedora packages
+        run: |
+          cpack --config build/CPackConfig.cmake -G RPM -B dist
+          cpack --config build/CPackConfig.cmake -G TGZ -B dist
+          rpm -qip dist/*.rpm
+
+      - name: Upload Fedora packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: cmdb-lite-fedora-x86_64
+          path: |
+            dist/*.rpm
+            dist/*.tar.gz
+          if-no-files-found: error
+
+      - name: Whitespace check
+        run: git diff --check
+
   windows:
     name: Windows (WebView2)
     # windows-2022 provides the Visual Studio 2022 C++ toolchain expected by

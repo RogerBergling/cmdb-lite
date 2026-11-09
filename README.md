@@ -23,10 +23,13 @@ latest release from:
 <https://github.com/RogerBergling/cmdb-lite/releases/latest>
 
 - Windows: `cmdb-lite-windows-x64.zip` or `cmdb-lite-0.1.0-windows-x64.msi`
-- Linux: `cmdb-lite_0.1.0_amd64.deb` or `cmdb-lite-0.1.0-linux-x86_64.tar.gz`
+- Debian/Ubuntu: `cmdb-lite_0.1.0_amd64.deb`
+- Fedora/RHEL: the `.rpm` package
+- Portable Linux: `cmdb-lite-0.1.0-linux-x86_64.tar.gz`
 - Checksums: `SHA256SUMS`
 
-Or build locally with `./setup.sh` on Linux or `setup-windows.ps1` on Windows.
+Or build locally with `./setup.sh` (Debian/Ubuntu), `./setup-fedora.sh`
+(Fedora), or `setup-windows.ps1` (Windows).
 
 ## Why this exists
 
@@ -63,8 +66,8 @@ password vault instead.
 - Append-only audit log with a hash chain.
 - **Single-file executables**: a Linux ELF and a Windows EXE with the HTML/CSS/JS
   UI embedded; no separate `web/` folder is needed.
-- Linux `.deb`/TGZ and Windows portable ZIP plus WiX-generated MSI, including an
-  application icon and version resource.
+- Linux `.deb`/RPM/TGZ and Windows portable ZIP plus WiX-generated MSI,
+  including an application icon and version resource.
 - Core test suite (unit and encryption-at-rest checks).
 
 ### Distribution model
@@ -448,10 +451,32 @@ sudo apt install -y build-essential cmake ninja-build pkg-config \
 Fedora:
 
 ```bash
-sudo dnf install -y gcc gcc-c++ cmake ninja-build pkgconf-pkg-config \
-  sqlcipher-devel libsodium-devel expat-devel \
-  gtk3-devel webkit2gtk4.1-devel clang valgrind cppcheck
+./setup-fedora.sh
 ```
+
+Or manually:
+
+```bash
+sudo dnf install -y \
+  gcc gcc-c++ cmake ninja-build pkgconf-pkg-config git python3 \
+  rpm-build findutils \
+  sqlcipher-devel libsodium-devel libsodium-static \
+  openssl-devel zlib-devel \
+  gtk3-devel webkit2gtk4.1-devel
+
+cmake -S . -B build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMDB_WERROR=ON
+cmake --build build
+ctest --test-dir build --output-on-failure
+
+cpack --config build/CPackConfig.cmake -G RPM -B build/dist
+cpack --config build/CPackConfig.cmake -G TGZ -B build/dist
+```
+
+The RPM is per-machine and installs the single `cmdb` ELF, desktop entry, icon,
+and documentation. Its license field is currently `Proprietary` as a placeholder
+until the project license is selected.
 
 The Windows and Linux GUI builds use the `webview/webview` library, which is
 fetched by CMake at configure time from a pinned 0.12.0 release tarball with a
@@ -482,11 +507,12 @@ Build Linux packages:
 ```bash
 cd build
 cpack --config CPackConfig.cmake -G DEB
+cpack --config CPackConfig.cmake -G RPM
 cpack --config CPackConfig.cmake -G TGZ
 ```
 
-The DEB installs the single `cmdb` ELF under `/usr/bin`, the desktop entry, and
-the icon. The UI assets are embedded in the executable.
+The DEB/RPM install the single `cmdb` ELF under `/usr/bin`, the desktop entry,
+and the icon. The UI assets are embedded in the executable.
 
 ### AddressSanitizer / UndefinedBehaviorSanitizer
 
@@ -639,7 +665,8 @@ embedded UI, executed `app.js`, answered `app.info` through the C JSON bridge,
 and created an encrypted SQLCipher database through the bridge. The GTK3/WebKitGTK system build and test suite pass with GCC/CMake on
 the development host.
 
-The Linux CI job builds the `.deb` and TGZ packages. The Windows CI job (Visual
+The Debian/Ubuntu CI job builds the `.deb` and TGZ packages. A Fedora container
+job builds and tests the RPM and TGZ packages. The Windows CI job (Visual
 Studio 2022, `x64-windows-static`) builds, tests, and packages
 `cmdb-lite-windows-x64.zip` and a WiX MSI successfully. The package contains a
 single `bin/cmdb.exe` with no unexpected DLLs (verified by CI). GUI launch, MSI

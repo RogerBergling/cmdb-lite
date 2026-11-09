@@ -364,12 +364,23 @@ if(CMDB_BUILD_UI)
   else()
     set(CPACK_PACKAGE_FILE_NAME
       "cmdb-lite-${PROJECT_VERSION}-linux-${CMAKE_SYSTEM_PROCESSOR}")
-    set(CPACK_GENERATOR "TGZ;DEB")
+    set(CPACK_GENERATOR "TGZ;DEB;RPM")
     set(CPACK_DEBIAN_PACKAGE_MAINTAINER
       "Roger Bergling <github@bergling.net>")
     set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
     set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
     set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+
+    # RPM packaging for Fedora/RHEL. Update the license when the project
+    # license is selected.
+    set(CPACK_RPM_PACKAGE_LICENSE "Proprietary")
+    set(CPACK_RPM_PACKAGE_GROUP "Applications/System")
+    set(CPACK_RPM_PACKAGE_DESCRIPTION
+      "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}")
+    set(CPACK_RPM_PACKAGE_REQUIRES
+      "gtk3, webkit2gtk4.1, openssl-libs, glib2, sqlcipher, libsodium")
+    set(CPACK_RPM_PACKAGE_AUTOREQ ON)
+    set(CPACK_RPM_FILE_NAME RPM-DEFAULT)
   endif()
 
   include(CPack)
