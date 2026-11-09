@@ -32,6 +32,8 @@ option(CMDB_ENABLE_ASAN "Enable AddressSanitizer and UndefinedBehaviorSanitizer"
 option(CMDB_WERROR "Treat compiler warnings as errors" OFF)
 option(CMDB_FETCH_WEBVIEW "Fetch the pinned webview dependency" ON)
 option(CMDB_BUILD_FUZZERS "Build libFuzzer targets (Clang only)" OFF)
+option(CMDB_STATIC_CRYPTO
+  "Link SQLCipher and libsodium statically on Unix when available" ON)
 
 if(MSVC)
   set(CMDB_WARNINGS /W4)
@@ -99,11 +101,45 @@ if(WIN32)
     ws2_32)
 else()
   find_package(PkgConfig REQUIRED)
+  find_package(Threads REQUIRED)
+  find_package(ZLIB REQUIRED)
   pkg_check_modules(SQLCIPHER REQUIRED IMPORTED_TARGET sqlcipher)
   pkg_check_modules(SODIUM REQUIRED IMPORTED_TARGET libsodium)
   set(CMDB_CRYPTO_LIBS
     PkgConfig::SQLCIPHER
     PkgConfig::SODIUM)
+  set(CMDB_CRYPTO_INCLUDE_DIRS
+    ${SQLCIPHER_INCLUDE_DIRS}
+    ${SODIUM_INCLUDE_DIRS})
+
+  if(CMDB_STATIC_CRYPTO)
+    find_file(CMDB_SQLCIPHER_STATIC
+      NAMES libsqlcipher.a
+      PATHS ${SQLCIPHER_LIBRARY_DIRS}
+      NO_DEFAULT_PATH)
+    find_file(CMDB_SODIUM_STATIC
+      NAMES libsodium.a
+      PATHS ${SODIUM_LIBRARY_DIRS}
+      NO_DEFAULT_PATH)
+    find_file(CMDB_CRYPTO_SHARED
+      NAMES libcrypto.so.3 libcrypto.so
+      PATHS ${SQLCIPHER_LIBRARY_DIRS}
+      NO_DEFAULT_PATH)
+    if(CMDB_SQLCIPHER_STATIC AND CMDB_SODIUM_STATIC AND CMDB_CRYPTO_SHARED)
+      set(CMDB_CRYPTO_LIBS
+        ${CMDB_SQLCIPHER_STATIC}
+        ${CMDB_SODIUM_STATIC}
+        ${CMDB_CRYPTO_SHARED}
+        ZLIB::ZLIB
+        Threads::Threads
+        ${CMAKE_DL_LIBS}
+        m)
+      message(STATUS "Linking SQLCipher/libsodium statically")
+    else()
+      message(STATUS
+        "Static SQLCipher/libsodium libraries not found; using shared libraries")
+    endif()
+  endif()
 endif()
 
 add_library(cjson STATIC
@@ -134,7 +170,8 @@ add_library(cmdb_core STATIC
   src/core/uuid.c)
 
 target_include_directories(cmdb_core PUBLIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+  ${CMDB_CRYPTO_INCLUDE_DIRS})
 # `<sqlcipher/sqlite3.h>` must resolve for both the Debian layout
 # (/usr/include/sqlcipher/sqlite3.h) and custom prefixes.
 foreach(_sqlcipher_include ${SQLCIPHER_INCLUDE_DIRS})

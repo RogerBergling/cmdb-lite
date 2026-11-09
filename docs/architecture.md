@@ -197,8 +197,8 @@ authentication, RBAC, connection pooling, and an audit actor model.
 
 | Dependency | Why |
 |---|---|
-| SQLCipher | Mature full-database encryption with a SQLite-compatible API. |
-| libsodium | Argon2id, secure randomness, constant-time comparison, memory wiping. |
+| SQLCipher | Mature full-database encryption with a SQLite-compatible API. Linked statically on Windows and, when available, on Linux. |
+| libsodium | Argon2id, secure randomness, constant-time comparison, memory wiping. Linked statically on Windows and, when available, on Linux. |
 | cJSON | Small, permissively licensed JSON parser/serializer for the local bridge. |
 | webview/webview | Thin C API over WebKitGTK and WebView2; avoids maintaining two browser shells. |
 

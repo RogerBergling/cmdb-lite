@@ -61,11 +61,12 @@ The application ships as one executable per OS, with no `web/` asset folder:
 | Platform | Artifact | Runtime requirements |
 |---|---|---|
 | Windows | `cmdb.exe` | WebView2 runtime (present on current Windows 10/11; Evergreen bootstrapper for older systems). SQLCipher, libsodium, OpenSSL, and the C/C++ runtime are linked statically. |
-| Linux | `cmdb` ELF | GTK3, WebKitGTK 4.1, SQLCipher, and libsodium from the distribution. The `.deb` declares these dependencies. A future Flatpak can bundle them. |
+| Linux | `cmdb` ELF | GTK3, WebKitGTK 4.1, and the system OpenSSL `libcrypto.so.3`. SQLCipher and libsodium are linked statically when the development packages provide their `.a` archives (the default). The `.deb` declares the remaining dependencies. A future Flatpak can bundle GTK/WebKit. |
 
 The encrypted database and its `.meta` sidecar are intentionally separate files
 chosen by the user. During development, `CMDB_WEB_DIR=src/web` can load the
-external UI files instead of the embedded bundle.
+external UI files instead of the embedded bundle. Set `CMDB_STATIC_CRYPTO=OFF`
+to link SQLCipher/libsodium dynamically on Linux.
 
 ### Next milestones
 
