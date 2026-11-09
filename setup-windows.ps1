@@ -107,6 +107,32 @@ if ($LASTEXITCODE -ne 0) {
 }
 Compress-Archive -Path "$packageRoot\*" -DestinationPath $packageZip -Force -ErrorAction Stop
 
+# Build the MSI when WiX Toolset v3 is available.
+$wixRoot = Get-ChildItem "${env:ProgramFiles(x86)}\WiX Toolset*" `
+    -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
+$wixBin = $null
+if ($wixRoot) {
+    $candidate = Join-Path $wixRoot.FullName "bin"
+    if (Test-Path (Join-Path $candidate "candle.exe")) {
+        $wixBin = $candidate
+    }
+}
+if ($wixBin) {
+    $env:PATH = "$wixBin;$env:PATH"
+    & cpack --config build\CPackConfig.cmake -C Release -G WIX -B dist
+    if ($LASTEXITCODE -ne 0) {
+        throw "cpack WIX failed with exit code $LASTEXITCODE."
+    }
+    $msi = Get-ChildItem dist -Filter *.msi | Select-Object -First 1
+    if (-not $msi) {
+        throw "No MSI was produced."
+    }
+    Write-Host "MSI:     $($msi.FullName)"
+} else {
+    Write-Warning "WiX Toolset v3 was not found; the portable ZIP was created without an MSI."
+    Write-Warning "Install WiX Toolset v3 from https://github.com/wixtoolset/wix3/releases and rerun."
+}
+
 Write-Host ""
 Write-Host "== Done ==" -ForegroundColor Green
 Write-Host "Run:     .\build\Release\cmdb.exe"

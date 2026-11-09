@@ -3,6 +3,7 @@ Type=Application
 Name=cmdb-lite
 Comment=Local-first encrypted Configuration Management Database
 Exec=cmdb
+Icon=cmdb-lite
 Terminal=false
 Categories=Office;Database;
 Keywords=CMDB;inventory;configuration;asset;

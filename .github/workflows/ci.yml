@@ -92,11 +92,43 @@ jobs:
           }
           Compress-Archive -Path "package\*" -DestinationPath "cmdb-lite-windows-x64.zip" -Force
 
+      - name: Locate WiX Toolset
+        shell: pwsh
+        run: |
+          $wixRoot = Get-ChildItem "${env:ProgramFiles(x86)}\WiX Toolset*" `
+            -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $wixRoot) {
+            choco install wixtoolset --no-progress -y
+            $wixRoot = Get-ChildItem "${env:ProgramFiles(x86)}\WiX Toolset*" `
+              -Directory | Select-Object -First 1
+          }
+          if (-not $wixRoot) {
+            throw "WiX Toolset was not found"
+          }
+          $wixBin = Join-Path $wixRoot.FullName "bin"
+          if (!(Test-Path (Join-Path $wixBin "candle.exe"))) {
+            throw "candle.exe was not found in $wixBin"
+          }
+          $wixBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          Write-Host "WiX: $wixBin"
+
+      - name: Build MSI
+        shell: pwsh
+        run: |
+          cpack --config build\CPackConfig.cmake -C Release -G WIX -B dist
+          $msi = Get-ChildItem dist -Filter *.msi | Select-Object -First 1
+          if (-not $msi) {
+            throw "No MSI was produced"
+          }
+          Write-Host "MSI: $($msi.FullName) ($($msi.Length) bytes)"
+
       - name: Upload Windows package
         uses: actions/upload-artifact@v4
         with:
           name: cmdb-lite-windows-x64
-          path: cmdb-lite-windows-x64.zip
+          path: |
+            cmdb-lite-windows-x64.zip
+            dist/*.msi
           if-no-files-found: error
 
       - name: Whitespace check

@@ -11,9 +11,9 @@ Windows.
 > including loading the UI from local `file://` assets and creating an encrypted
 > database through the JS bridge. The Windows CI job builds with MSVC and the
 > static vcpkg triplet, passes the tests, and produces the portable
-> `cmdb-lite-windows-x64.zip`. A clean-Windows-VM GUI/WebView2 launch check is
-> still required. Network discovery and the embedded draw.io editor are the next
-> milestone.
+> `cmdb-lite-windows-x64.zip` plus a WiX MSI. A clean-Windows-VM GUI/WebView2 and
+> MSI install/uninstall check is still required. Network discovery and the
+> embedded draw.io editor are the next milestone.
 
 ## Why this exists
 
@@ -48,6 +48,8 @@ password vault instead.
 - Dependency map rendered in the UI.
 - `.drawio` export generated from the dependency graph.
 - Append-only audit log with a hash chain.
+- Windows portable ZIP and WiX-generated MSI, including an application icon and
+  version resource.
 - Core test suite (unit and encryption-at-rest checks).
 
 ### Next milestones
@@ -56,7 +58,7 @@ password vault instead.
 - Unprivileged network discovery (ICMP/TCP/ARP) plus optional nmap.
 - Discovery review queue before records enter the CMDB.
 - Encrypted backup/restore and passphrase rotation.
-- Linux packages (`.deb`/Flatpak) and Windows installer (MSI).
+- Linux packages (`.deb`/Flatpak) and Windows code signing.
 - Signed release artifacts and SBOM publication.
 
 ## CI record fields
@@ -473,9 +475,13 @@ It installs the static vcpkg dependencies, builds, tests, and creates:
 
 ```text
 dist\cmdb-lite-windows-x64.zip
+dist\cmdb-lite-0.1.0-windows-x64.msi
 dist\cmdb-lite-windows-x64\bin\cmdb.exe
 dist\cmdb-lite-windows-x64\bin\web\
 ```
+
+The MSI is built when WiX Toolset v3 is installed and creates a Start Menu
+shortcut. It is a per-machine installer, so it requires administrator elevation.
 
 Run the packaged application with:
 
@@ -585,10 +591,11 @@ the bridge. The GTK3/WebKitGTK system build and test suite pass with GCC/CMake o
 the development host.
 
 The Windows CI job (Visual Studio 2022, `x64-windows-static`) builds, tests, and
-packages `cmdb-lite-windows-x64.zip` successfully. The package contains
-`bin/cmdb.exe` and `bin/web/` with no unexpected DLLs (verified by CI). GUI
-launch and WebView2 behaviour must still be validated on a clean Windows VM using
-the checklist in [`docs/windows.md`](docs/windows.md).
+packages `cmdb-lite-windows-x64.zip` and a WiX MSI successfully. The package
+contains `bin/cmdb.exe` and `bin/web/` with no unexpected DLLs (verified by CI).
+GUI launch, MSI install/uninstall, and WebView2 behaviour must still be validated
+on a clean Windows VM using the checklist in
+[`docs/windows.md`](docs/windows.md).
 
 ## Import examples
 

@@ -47,6 +47,7 @@ The script:
    - `dist\cmdb-lite-windows-x64\bin\cmdb.exe`
    - `dist\cmdb-lite-windows-x64\bin\web\`
    - `dist\cmdb-lite-windows-x64.zip`
+   - `dist\cmdb-lite-0.1.0-windows-x64.msi` when WiX Toolset v3 is installed
 
 ## Manual build
 
@@ -89,24 +90,31 @@ a blank window.
 
 ## Install
 
-Until a signed MSI exists, use the portable ZIP:
+The MSI is a per-machine installer and therefore requires administrator
+elevation. It installs under `Program Files\cmdb-lite`, creates a Start Menu
+shortcut, and registers the application for uninstall.
+
+```powershell
+msiexec /i .\dist\cmdb-lite-0.1.0-windows-x64.msi
+```
+
+The portable ZIP is also supported:
 
 1. Extract `cmdb-lite-windows-x64.zip` to a local folder, for example:
    `%LOCALAPPDATA%\Programs\cmdb-lite`.
 2. Create a shortcut to `bin\cmdb.exe` on the Desktop or Start Menu.
-3. Optionally associate `.cmdb` files with the executable.
 
 Do not install under a path that is not writable if you intend to keep the
 database there. The application asks you to choose the database location
-explicitly; the installation folder is separate.
+explicitly; the installation folder is separate from the database.
 
 ## WebView2 behaviour
 
 - Current Windows 10/11 includes the WebView2 Evergreen Runtime.
 - If it is missing, `webview_create` fails and the application displays a
   Windows message box explaining that the WebView2 runtime is required.
-- A future MSI will include the Evergreen bootstrapper and detect/install the
-  runtime automatically.
+- The MSI currently relies on the runtime being present; bundling the Evergreen
+  bootstrapper is the next packaging step.
 - WebView2 updates through Windows Update/Microsoft Edge, not through the
   application.
 
@@ -120,6 +128,10 @@ cmdb-lite-windows-x64/
       index.html
       app.js
       style.css
+
+dist/
+  cmdb-lite-windows-x64.zip
+  cmdb-lite-0.1.0-windows-x64.msi
 ```
 
 There should be **no** `sqlcipher.dll`, `libsodium.dll`, `libcrypto-*.dll`, or
@@ -146,22 +158,28 @@ Run this on a clean Windows VM before calling the Windows build supported:
 - [ ] Try a wrong passphrase; it is rejected and the database is not modified.
 - [ ] Test on a machine without WebView2; the error message is clear.
 - [ ] Verify the ZIP contains no unexpected DLLs.
-- [ ] Verify SmartScreen behaviour; sign the executable before public release.
+- [ ] Install the MSI as an administrator; verify the Start Menu shortcut.
+- [ ] Launch from the Start Menu and create/open a database.
+- [ ] Uninstall the MSI; verify the application files are removed and the
+      database is not deleted.
+- [ ] Verify SmartScreen behaviour; sign the executable and MSI before public
+      release.
 
 ## CI
 
 `.github/workflows/ci.yml` runs a Windows build with the static vcpkg triplet,
-executes the core tests, creates `cmdb-lite-windows-x64.zip`, and uploads it as
-an artifact. The current CI run passes on `windows-2022`; the package contains
-`bin/cmdb.exe` and `bin/web/` and no unexpected DLLs. GUI launch validation is
-still a manual clean-VM checklist because GitHub-hosted Windows runners do not
-provide a reliable interactive desktop for WebView2 window tests.
+executes the core tests, creates `cmdb-lite-windows-x64.zip`, builds the WiX MSI,
+and uploads both artifacts. The current CI run passes on `windows-2022`; the
+package contains `bin/cmdb.exe` and `bin/web/` and no unexpected DLLs. GUI launch
+validation is still a manual clean-VM checklist because GitHub-hosted Windows
+runners do not provide a reliable interactive desktop for WebView2 window tests.
 
 ## Known limitations
 
-- No MSI/Start Menu installer yet.
-- No code signing yet.
-- No application icon/version resource yet.
+- The MSI is per-machine (administrator required); per-user MSI packaging is not
+  implemented.
+- No code signing yet, so Windows SmartScreen may warn.
+- The MSI does not yet bundle the WebView2 Evergreen bootstrapper.
 - No automatic update mechanism.
 - Database file ACLs inherit from the chosen folder; the POSIX `0600` logic does
   not apply on Windows. Use a per-user folder such as
@@ -169,8 +187,8 @@ provide a reliable interactive desktop for WebView2 window tests.
 
 ## Next Windows tasks
 
-1. Verify the static build on a real Windows VM.
-2. Add an MSI/WiX package and Start Menu shortcut.
-3. Add an icon and version resource.
-4. Add Authenticode signing and reproducible release artifacts.
-5. Add a clean-VM GUI smoke test, ideally with a dedicated Windows runner.
+1. Verify the MSI and static package on a real Windows VM.
+2. Bundle/check the WebView2 Evergreen bootstrapper in the MSI.
+3. Add Authenticode signing and reproducible release artifacts.
+4. Add a clean-VM GUI smoke test, ideally with a dedicated Windows runner.
+5. Consider a per-user MSI or MSIX package.

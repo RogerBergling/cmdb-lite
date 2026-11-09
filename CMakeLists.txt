@@ -170,6 +170,9 @@ endif()
 
 if(CMDB_BUILD_UI)
   enable_language(CXX)
+  if(WIN32)
+    enable_language(RC)
+  endif()
   if(CMDB_FETCH_WEBVIEW)
     include(FetchContent)
     set(WEBVIEW_BUILD ON CACHE BOOL "" FORCE)
@@ -213,7 +216,17 @@ if(CMDB_BUILD_UI)
   set_target_properties(cmdb PROPERTIES LINKER_LANGUAGE CXX)
 
   if(WIN32)
-    target_sources(cmdb PRIVATE src/ui/platform_dialog_win32.c)
+    configure_file(
+      packaging/windows/cmdb-lite.rc.in
+      ${CMAKE_CURRENT_BINARY_DIR}/cmdb-lite.rc
+      @ONLY)
+    configure_file(
+      packaging/windows/cmdb-lite.ico
+      ${CMAKE_CURRENT_BINARY_DIR}/cmdb-lite.ico
+      COPYONLY)
+    target_sources(cmdb PRIVATE
+      src/ui/platform_dialog_win32.c
+      ${CMAKE_CURRENT_BINARY_DIR}/cmdb-lite.rc)
     set_target_properties(cmdb PROPERTIES WIN32_EXECUTABLE ON)
     target_link_libraries(cmdb PRIVATE
       webview::core_static
@@ -240,6 +253,9 @@ if(CMDB_BUILD_UI)
     install(DIRECTORY src/web/ DESTINATION ${CMAKE_INSTALL_DATADIR}/cmdb-lite/web)
     install(FILES packaging/cmdb-lite.desktop
       DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+    install(FILES packaging/icons/cmdb-lite.png
+      DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/256x256/apps
+      RENAME cmdb-lite.png)
   endif()
   install(FILES README.md THIRD_PARTY_NOTICES.md
     DESTINATION ${CMAKE_INSTALL_DOCDIR})
@@ -278,4 +294,33 @@ if(CMDB_BUILD_FUZZERS)
   target_link_options(fuzz_csv PRIVATE
     -fsanitize=fuzzer,address,undefined)
   target_link_libraries(fuzz_csv PRIVATE cmdb_core)
+endif()
+
+if(CMDB_BUILD_UI)
+  set(CPACK_PACKAGE_NAME "cmdb-lite")
+  set(CPACK_PACKAGE_VENDOR "Roger Bergling")
+  set(CPACK_PACKAGE_CONTACT "github@bergling.net")
+  set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
+    "Local-first encrypted Configuration Management Database")
+  set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+  set(CPACK_PACKAGE_INSTALL_DIRECTORY "cmdb-lite")
+  set(CPACK_PACKAGE_EXECUTABLES "cmdb" "cmdb-lite")
+
+  if(WIN32)
+    set(CPACK_PACKAGE_FILE_NAME
+      "cmdb-lite-${PROJECT_VERSION}-windows-x64")
+    set(CPACK_GENERATOR "WIX;ZIP")
+    set(CPACK_WIX_UPGRADE_GUID
+      "{B82FCBFC-5F09-4813-9140-371DE9B6B3AF}")
+    set(CPACK_WIX_PRODUCT_ICON
+      "${CMAKE_CURRENT_SOURCE_DIR}/packaging/windows/cmdb-lite.ico")
+    set(CPACK_WIX_PROGRAM_MENU_FOLDER "cmdb-lite")
+    set(CPACK_WIX_INSTALL_SCOPE "perMachine")
+  else()
+    set(CPACK_PACKAGE_FILE_NAME
+      "cmdb-lite-${PROJECT_VERSION}-linux-${CMAKE_SYSTEM_PROCESSOR}")
+    set(CPACK_GENERATOR "TGZ")
+  endif()
+
+  include(CPack)
 endif()
