@@ -28,6 +28,46 @@ static int choose_file_stub(void *userdata, int save, const char *title,
   return 0;
 }
 
+static void json_escape(const char *input, char *output, size_t output_size) {
+  size_t out = 0;
+  const unsigned char *p = (const unsigned char *)input;
+
+  while (*p != '\0') {
+    const char *escape = NULL;
+    char encoded[7];
+    switch (*p) {
+      case '\\': escape = "\\\\"; break;
+      case '"': escape = "\\\""; break;
+      case '\b': escape = "\\b"; break;
+      case '\f': escape = "\\f"; break;
+      case '\n': escape = "\\n"; break;
+      case '\r': escape = "\\r"; break;
+      case '\t': escape = "\\t"; break;
+      default: break;
+    }
+    if (escape == NULL && *p < 0x20) {
+      (void)snprintf(encoded, sizeof(encoded), "\\u%04x",
+                     (unsigned int)*p);
+      escape = encoded;
+    }
+    if (escape != NULL) {
+      size_t len = strlen(escape);
+      if (out + len + 1 >= output_size) {
+        break;
+      }
+      memcpy(output + out, escape, len);
+      out += len;
+    } else {
+      if (out + 2 >= output_size) {
+        break;
+      }
+      output[out++] = (char)*p;
+    }
+    p++;
+  }
+  output[out] = '\0';
+}
+
 static cJSON *api_call(cmdb_app_t *app, const char *request) {
   char *response_text;
   cJSON *response;
@@ -46,7 +86,8 @@ static cJSON *api_call(cmdb_app_t *app, const char *request) {
 void test_api(void) {
   char *dir = test_temp_dir();
   char path[4096];
-  char request[8192];
+  char request[16384];
+  char json_path[8192];
   cmdb_app_t *app;
   cmdb_error_t err;
   cJSON *response;
@@ -83,10 +124,11 @@ void test_api(void) {
     cJSON_Delete(response);
   }
 
+  json_escape(path, json_path, sizeof(json_path));
   (void)snprintf(request, sizeof(request),
                  "{\"id\":2,\"method\":\"db.create\",\"params\":{"
                  "\"path\":\"%s\",\"passphrase\":\"%s\"}}",
-                 path, TEST_PASSPHRASE);
+                 json_path, TEST_PASSPHRASE);
   response = api_call(app, request);
   TEST_ASSERT(response != NULL);
   if (response != NULL) {

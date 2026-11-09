@@ -6,6 +6,12 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
+if [ "$(id -u)" -eq 0 ]; then
+  echo "Run this script as your normal user, not with sudo." >&2
+  echo "The script will ask for sudo only for the apt-get step." >&2
+  exit 1
+fi
+
 if ! command -v apt-get >/dev/null 2>&1; then
   echo "This setup script is for Debian/Ubuntu systems (apt-get)." >&2
   echo "Install the equivalent packages for your distribution and then run:" >&2
