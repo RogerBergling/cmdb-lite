@@ -40,7 +40,9 @@ jobs:
 
   windows:
     name: Windows (WebView2)
-    runs-on: windows-latest
+    # windows-2022 provides the Visual Studio 2022 C++ toolchain expected by
+    # setup-windows.ps1 and the CMake generator.
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
 
