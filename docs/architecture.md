@@ -38,6 +38,11 @@
 does not load remote resources. A strict Content-Security-Policy blocks remote
 scripts, frames, objects, and network connections.
 
+`packaging/embed_web.py` inlines the CSS and JavaScript into one HTML document,
+computes SHA-256 CSP hashes, and generates `src/web_bundle.c`. The executable
+loads that embedded document, so there is no separate `web/` folder to ship.
+`CMDB_WEB_DIR` can be set during development to load `src/web` from disk instead.
+
 The UI calls a single binding:
 
 ```js

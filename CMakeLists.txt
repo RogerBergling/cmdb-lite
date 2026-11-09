@@ -202,7 +202,8 @@ if(CMDB_BUILD_UI)
 
   add_executable(cmdb
     src/ui/main.c
-    src/ui/ui_common.c)
+    src/ui/ui_common.c
+    src/web_bundle.c)
   # Keep the native/GTK/webview shell warning-clean without making third-party
   # system-header warnings fatal.
   set(CMDB_UI_WARNINGS ${CMDB_WARNINGS})
@@ -247,10 +248,8 @@ if(CMDB_BUILD_UI)
 
   if(WIN32)
     install(TARGETS cmdb RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-    install(DIRECTORY src/web/ DESTINATION ${CMAKE_INSTALL_BINDIR}/web)
   else()
     install(TARGETS cmdb RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-    install(DIRECTORY src/web/ DESTINATION ${CMAKE_INSTALL_DATADIR}/cmdb-lite/web)
     install(FILES packaging/cmdb-lite.desktop
       DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
     install(FILES packaging/icons/cmdb-lite.png
@@ -297,6 +296,15 @@ if(CMDB_BUILD_FUZZERS)
 endif()
 
 if(CMDB_BUILD_UI)
+  find_package(Python3 COMPONENTS Interpreter QUIET)
+  if(Python3_Interpreter_FOUND)
+    add_custom_target(web-bundle
+      COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/packaging/embed_web.py
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      COMMENT "Regenerating embedded web UI")
+  endif()
+
   set(CPACK_PACKAGE_NAME "cmdb-lite")
   set(CPACK_PACKAGE_VENDOR "Roger Bergling")
   set(CPACK_PACKAGE_CONTACT "github@bergling.net")

@@ -2,6 +2,7 @@
 #include "cmdb/crypto.h"
 #include "cmdb/error.h"
 #include "cmdb/util.h"
+#include "cmdb/web_bundle.h"
 #include "platform_dialog.h"
 #include "ui_common.h"
 
@@ -182,18 +183,16 @@ static int run_application(void) {
   }
 #endif
   if (url == NULL) {
-    url = ui_index_url();
-  }
-  if (shell.app == NULL || url == NULL) {
-    if (shell.app == NULL) {
-      fatal_message(err.message[0] != '\0' ? err.message
-                                          : "Cannot initialize the application.");
+    const char *web_dir = getenv("CMDB_WEB_DIR");
+    if (web_dir != NULL && web_dir[0] != '\0') {
+      url = ui_index_url();
     }
+  }
+  if (shell.app == NULL) {
+    fatal_message(err.message[0] != '\0' ? err.message
+                                        : "Cannot initialize the application.");
     (void)webview_set_html(webview, error_page);
     (void)webview_run(webview);
-    if (shell.app != NULL) {
-      cmdb_app_free(shell.app);
-    }
     free(url);
     (void)webview_destroy(webview);
     return 1;
@@ -246,15 +245,21 @@ static int run_application(void) {
   {
     const char *debug_ui = getenv("CMDB_DEBUG_UI");
     if (debug_ui != NULL && strcmp(debug_ui, "1") == 0) {
-      (void)fprintf(stderr, "cmdb-lite: loading %s\n", url);
+      (void)fprintf(stderr, "cmdb-lite: loading %s\n",
+                    url != NULL ? url : "embedded web UI");
     }
   }
-  if (webview_navigate(webview, url) != WEBVIEW_ERROR_OK) {
-    fatal_message("Cannot load the application UI. "
-                  "Check that the web assets are installed.");
+  if (url != NULL) {
+    if (webview_navigate(webview, url) != WEBVIEW_ERROR_OK) {
+      fatal_message("Cannot load the application UI.");
+      (void)webview_set_html(webview, error_page);
+    }
+    free(url);
+  } else if (webview_set_html(webview, cmdb_web_bundle_html) !=
+             WEBVIEW_ERROR_OK) {
+    fatal_message("Cannot load the embedded application UI.");
     (void)webview_set_html(webview, error_page);
   }
-  free(url);
 
   (void)webview_run(webview);
   (void)webview_destroy(webview);

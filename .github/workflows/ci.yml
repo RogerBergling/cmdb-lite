@@ -22,6 +22,9 @@ jobs:
             libsqlcipher-dev libsodium-dev libexpat1-dev \
             libgtk-3-dev libwebkit2gtk-4.1-dev
 
+      - name: Check embedded web UI
+        run: python3 packaging/embed_web.py --check
+
       - name: Configure
         run: |
           cmake -S . -B build -G Ninja \
@@ -159,9 +162,6 @@ jobs:
           cmake --install build --config Release --prefix package
           if (!(Test-Path "package\bin\cmdb.exe")) {
             throw "cmdb.exe was not installed"
-          }
-          if (!(Test-Path "package\bin\web\index.html")) {
-            throw "Web assets were not installed"
           }
           $dlls = Get-ChildItem "package\bin" -Filter *.dll -ErrorAction SilentlyContinue
           if ($dlls) {

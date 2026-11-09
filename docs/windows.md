@@ -7,7 +7,7 @@ window and no server to start separately.
 cmdb.exe
    └── WinMain (src/ui/main.c)
         └── Win32 window + WebView2
-             └── web/index.html
+             └── embedded HTML/CSS/JS bundle
                   └── app.js ↔ C JSON bridge ↔ SQLCipher database
 ```
 
@@ -45,7 +45,6 @@ The script:
 4. Builds and runs the tests.
 5. Creates:
    - `dist\cmdb-lite-windows-x64\bin\cmdb.exe`
-   - `dist\cmdb-lite-windows-x64\bin\web\`
    - `dist\cmdb-lite-windows-x64.zip`
    - `dist\cmdb-lite-0.1.0-windows-x64.msi` when WiX Toolset v3 is installed
 
@@ -78,15 +77,12 @@ From the portable package:
 .\dist\cmdb-lite-windows-x64\bin\cmdb.exe
 ```
 
-The executable resolves its web assets in this order:
+The UI is embedded in `cmdb.exe`. No `web\` folder is required.
 
-1. `CMDB_WEB_DIR` environment variable.
-2. The compile-time source `src/web` directory (useful during development).
-3. `web\` next to `cmdb.exe` (installed layout).
-4. `..\share\cmdb-lite\web` (Unix-style install fallback).
-
-If the assets cannot be found, the application shows an error page rather than
-a blank window.
+For development, `CMDB_WEB_DIR` can point at `src\web` to load the external
+assets instead of the embedded bundle. This is not needed for a packaged build.
+If the embedded UI cannot be loaded, the application shows an error page rather
+than a blank window.
 
 ## Install
 
@@ -124,10 +120,6 @@ explicitly; the installation folder is separate from the database.
 cmdb-lite-windows-x64/
   bin/
     cmdb.exe
-    web/
-      index.html
-      app.js
-      style.css
 
 dist/
   cmdb-lite-windows-x64.zip
@@ -195,7 +187,7 @@ Never commit the certificate or password.
 `.github/workflows/ci.yml` runs a Windows build with the static vcpkg triplet,
 executes the core tests, creates `cmdb-lite-windows-x64.zip`, builds the WiX MSI,
 and uploads both artifacts. The current CI run passes on `windows-2022`; the
-package contains `bin/cmdb.exe` and `bin/web/` and no unexpected DLLs. The CI job
+package contains a single `bin/cmdb.exe` and no unexpected DLLs. The CI job
 also runs a Release WebView2 smoke test (`CMDB_SMOKE_TEST=1`) that loads the UI
 and creates an encrypted database through the bridge. MSI install/uninstall and
 some interactive WebView2 behaviour still require the manual clean-VM checklist.

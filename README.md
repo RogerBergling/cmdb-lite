@@ -8,8 +8,8 @@ Windows.
 > derivation, CI/type/relationship model, CSV/TSV import engine, dependency
 > graph builder, `.drawio` export, and the desktop webview shell. The Linux
 > system build passes the test suite and a real GTK3/WebKitGTK smoke test,
-> including loading the UI from local `file://` assets and creating an encrypted
-> database through the JS bridge. The Windows CI job builds with MSVC and the
+> including loading the embedded UI and creating an encrypted database through
+> the JS bridge. The Windows CI job builds with MSVC and the
 > static vcpkg triplet, passes the tests, and produces the portable
 > `cmdb-lite-windows-x64.zip` plus a WiX MSI. A clean-Windows-VM GUI/WebView2 and
 > MSI install/uninstall check is still required. Network discovery and the
@@ -48,6 +48,8 @@ password vault instead.
 - Dependency map rendered in the UI.
 - `.drawio` export generated from the dependency graph.
 - Append-only audit log with a hash chain.
+- **Single-file executables**: a Linux ELF and a Windows EXE with the HTML/CSS/JS
+  UI embedded; no separate `web/` folder is needed.
 - Linux `.deb`/TGZ and Windows portable ZIP plus WiX-generated MSI, including an
   application icon and version resource.
 - Core test suite (unit and encryption-at-rest checks).
@@ -321,8 +323,8 @@ networks you own or are explicitly permitted to test.
 
 ### Application security
 
-- The UI is a local, offline HTML/CSS/JS application loaded from a local file.
-  No remote content, analytics, or telemetry is loaded.
+- The UI is an offline HTML/CSS/JS document embedded in the executable. No
+  remote content, analytics, or telemetry is loaded.
 - A strict Content-Security-Policy blocks remote scripts, frames, objects, and
   network connections. The UI uses DOM `textContent`, not untrusted
   `innerHTML`, for data rendering.
@@ -392,11 +394,12 @@ dependencies.
 include/cmdb/        Public C headers for the core
 src/core/            Crypto, database, domain, import, graph, API
 src/ui/              Native webview shell and native file dialogs
-src/web/             Offline HTML/CSS/JS UI
+src/web/             Offline HTML/CSS/JS UI source
+src/web_bundle.c     Generated embedded UI (do not edit)
 tests/               C unit and integration tests
 docs/                Data model, import, security, architecture, scanning
 third_party/         Vendored cJSON (MIT)
-packaging/           Installer/package assets (next milestone)
+packaging/           Icons, embed script, Windows resources, installers
 .github/workflows/   Linux and Windows CI builds
 ```
 
@@ -435,6 +438,12 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
+After editing anything in `src/web`, regenerate the embedded UI:
+
+```bash
+python3 packaging/embed_web.py
+```
+
 Run the application:
 
 ```bash
@@ -449,8 +458,8 @@ cpack --config CPackConfig.cmake -G DEB
 cpack --config CPackConfig.cmake -G TGZ
 ```
 
-The DEB installs the binary under `/usr/bin`, web assets under
-`/usr/share/cmdb-lite/web`, the desktop entry, and the icon.
+The DEB installs the single `cmdb` ELF under `/usr/bin`, the desktop entry, and
+the icon. The UI assets are embedded in the executable.
 
 ### AddressSanitizer / UndefinedBehaviorSanitizer
 
@@ -489,7 +498,6 @@ It installs the static vcpkg dependencies, builds, tests, and creates:
 dist\cmdb-lite-windows-x64.zip
 dist\cmdb-lite-0.1.0-windows-x64.msi
 dist\cmdb-lite-windows-x64\bin\cmdb.exe
-dist\cmdb-lite-windows-x64\bin\web\
 ```
 
 The MSI is built when WiX Toolset v3 is installed and creates a Start Menu
@@ -545,6 +553,9 @@ GitHub Actions Windows runner.
 The repository is validated with:
 
 ```bash
+# Embedded UI is in sync with src/web
+python3 packaging/embed_web.py --check
+
 # Formatting/whitespace checks
 git diff --check
 
@@ -597,17 +608,16 @@ inventory rendering, CI modal/custom fields, type detail, import preview, and
 dependency-map SVG rendering all completed without JS errors.
 
 A real system WebKitGTK smoke run (headless Broadway backend) also loaded the
-UI from its local `file://` assets, executed `app.js`, answered `app.info`
-through the C JSON bridge, and created an encrypted SQLCipher database through
-the bridge. The GTK3/WebKitGTK system build and test suite pass with GCC/CMake on
+embedded UI, executed `app.js`, answered `app.info` through the C JSON bridge,
+and created an encrypted SQLCipher database through the bridge. The GTK3/WebKitGTK system build and test suite pass with GCC/CMake on
 the development host.
 
 The Linux CI job builds the `.deb` and TGZ packages. The Windows CI job (Visual
 Studio 2022, `x64-windows-static`) builds, tests, and packages
-`cmdb-lite-windows-x64.zip` and a WiX MSI successfully. The package contains
-`bin/cmdb.exe` and `bin/web/` with no unexpected DLLs (verified by CI). GUI
-launch, MSI install/uninstall, and WebView2 behaviour must still be validated on
-a clean Windows VM using the checklist in
+`cmdb-lite-windows-x64.zip` and a WiX MSI successfully. The package contains a
+single `bin/cmdb.exe` with no unexpected DLLs (verified by CI). GUI launch, MSI
+install/uninstall, and WebView2 behaviour must still be validated on a clean
+Windows VM using the checklist in
 [`docs/windows.md`](docs/windows.md).
 
 ## Import examples
