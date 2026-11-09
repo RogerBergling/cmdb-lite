@@ -43,6 +43,16 @@ echo "== Running tests =="
 ctest --test-dir build --output-on-failure
 
 echo
+echo "== Building Debian/Ubuntu packages =="
+rm -rf build/dist
+cpack --config build/CPackConfig.cmake -G DEB -B build/dist
+cpack --config build/CPackConfig.cmake -G TGZ -B build/dist
+ls -lh build/dist
+
+echo
 echo "== Done =="
 echo "Start the application with:"
 echo "  ./build/cmdb"
+echo "Packages:"
+echo "  build/dist/*.deb"
+echo "  build/dist/*.tar.gz"
