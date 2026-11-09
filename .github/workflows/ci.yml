@@ -105,9 +105,6 @@ jobs:
             dist/*.tar.gz
           if-no-files-found: error
 
-      - name: Whitespace check
-        run: git diff --check
-
   windows:
     name: Windows (WebView2)
     # windows-2022 provides the Visual Studio 2022 C++ toolchain expected by

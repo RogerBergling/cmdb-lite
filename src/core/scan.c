@@ -6,6 +6,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -589,14 +590,20 @@ int cmdb_scan_parse_xml(const char *xml, size_t len,
   (void)XML_SetParamEntityParsing(parser, XML_PARAM_ENTITY_PARSING_NEVER);
   status = XML_Parse(parser, xml, (int)len, 1);
   if (status != XML_STATUS_OK || state.failed) {
-    unsigned long line = XML_GetCurrentLineNumber(parser);
+#if XML_MAJOR_VERSION > 2 || \
+  (XML_MAJOR_VERSION == 2 && XML_MINOR_VERSION >= 9)
+    uint64_t line = XML_GetCurrentLineNumber64(parser);
+#else
+    XML_Size line = XML_GetCurrentLineNumber(parser);
+#endif
     enum XML_Error code = XML_GetErrorCode(parser);
     if (state.failed) {
       cmdb_error_set(err, CMDB_ERR_VALIDATION, "%s", state.error);
     } else {
       cmdb_error_set(err, CMDB_ERR_VALIDATION,
                      "Cannot parse nmap XML output");
-      cmdb_error_set_detail(err, "line %lu: %s", line,
+      cmdb_error_set_detail(err, "line %llu: %s",
+                            (unsigned long long)line,
                             XML_ErrorString(code));
     }
     XML_ParserFree(parser);
