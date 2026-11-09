@@ -319,7 +319,12 @@ if(CMDB_BUILD_UI)
   else()
     set(CPACK_PACKAGE_FILE_NAME
       "cmdb-lite-${PROJECT_VERSION}-linux-${CMAKE_SYSTEM_PROCESSOR}")
-    set(CPACK_GENERATOR "TGZ")
+    set(CPACK_GENERATOR "TGZ;DEB")
+    set(CPACK_DEBIAN_PACKAGE_MAINTAINER
+      "Roger Bergling <github@bergling.net>")
+    set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
+    set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+    set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
   endif()
 
   include(CPack)

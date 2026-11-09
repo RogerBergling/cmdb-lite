@@ -23,13 +23,17 @@ typedef struct {
 } shell_t;
 
 static void fatal_message(const char *message) {
+  const char *smoke = getenv("CMDB_SMOKE_TEST");
   (void)fprintf(stderr, "cmdb-lite: %s\n", message);
 #ifdef _WIN32
-  (void)MessageBoxA(NULL, message, "cmdb-lite", MB_OK | MB_ICONERROR);
+  if (smoke == NULL || strcmp(smoke, "1") != 0) {
+    (void)MessageBoxA(NULL, message, "cmdb-lite", MB_OK | MB_ICONERROR);
+  }
+#else
+  (void)smoke;
 #endif
 }
 
-#ifndef NDEBUG
 static const char smoke_js[] =
   "(function(){var n=0;function finish(r){"
   "if(window.__cmdb_smoke){window.__cmdb_smoke(JSON.stringify(r));}}"
@@ -48,7 +52,6 @@ static const char smoke_js[] =
   ".catch(function(e){r.database='error:'+(e.message||e);finish(r);});"
   "}else{finish(r);}return;}setTimeout(check,100);}"
   "setTimeout(check,100);})();";
-#endif
 
 static const char error_page[] =
   "<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
@@ -69,7 +72,19 @@ static int host_choose_file(void *userdata, int save, const char *title,
   return (err != NULL && err->code != CMDB_OK) ? -1 : 0;
 }
 
-#ifndef NDEBUG
+static void write_smoke_result(const char *json) {
+  const char *result_path = getenv("CMDB_SMOKE_RESULT");
+  cmdb_error_t err;
+  if (result_path == NULL || result_path[0] == '\0') {
+    return;
+  }
+  cmdb_error_clear(&err);
+  if (cmdb_file_write_atomic(result_path, json, strlen(json), 0600, &err) != 0) {
+    (void)fprintf(stderr, "cmdb-lite: cannot write smoke result: %s\n",
+                  err.message);
+  }
+}
+
 static void smoke_callback(const char *id, const char *request_json,
                            void *arg) {
   shell_t *shell = arg;
@@ -77,17 +92,20 @@ static void smoke_callback(const char *id, const char *request_json,
   cJSON *first = cJSON_IsArray(args) ? cJSON_GetArrayItem(args, 0) : NULL;
 
   if (cJSON_IsString(first) && first->valuestring != NULL) {
+    write_smoke_result(first->valuestring);
     (void)fprintf(stdout, "SMOKE %s\n", first->valuestring);
     (void)fflush(stdout);
   } else {
-    (void)fprintf(stdout, "SMOKE {\"ready\":false,\"error\":\"invalid smoke response\"}\n");
+    write_smoke_result(
+      "{\"ready\":false,\"error\":\"invalid smoke response\"}");
+    (void)fprintf(stdout,
+                  "SMOKE {\"ready\":false,\"error\":\"invalid smoke response\"}\n");
     (void)fflush(stdout);
   }
   cJSON_Delete(args);
   webview_return(shell->webview, id, 0, "null");
   webview_terminate(shell->webview);
 }
-#endif
 
 static void bridge_callback(const char *id, const char *request_json,
                             void *arg) {
@@ -190,7 +208,6 @@ static int run_application(void) {
     return 1;
   }
 
-#ifndef NDEBUG
   {
     const char *smoke = getenv("CMDB_SMOKE_TEST");
     if (smoke != NULL && strcmp(smoke, "1") == 0) {
@@ -225,7 +242,6 @@ static int run_application(void) {
       }
     }
   }
-#endif
 
   {
     const char *debug_ui = getenv("CMDB_DEBUG_UI");

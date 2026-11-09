@@ -25,6 +25,7 @@ echo "== Installing build dependencies (sudo will ask for your password) =="
 sudo apt-get update
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
   build-essential cmake ninja-build pkg-config \
+  fakeroot dpkg-dev \
   libsqlcipher-dev libsodium-dev libexpat1-dev \
   libgtk-3-dev libwebkit2gtk-4.1-dev \
   clang lld valgrind cppcheck

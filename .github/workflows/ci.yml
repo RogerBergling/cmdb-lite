@@ -18,6 +18,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential cmake ninja-build pkg-config \
+            fakeroot dpkg-dev \
             libsqlcipher-dev libsodium-dev libexpat1-dev \
             libgtk-3-dev libwebkit2gtk-4.1-dev
 
@@ -34,6 +35,21 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+      - name: Build Linux packages
+        run: |
+          cpack --config build/CPackConfig.cmake -G DEB -B dist
+          cpack --config build/CPackConfig.cmake -G TGZ -B dist
+          dpkg-deb -I dist/*.deb | head -25
+
+      - name: Upload Linux packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: cmdb-lite-linux-x86_64
+          path: |
+            dist/*.deb
+            dist/*.tar.gz
+          if-no-files-found: error
 
       - name: Whitespace check
         run: git diff --check
@@ -75,6 +91,67 @@ jobs:
       - name: Test
         shell: pwsh
         run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: GUI smoke test (WebView2)
+        shell: pwsh
+        run: |
+          $result = Join-Path $env:RUNNER_TEMP "cmdb-smoke.json"
+          $db = Join-Path $env:RUNNER_TEMP "cmdb-smoke.cmdb"
+          Remove-Item $result, $db, "$db.meta", "$db-wal", "$db-shm" `
+            -ErrorAction SilentlyContinue
+          $env:CMDB_SMOKE_TEST = "1"
+          $env:CMDB_SMOKE_DB = $db
+          $env:CMDB_SMOKE_RESULT = $result
+          $env:WEBVIEW2_USER_DATA_FOLDER = Join-Path $env:RUNNER_TEMP "cmdb-webview2"
+          $proc = Start-Process -FilePath "build\Release\cmdb.exe" -PassThru
+          if (-not $proc.WaitForExit(60000)) {
+            $proc.Kill()
+            throw "cmdb.exe did not exit within 60 seconds"
+          }
+          if ($proc.ExitCode -ne 0) {
+            throw "cmdb.exe exited with $($proc.ExitCode)"
+          }
+          if (!(Test-Path $result)) {
+            throw "Smoke result file was not written"
+          }
+          Get-Content $result -Raw
+          $data = Get-Content $result -Raw | ConvertFrom-Json
+          if (-not $data.ready) {
+            throw "UI did not become ready: $($data.error)"
+          }
+          if ($data.database -ne "ok") {
+            throw "Database smoke test failed: $($data.database)"
+          }
+
+      - name: Sign Windows executable
+        shell: pwsh
+        env:
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_CERT_PFX_BASE64) {
+            Write-Host "No signing certificate configured; skipping."
+            exit 0
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP "cmdb-lite.pfx"
+          [IO.File]::WriteAllBytes(
+            $pfx,
+            [Convert]::FromBase64String($env:WINDOWS_CERT_PFX_BASE64))
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" `
+            -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match 'x64' } |
+            Select-Object -First 1
+          if (-not $signtool) {
+            throw "signtool.exe was not found"
+          }
+          & $signtool.FullName sign /f $pfx `
+            /p $env:WINDOWS_CERT_PASSWORD `
+            /fd SHA256 `
+            /tr http://timestamp.digicert.com /td SHA256 `
+            build\Release\cmdb.exe
+          if ($LASTEXITCODE -ne 0) {
+            throw "Signing cmdb.exe failed"
+          }
 
       - name: Create portable package
         shell: pwsh
@@ -121,6 +198,40 @@ jobs:
             throw "No MSI was produced"
           }
           Write-Host "MSI: $($msi.FullName) ($($msi.Length) bytes)"
+
+      - name: Sign Windows MSI
+        shell: pwsh
+        env:
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_CERT_PFX_BASE64) {
+            Write-Host "No signing certificate configured; skipping."
+            exit 0
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP "cmdb-lite.pfx"
+          [IO.File]::WriteAllBytes(
+            $pfx,
+            [Convert]::FromBase64String($env:WINDOWS_CERT_PFX_BASE64))
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" `
+            -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match 'x64' } |
+            Select-Object -First 1
+          if (-not $signtool) {
+            throw "signtool.exe was not found"
+          }
+          $msi = Get-ChildItem dist -Filter *.msi | Select-Object -First 1
+          if (-not $msi) {
+            throw "MSI was not found"
+          }
+          & $signtool.FullName sign /f $pfx `
+            /p $env:WINDOWS_CERT_PASSWORD `
+            /fd SHA256 `
+            /tr http://timestamp.digicert.com /td SHA256 `
+            $msi.FullName
+          if ($LASTEXITCODE -ne 0) {
+            throw "Signing the MSI failed"
+          }
 
       - name: Upload Windows package
         uses: actions/upload-artifact@v4

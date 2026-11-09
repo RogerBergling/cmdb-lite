@@ -48,8 +48,8 @@ password vault instead.
 - Dependency map rendered in the UI.
 - `.drawio` export generated from the dependency graph.
 - Append-only audit log with a hash chain.
-- Windows portable ZIP and WiX-generated MSI, including an application icon and
-  version resource.
+- Linux `.deb`/TGZ and Windows portable ZIP plus WiX-generated MSI, including an
+  application icon and version resource.
 - Core test suite (unit and encryption-at-rest checks).
 
 ### Next milestones
@@ -58,7 +58,7 @@ password vault instead.
 - Unprivileged network discovery (ICMP/TCP/ARP) plus optional nmap.
 - Discovery review queue before records enter the CMDB.
 - Encrypted backup/restore and passphrase rotation.
-- Linux packages (`.deb`/Flatpak) and Windows code signing.
+- Linux Flatpak packaging and Windows code signing.
 - Signed release artifacts and SBOM publication.
 
 ## CI record fields
@@ -409,6 +409,7 @@ Ubuntu/Debian:
 ```bash
 sudo apt update
 sudo apt install -y build-essential cmake ninja-build pkg-config \
+  fakeroot dpkg-dev \
   libsqlcipher-dev libsodium-dev libexpat1-dev \
   libgtk-3-dev libwebkit2gtk-4.1-dev \
   clang lld valgrind cppcheck
@@ -439,6 +440,17 @@ Run the application:
 ```bash
 ./build/cmdb
 ```
+
+Build Linux packages:
+
+```bash
+cd build
+cpack --config CPackConfig.cmake -G DEB
+cpack --config CPackConfig.cmake -G TGZ
+```
+
+The DEB installs the binary under `/usr/bin`, web assets under
+`/usr/share/cmdb-lite/web`, the desktop entry, and the icon.
 
 ### AddressSanitizer / UndefinedBehaviorSanitizer
 
@@ -590,11 +602,12 @@ through the C JSON bridge, and created an encrypted SQLCipher database through
 the bridge. The GTK3/WebKitGTK system build and test suite pass with GCC/CMake on
 the development host.
 
-The Windows CI job (Visual Studio 2022, `x64-windows-static`) builds, tests, and
-packages `cmdb-lite-windows-x64.zip` and a WiX MSI successfully. The package
-contains `bin/cmdb.exe` and `bin/web/` with no unexpected DLLs (verified by CI).
-GUI launch, MSI install/uninstall, and WebView2 behaviour must still be validated
-on a clean Windows VM using the checklist in
+The Linux CI job builds the `.deb` and TGZ packages. The Windows CI job (Visual
+Studio 2022, `x64-windows-static`) builds, tests, and packages
+`cmdb-lite-windows-x64.zip` and a WiX MSI successfully. The package contains
+`bin/cmdb.exe` and `bin/web/` with no unexpected DLLs (verified by CI). GUI
+launch, MSI install/uninstall, and WebView2 behaviour must still be validated on
+a clean Windows VM using the checklist in
 [`docs/windows.md`](docs/windows.md).
 
 ## Import examples

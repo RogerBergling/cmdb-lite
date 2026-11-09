@@ -165,14 +165,40 @@ Run this on a clean Windows VM before calling the Windows build supported:
 - [ ] Verify SmartScreen behaviour; sign the executable and MSI before public
       release.
 
+## Code signing
+
+Unsigned Windows applications trigger SmartScreen warnings. The CI workflow
+supports Authenticode signing when these repository secrets are configured:
+
+- `WINDOWS_CERT_PFX_BASE64` — base64-encoded `.pfx` code-signing certificate.
+- `WINDOWS_CERT_PASSWORD` — password for the `.pfx`.
+
+When present, CI signs `cmdb.exe` before packaging and signs the MSI after
+creation, using SHA-256 and a DigiCert timestamp. When absent, the build still
+completes and produces unsigned artifacts.
+
+For local signing, install the Windows SDK and run:
+
+```powershell
+signtool sign /f your-cert.pfx /p your-password `
+  /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
+  build\Release\cmdb.exe
+signtool sign /f your-cert.pfx /p your-password `
+  /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
+  dist\cmdb-lite-0.1.0-windows-x64.msi
+```
+
+Never commit the certificate or password.
+
 ## CI
 
 `.github/workflows/ci.yml` runs a Windows build with the static vcpkg triplet,
 executes the core tests, creates `cmdb-lite-windows-x64.zip`, builds the WiX MSI,
 and uploads both artifacts. The current CI run passes on `windows-2022`; the
-package contains `bin/cmdb.exe` and `bin/web/` and no unexpected DLLs. GUI launch
-validation is still a manual clean-VM checklist because GitHub-hosted Windows
-runners do not provide a reliable interactive desktop for WebView2 window tests.
+package contains `bin/cmdb.exe` and `bin/web/` and no unexpected DLLs. The CI job
+also runs a Release WebView2 smoke test (`CMDB_SMOKE_TEST=1`) that loads the UI
+and creates an encrypted database through the bridge. MSI install/uninstall and
+some interactive WebView2 behaviour still require the manual clean-VM checklist.
 
 ## Known limitations
 
