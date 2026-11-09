@@ -15,6 +15,19 @@ Windows.
 > MSI install/uninstall check is still required. Network discovery and the
 > embedded draw.io editor are the next milestone.
 
+## Download prebuilt binaries
+
+A Git clone contains source only; executables are not committed. Download the
+latest release from:
+
+<https://github.com/RogerBergling/cmdb-lite/releases/latest>
+
+- Windows: `cmdb-lite-windows-x64.zip` or `cmdb-lite-0.1.0-windows-x64.msi`
+- Linux: `cmdb-lite_0.1.0_amd64.deb` or `cmdb-lite-0.1.0-linux-x86_64.tar.gz`
+- Checksums: `SHA256SUMS`
+
+Or build locally with `./setup.sh` on Linux or `setup-windows.ps1` on Windows.
+
 ## Why this exists
 
 Most CMDB products are server applications. `cmdb-lite` is a single-user desktop
