@@ -1,0 +1,6 @@
+ci_name,ci_type,description,environment,status,business_service,technical_owner,support_team,criticality,hosting_location,external_id,custom.ip_address,custom.serial_number,custom.os_version
+app01,Linux Server,Primary payments application server,Production,Active,Payments,Alice Example,Linux Platform Team,High,dc1-rack42,SRV-001,10.20.0.11,SN-8891,Ubuntu 26.04
+db01,Database,Payments primary database,Production,Active,Payments,Alice Example,Database Team,Critical,dc1-rack43,DB-001,10.20.0.21,SN-2210,PostgreSQL 18
+payments-api,Web Application,Payments REST API,Production,Active,Payments,Bob Example,Payments Team,High,cloud-eu-west-1,APP-001,,,v4.12.0
+payments-service,Business Service,Customer payments service,Production,Active,Payments,Carol Example,Payments Team,Critical,,SVC-001,,,
+router01,Router,Core network router,Production,Active,Network,Dan Example,Network Team,Critical,dc1,NET-001,10.20.0.1,SN-1001,

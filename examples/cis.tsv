@@ -1,0 +1,3 @@
+ci_name	ci_type	environment	external_id	custom.ip_address
+app01	Linux Server	Production	SRV-001	10.20.0.11
+db01	Database	Production	DB-001	10.20.0.21

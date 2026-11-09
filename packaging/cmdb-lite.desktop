@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=cmdb-lite
+Comment=Local-first encrypted Configuration Management Database
+Exec=cmdb
+Terminal=false
+Categories=Office;Database;
+Keywords=CMDB;inventory;configuration;asset;
+StartupNotify=true

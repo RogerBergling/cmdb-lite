@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file:; style-src 'self' file:; img-src 'self' data: file:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';">
+  <title>cmdb-lite</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <section id="unlock-screen" class="unlock-screen">
+    <div class="unlock-card">
+      <div class="brand-mark" aria-hidden="true">CL</div>
+      <h1>cmdb-lite</h1>
+      <p class="muted">Local-first, encrypted configuration management.</p>
+
+      <div class="segmented" role="tablist" aria-label="Database action">
+        <button id="mode-open" class="segment active" type="button" role="tab" aria-selected="true">Open database</button>
+        <button id="mode-create" class="segment" type="button" role="tab" aria-selected="false">Create database</button>
+      </div>
+
+      <form id="unlock-form" autocomplete="off">
+        <label for="db-path">Database file</label>
+        <div class="row">
+          <input id="db-path" type="text" spellcheck="false" placeholder="Choose or enter an encrypted .cmdb file" required>
+          <button id="browse-db" type="button" class="secondary">Browse</button>
+        </div>
+        <p class="hint">The database and its <code>.meta</code> sidecar are stored where you choose.</p>
+
+        <label for="passphrase">Master passphrase</label>
+        <input id="passphrase" type="password" minlength="12" maxlength="1024" autocomplete="current-password" required>
+        <p class="hint">Minimum 12 characters. It cannot be recovered if lost.</p>
+
+        <div id="confirm-wrap" class="hidden">
+          <label for="passphrase2">Confirm passphrase</label>
+          <input id="passphrase2" type="password" minlength="12" maxlength="1024" autocomplete="new-password">
+        </div>
+
+        <p id="unlock-error" class="error" role="alert"></p>
+        <button id="unlock-submit" type="submit" class="primary wide">Open encrypted database</button>
+      </form>
+
+      <div class="security-note">
+        <strong>Security</strong>
+        <span>SQLCipher 4 (AES-256) &middot; Argon2id key derivation &middot; offline-only.</span>
+      </div>
+    </div>
+  </section>
+
+  <div id="main-app" class="app hidden">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark small" aria-hidden="true">CL</span>
+        <span>cmdb-lite</span>
+      </div>
+      <div class="db-chip" id="db-path-label" title="Open database"></div>
+      <button id="lock-button" type="button" class="secondary small">Lock</button>
+    </header>
+
+    <nav class="tabs" aria-label="Main navigation">
+      <button class="tab active" type="button" data-tab="inventory">Inventory</button>
+      <button class="tab" type="button" data-tab="types">CI Types</button>
+      <button class="tab" type="button" data-tab="relationships">Relationships</button>
+      <button class="tab" type="button" data-tab="import">Import</button>
+      <button class="tab" type="button" data-tab="map">Dependency Map</button>
+    </nav>
+
+    <main class="content">
+      <section id="panel-inventory" class="panel active">
+        <div class="panel-heading">
+          <div>
+            <h2>Inventory</h2>
+            <p class="muted" id="inventory-summary">Loading configuration items...</p>
+          </div>
+          <button id="add-ci" type="button" class="primary">Add CI</button>
+        </div>
+        <div class="toolbar">
+          <input id="ci-search" type="search" placeholder="Search name, description, owner..." aria-label="Search inventory">
+          <select id="ci-type-filter" aria-label="Filter by CI type">
+            <option value="">All CI types</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Environment</th>
+                <th>Status</th>
+                <th>Owner</th>
+                <th>Criticality</th>
+                <th>Updated</th>
+                <th class="actions-col">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="ci-table"></tbody>
+          </table>
+          <p id="ci-empty" class="empty hidden">No configuration items match the current filter.</p>
+        </div>
+      </section>
+
+      <section id="panel-types" class="panel">
+        <div class="panel-heading">
+          <div>
+            <h2>CI Types</h2>
+            <p class="muted">Define the categories and custom fields used by your inventory.</p>
+          </div>
+          <button id="add-type" type="button" class="primary">Add CI Type</button>
+        </div>
+        <div class="split">
+          <div class="list-panel">
+            <div id="type-list" class="select-list"></div>
+          </div>
+          <div class="detail-panel">
+            <div id="type-detail-empty" class="empty">Select a CI type to manage its fields.</div>
+            <div id="type-detail" class="hidden">
+              <div class="detail-heading">
+                <div>
+                  <h3 id="type-detail-name"></h3>
+                  <p id="type-detail-description" class="muted"></p>
+                </div>
+                <div class="button-row">
+                  <button id="edit-type" type="button" class="secondary small">Edit</button>
+                  <button id="delete-type" type="button" class="danger small">Delete</button>
+                </div>
+              </div>
+              <h4>Custom fields</h4>
+              <div class="table-wrap compact">
+                <table>
+                  <thead>
+                    <tr><th>Key</th><th>Label</th><th>Type</th><th>Required</th><th class="actions-col">Actions</th></tr>
+                  </thead>
+                  <tbody id="field-table"></tbody>
+                </table>
+                <p id="field-empty" class="empty hidden">This CI type has no custom fields yet.</p>
+              </div>
+              <form id="field-form" class="inline-form" autocomplete="off">
+                <input id="field-id" type="hidden">
+                <div class="form-grid">
+                  <div>
+                    <label for="field-key">Key</label>
+                    <input id="field-key" type="text" pattern="[a-z][a-z0-9_]*" placeholder="ip_address" required>
+                  </div>
+                  <div>
+                    <label for="field-label">Label</label>
+                    <input id="field-label" type="text" placeholder="IP Address" required>
+                  </div>
+                  <div>
+                    <label for="field-type">Type</label>
+                    <select id="field-type">
+                      <option value="text">Text</option>
+                      <option value="number">Number</option>
+                      <option value="date">Date</option>
+                      <option value="boolean">Boolean</option>
+                      <option value="url">URL</option>
+                      <option value="select">Select</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label for="field-options">Options (comma-separated)</label>
+                    <input id="field-options" type="text" placeholder="Critical, High, Medium, Low">
+                  </div>
+                  <div class="checkbox-line">
+                    <input id="field-required" type="checkbox">
+                    <label for="field-required">Required field</label>
+                  </div>
+                  <div class="form-actions">
+                    <button id="field-save" type="submit" class="primary small">Add field</button>
+                    <button id="field-cancel" type="button" class="secondary small hidden">Cancel</button>
+                  </div>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="panel-relationships" class="panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Relationships</h2>
+            <p class="muted">Connect configuration items with typed, directed dependencies.</p>
+          </div>
+        </div>
+        <form id="relationship-form" class="inline-form" autocomplete="off">
+          <div class="form-grid relationship-grid">
+            <div>
+              <label for="rel-source">Source CI</label>
+              <select id="rel-source" required></select>
+            </div>
+            <div>
+              <label for="rel-type">Relationship</label>
+              <select id="rel-type" required></select>
+            </div>
+            <div>
+              <label for="rel-target">Target CI</label>
+              <select id="rel-target" required></select>
+            </div>
+            <div class="wide-field">
+              <label for="rel-description">Description</label>
+              <input id="rel-description" type="text" maxlength="1023" placeholder="Optional context">
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="primary">Add relationship</button>
+            </div>
+          </div>
+        </form>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Source</th><th>Relationship</th><th>Target</th><th>Description</th><th class="actions-col">Actions</th></tr>
+            </thead>
+            <tbody id="relationship-table"></tbody>
+          </table>
+          <p id="relationship-empty" class="empty hidden">No relationships have been defined.</p>
+        </div>
+      </section>
+
+      <section id="panel-import" class="panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Import</h2>
+            <p class="muted">Preview first; nothing is written until you commit.</p>
+          </div>
+        </div>
+        <div class="import-layout">
+          <div class="card">
+            <form id="import-form" autocomplete="off">
+              <label for="import-format">File format</label>
+              <select id="import-format">
+                <option value="ci_csv">CI inventory — CSV</option>
+                <option value="ci_tsv">CI inventory — TSV/TXT</option>
+                <option value="rel_csv">Relationships — CSV</option>
+                <option value="rel_tsv">Relationships — TSV/TXT</option>
+              </select>
+
+              <label for="import-file">Choose a file</label>
+              <input id="import-file" type="file" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain">
+              <p id="import-file-name" class="hint">No file selected.</p>
+
+              <div class="checkbox-line">
+                <input id="import-create-types" type="checkbox">
+                <label for="import-create-types">Create missing CI types automatically</label>
+              </div>
+
+              <label for="import-duplicates">Duplicate handling</label>
+              <select id="import-duplicates">
+                <option value="error">Reject the import</option>
+                <option value="skip">Skip existing records</option>
+                <option value="update">Update existing records</option>
+              </select>
+
+              <div class="button-row">
+                <button id="import-preview" type="button" class="secondary">Preview</button>
+                <button id="import-commit" type="button" class="primary" disabled>Commit import</button>
+              </div>
+              <p id="import-error" class="error" role="alert"></p>
+            </form>
+          </div>
+          <div class="card report-card">
+            <h3>Validation report</h3>
+            <div id="import-report" class="report">
+              <p class="muted">Choose a file and preview it to see validation results.</p>
+            </div>
+          </div>
+        </div>
+        <div class="doc-note">
+          <h3>Expected columns</h3>
+          <p><strong>CI files:</strong> <code>ci_name</code> and <code>ci_type</code> are required. Optional: <code>ci_id</code>, <code>description</code>, <code>environment</code>, <code>status</code>, <code>business_service</code>, <code>technical_owner</code>, <code>support_team</code>, <code>criticality</code>, <code>hosting_location</code>, <code>last_updated</code>, <code>external_id</code>, and <code>custom.&lt;key&gt;</code>.</p>
+          <p><strong>Relationship files:</strong> <code>source_ci</code>, <code>relationship_type</code>, and <code>target_ci</code> are required. Optional: <code>description</code>.</p>
+          <p>See <code>docs/import-format.md</code> in the repository for full rules and examples.</p>
+        </div>
+      </section>
+
+      <section id="panel-map" class="panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Dependency Map</h2>
+            <p class="muted">Select one or more CIs, then explore their dependency neighbourhood.</p>
+          </div>
+        </div>
+        <div class="map-layout">
+          <aside class="map-controls card">
+            <label for="map-search">Find CIs</label>
+            <input id="map-search" type="search" placeholder="Filter configuration items">
+            <div id="map-ci-list" class="check-list"></div>
+
+            <div class="form-grid two-col">
+              <div>
+                <label for="map-direction">Direction</label>
+                <select id="map-direction">
+                  <option value="both">Both</option>
+                  <option value="outgoing">Outgoing</option>
+                  <option value="incoming">Incoming</option>
+                </select>
+              </div>
+              <div>
+                <label for="map-depth">Depth</label>
+                <select id="map-depth">
+                  <option value="1">1</option>
+                  <option value="2" selected>2</option>
+                  <option value="3">3</option>
+                  <option value="4">4</option>
+                  <option value="5">5</option>
+                </select>
+              </div>
+            </div>
+
+            <fieldset class="filter-box">
+              <legend>Relationship types</legend>
+              <div id="map-rel-types" class="check-list compact"></div>
+            </fieldset>
+
+            <div class="button-row">
+              <button id="map-generate" type="button" class="primary">Generate map</button>
+              <button id="map-export" type="button" class="secondary" disabled>Export .drawio</button>
+            </div>
+            <p class="hint">Exports are written as plaintext `.drawio` files outside the encrypted database.</p>
+          </aside>
+          <div class="map-canvas card">
+            <div id="map-empty" class="empty">Select at least one CI and generate a map.</div>
+            <div id="map-warning" class="warning hidden"></div>
+            <div id="map-svg-wrap" class="svg-wrap hidden"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="ci-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="ci-modal-title">
+    <div class="modal wide-modal">
+      <div class="modal-heading">
+        <h2 id="ci-modal-title">Add configuration item</h2>
+        <button type="button" class="icon-button" data-close="ci-modal" aria-label="Close">&times;</button>
+      </div>
+      <form id="ci-form" autocomplete="off">
+        <input id="ci-id" type="hidden">
+        <div class="form-grid">
+          <div>
+            <label for="ci-name">CI Name *</label>
+            <input id="ci-name" type="text" maxlength="255" required>
+          </div>
+          <div>
+            <label for="ci-type">CI Type *</label>
+            <select id="ci-type" required></select>
+          </div>
+          <div id="ci-id-wrap" class="wide-field hidden">
+            <label for="ci-id-display">CI ID</label>
+            <input id="ci-id-display" type="text" readonly>
+          </div>
+          <div class="wide-field">
+            <label for="ci-description">Description</label>
+            <textarea id="ci-description" rows="3" maxlength="4095"></textarea>
+          </div>
+          <div>
+            <label for="ci-environment">Environment</label>
+            <input id="ci-environment" type="text" maxlength="63" list="environment-list">
+            <datalist id="environment-list">
+              <option value="Production"></option><option value="Staging"></option>
+              <option value="Test"></option><option value="Development"></option>
+            </datalist>
+          </div>
+          <div>
+            <label for="ci-status">Status</label>
+            <input id="ci-status" type="text" maxlength="63" list="status-list">
+            <datalist id="status-list">
+              <option value="Active"></option><option value="Planned"></option>
+              <option value="Maintenance"></option><option value="Retired"></option>
+            </datalist>
+          </div>
+          <div>
+            <label for="ci-criticality">Criticality</label>
+            <input id="ci-criticality" type="text" maxlength="31" list="criticality-list">
+            <datalist id="criticality-list">
+              <option value="Critical"></option><option value="High"></option>
+              <option value="Medium"></option><option value="Low"></option>
+            </datalist>
+          </div>
+          <div>
+            <label for="ci-business-service">Business Service</label>
+            <input id="ci-business-service" type="text" maxlength="255">
+          </div>
+          <div>
+            <label for="ci-technical-owner">Technical Owner</label>
+            <input id="ci-technical-owner" type="text" maxlength="255">
+          </div>
+          <div>
+            <label for="ci-support-team">Support Team</label>
+            <input id="ci-support-team" type="text" maxlength="255">
+          </div>
+          <div>
+            <label for="ci-hosting-location">Hosting / Location</label>
+            <input id="ci-hosting-location" type="text" maxlength="255">
+          </div>
+          <div>
+            <label for="ci-external-id">External ID</label>
+            <input id="ci-external-id" type="text" maxlength="255">
+          </div>
+        </div>
+
+        <h3>Custom fields</h3>
+        <div id="ci-custom-fields" class="form-grid"></div>
+
+        <div id="ci-extra-attrs-wrap" class="hidden">
+          <h3>Additional attributes</h3>
+          <div id="ci-extra-attrs" class="extra-attrs"></div>
+          <button id="add-extra-attr" type="button" class="secondary small">Add attribute</button>
+        </div>
+
+        <p id="ci-form-error" class="error" role="alert"></p>
+        <div class="modal-actions">
+          <button type="button" class="secondary" data-close="ci-modal">Cancel</button>
+          <button type="submit" class="primary" id="ci-save">Save CI</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="type-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="type-modal-title">
+    <div class="modal">
+      <div class="modal-heading">
+        <h2 id="type-modal-title">Add CI type</h2>
+        <button type="button" class="icon-button" data-close="type-modal" aria-label="Close">&times;</button>
+      </div>
+      <form id="type-form" autocomplete="off">
+        <input id="type-id" type="hidden">
+        <div class="form-grid">
+          <div class="wide-field">
+            <label for="type-name">Name *</label>
+            <input id="type-name" type="text" maxlength="127" required>
+          </div>
+          <div class="wide-field">
+            <label for="type-description">Description</label>
+            <textarea id="type-description" rows="2" maxlength="4095"></textarea>
+          </div>
+          <div>
+            <label for="type-icon">Icon key</label>
+            <input id="type-icon" type="text" maxlength="63" placeholder="server">
+          </div>
+          <div>
+            <label for="type-color">Color</label>
+            <input id="type-color" type="text" maxlength="15" placeholder="#dae8fc">
+          </div>
+        </div>
+        <p id="type-form-error" class="error" role="alert"></p>
+        <div class="modal-actions">
+          <button type="button" class="secondary" data-close="type-modal">Cancel</button>
+          <button type="submit" class="primary">Save CI type</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="confirm-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+    <div class="modal small-modal">
+      <div class="modal-heading">
+        <h2 id="confirm-title">Confirm</h2>
+      </div>
+      <p id="confirm-message"></p>
+      <div class="modal-actions">
+        <button id="confirm-cancel" type="button" class="secondary">Cancel</button>
+        <button id="confirm-ok" type="button" class="danger">Delete</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

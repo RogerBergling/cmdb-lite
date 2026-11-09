@@ -83,3 +83,24 @@ target/
 *.sqlite
 *.sqlite3
 *.db
+*.cmdb
+*.cmdb.meta
+*.cmdb-wal
+*.cmdb-shm
+*.drawio
+
+# ---------------------------------------------------------------------------
+# CMake build trees and local compiler output
+# ---------------------------------------------------------------------------
+build/
+build-*/
+compile_commands.json
+CMakeUserPresets.json
+*.o
+*.obj
+*.a
+*.lib
+*.dll
+*.so
+*.dylib
+*.exe

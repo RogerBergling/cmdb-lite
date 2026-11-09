@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    name: Linux (GTK3 / WebKitGTK)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake ninja-build pkg-config \
+            libsqlcipher-dev libsodium-dev libexpat1-dev \
+            libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMDB_BUILD_UI=ON \
+            -DCMDB_BUILD_TESTS=ON \
+            -DCMDB_WERROR=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Whitespace check
+        run: git diff --check
+
+  windows:
+    name: Windows (WebView2)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install vcpkg dependencies
+        shell: pwsh
+        run: |
+          $vcpkgRoot = $env:VCPKG_INSTALLATION_ROOT
+          if (-not $vcpkgRoot) { $vcpkgRoot = "C:\vcpkg" }
+          if (!(Test-Path "$vcpkgRoot\vcpkg.exe")) {
+            throw "vcpkg not found at $vcpkgRoot"
+          }
+          & "$vcpkgRoot\vcpkg.exe" install `
+            sqlcipher:x64-windows-static `
+            libsodium:x64-windows-static
+          "VCPKG_ROOT=$vcpkgRoot" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static `
+            -DCMDB_BUILD_UI=ON `
+            -DCMDB_BUILD_TESTS=ON
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build build --config Release
+
+      - name: Test
+        shell: pwsh
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Create portable package
+        shell: pwsh
+        run: |
+          cmake --install build --config Release --prefix package
+          if (!(Test-Path "package\bin\cmdb.exe")) {
+            throw "cmdb.exe was not installed"
+          }
+          if (!(Test-Path "package\bin\web\index.html")) {
+            throw "Web assets were not installed"
+          }
+          $dlls = Get-ChildItem "package\bin" -Filter *.dll -ErrorAction SilentlyContinue
+          if ($dlls) {
+            throw "Unexpected DLL dependencies in the static package: $($dlls.Name -join ', ')"
+          }
+          Compress-Archive -Path "package\*" -DestinationPath "cmdb-lite-windows-x64.zip" -Force
+
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: cmdb-lite-windows-x64
+          path: cmdb-lite-windows-x64.zip
+          if-no-files-found: error
+
+      - name: Whitespace check
+        shell: pwsh
+        run: git diff --check

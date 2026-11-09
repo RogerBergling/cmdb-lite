@@ -1,0 +1,5 @@
+source_ci,relationship_type,target_ci,description
+payments-api,runs_on,app01,Payments API runs on app01
+payments-api,uses,db01,Payments API uses the primary database
+payments-api,supports,payments-service,Payments API supports the Payments business service
+app01,depends_on,router01,App server depends on the core router
