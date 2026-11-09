@@ -70,7 +70,7 @@ jobs:
             gcc gcc-c++ cmake ninja-build pkgconf-pkg-config git python3 \
             findutils rpm-build \
             sqlcipher-devel libsodium-devel libsodium-static \
-            openssl-devel zlib-devel \
+            openssl-devel zlib-devel expat-devel \
             gtk3-devel webkit2gtk4.1-devel
 
       - name: Check embedded web UI
@@ -126,7 +126,8 @@ jobs:
           }
           & "$vcpkgRoot\vcpkg.exe" install `
             sqlcipher:x64-windows-static `
-            libsodium:x64-windows-static
+            libsodium:x64-windows-static `
+            expat:x64-windows-static
           "VCPKG_ROOT=$vcpkgRoot" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Configure

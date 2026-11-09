@@ -123,8 +123,9 @@ append-only system.
 - SQL uses prepared statements and bound parameters.
 - File dialogs are native. The C core writes exports atomically.
 - Release builds do not enable webview developer tools by default.
-- The application does not execute a shell. A future nmap integration must use
-  a fixed argv vector, not a shell string.
+- The application does not execute a shell. nmap is launched with a fixed argv
+  vector, validated target/port arguments, a private XML output file, and a hard
+  timeout.
 
 ## Memory-safety posture
 
@@ -148,21 +149,26 @@ This reduces risk but does not make C memory-safe. A security-critical
 deployment should include independent review and fuzzing of the import, API, and
 scanner parsers.
 
-## Network scanning (planned)
+## Network scanning
 
-The scanner is designed as a separate, permissioned workflow:
+The scanner is a separate, permissioned workflow:
 
-1. The operator confirms they are authorised to scan the target network.
-2. The target is restricted to an explicit CIDR, with a maximum host count.
-3. Unprivileged TCP connect discovery and common-port checks are used by default.
-   ICMP is used only where the OS permits it without elevation.
-4. Optional nmap runs with a fixed argument vector, no shell, and XML output
-   parsed by libexpat. No NSE scripts, brute force, credential guessing, or
+1. The operator confirms that they are authorised to scan the target network.
+2. The target is restricted to an IPv4 address or a CIDR from `/24` to `/32`,
+   with at most 256 addresses. At most 256 distinct ports may be scanned.
+3. The scan uses unprivileged nmap TCP connect discovery (`-sT`) and a fixed set
+   of numeric ports. No NSE scripts, brute force, credential guessing, or
    exploitation.
-5. Rate limits and timeouts are enforced.
-6. Results go to a staging/review queue. Nothing is written to the CMDB until a
-   human approves each host or batch.
-7. Scan metadata (target, time, method, operator confirmation) is audited.
+4. nmap runs with a fixed argv vector, no shell, and XML output parsed by
+   libexpat. DTDs and entity declarations are rejected; nesting, host, port, and
+   input sizes are bounded.
+5. Rate limits (`--max-rate 500`), one retry, a per-host timeout, and an overall
+   process timeout are enforced.
+6. Results are staged in the Discovery tab. Nothing is written to the CMDB until
+   the operator selects hosts and explicitly imports them. There is no automatic
+   merge.
+7. Scan metadata (target, ports, command, start/end time, host count, status) is
+   audited. Each imported CI is audited separately.
 
 Scanning networks without authorisation may be illegal. The application is not a
 penetration-testing tool.
@@ -206,5 +212,6 @@ Contact the repository owner privately with:
 - The audit chain is local and key-holder-rewritable.
 - The embedded draw.io editor is not yet implemented; current exports are
   plaintext files chosen by the user.
-- Network scanning and the staging queue are not yet implemented.
+- The nmap XML parser is tested with fixtures and the process runner, but is not
+  yet part of continuous fuzzing.
 - Windows and Linux packaging/signing workflows are not yet complete.

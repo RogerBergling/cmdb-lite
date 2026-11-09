@@ -13,8 +13,8 @@
 ```text
 ┌─────────────────────────────────────────────────────────────┐
 │ UI: HTML/CSS/JS (src/web)                                   │
-│ inventory · CI types · relationships · import · dependency  │
-│ map · draw.io export                                        │
+│ inventory · CI types · relationships · import · discovery    │
+│ dependency map · draw.io export                              │
 └──────────────────────────┬──────────────────────────────────┘
                            │ JSON bridge (webview)
 ┌──────────────────────────▼──────────────────────────────────┐
@@ -24,8 +24,8 @@
                            │ C API
 ┌──────────────────────────▼──────────────────────────────────┐
 │ Application core (src/core)                                 │
-│ api · domain · import · graph · drawio · audit · SQLCipher  │
-│ Argon2id · bounded CSV parser · schema/migrations           │
+│ api · domain · import · graph · drawio · scan · audit        │
+│ SQLCipher · Argon2id · bounded CSV/XML parsers · migrations  │
 └──────────────────────────┬──────────────────────────────────┘
                            │
                  SQLCipher database (.cmdb)

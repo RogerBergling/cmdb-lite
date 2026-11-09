@@ -1,132 +1,203 @@
-# Network discovery design (next milestone)
+# Network discovery with nmap
 
-> Status: design only. The vertical slice does not initiate network scans.
+> Status: implemented. The **Discovery** tab runs an authorised, unprivileged
+> nmap TCP connect scan, stages the results in the UI, and imports selected
+> hosts as CIs.
 
-## Principles
+Scanning networks without authorisation may be illegal. Use this feature only
+on networks you own or have explicit written permission to test.
 
-1. **Authorisation first.** The operator must confirm they own or are permitted
-   to scan the target network. The confirmation is recorded in the audit log.
-2. **Unprivileged by default.** Use TCP connect discovery and readable OS ARP
-   tables. Avoid raw sockets and administrative privileges.
-3. **No exploitation.** No brute force, credential guessing, NSE scripts,
-   vulnerability exploitation, or default-password attempts.
-4. **Review before merge.** Scan results enter a staging queue. A human maps
-   each host to an existing CI or creates a new one.
-5. **Small, explicit scope.** A single CIDR, a maximum host count, bounded
-   concurrency, and timeouts.
+## Prerequisites
 
-Scanning networks without authorisation may be illegal. This tool is not a
-penetration-testing or attack platform.
+`cmdb-lite` invokes an installed `nmap` executable. The application does not
+bundle nmap.
 
-## Scan profiles
+| Platform | Install |
+|---|---|
+| Debian/Ubuntu | `sudo apt install nmap` |
+| Fedora/RHEL | `sudo dnf install nmap` |
+| Windows | Install nmap from <https://nmap.org/download.html> and ensure `nmap.exe` is on `PATH`. |
 
-### Default: unprivileged discovery
+Verify the installation:
 
-- TCP connect probes to a small set of management/common ports.
-- ARP table inspection:
-  - Linux: `/proc/net/arp` or netlink.
-  - Windows: `GetIpNetTable2`.
-- Optional ICMP only if the OS permits it without elevation.
-- Optional reverse DNS for discovered addresses.
-- No OS fingerprinting beyond a conservative TTL/port heuristic.
+```bash
+nmap --version
+```
 
-### Optional: nmap
+If nmap is installed somewhere outside `PATH`, set `CMDB_NMAP` to the full
+executable path before starting `cmdb`:
 
-If nmap is installed and the operator enables it:
+```bash
+CMDB_NMAP=/opt/nmap/bin/nmap ./cmdb
+```
+
+On Windows:
+
+```powershell
+$env:CMDB_NMAP = "C:\Program Files (x86)\Nmap\nmap.exe"
+.\cmdb.exe
+```
+
+The application checks executable availability before starting a scan and
+returns a clear error if nmap is missing.
+
+## Safety model
+
+1. **Authorisation first.** The UI requires an explicit confirmation checkbox.
+   The API rejects `scan.nmap` unless `authorized` is `true`. The confirmation
+   and scan metadata are written to the audit log.
+2. **No shell.** nmap is started with a fixed argv vector. The target and port
+   specification are validated before execution, so they cannot become options
+   or shell metacharacters.
+3. **Small scope.** A target must be an IPv4 address or a CIDR from `/24` to
+   `/32`. At most 256 addresses and 256 distinct ports are allowed.
+4. **Unprivileged.** The scan uses `-sT` (TCP connect), not raw packets. It does
+   not require root/administrator rights.
+5. **No exploitation.** No NSE scripts, brute force, credential guessing,
+   default-password attempts, or vulnerability checks are performed.
+6. **Review before write.** Results are staged in the Discovery tab. Nothing is
+   inserted into the inventory until the operator selects hosts and presses
+   **Import selected**.
+
+## Exact command
+
+The scanner runs the equivalent of:
 
 ```text
-nmap -oX - -n --max-rate <rate> --host-timeout <timeout> <target>
+nmap -sT -Pn -n --open \
+  --max-rate 500 --max-retries 1 --host-timeout 30s \
+  -p <validated-ports> -oX <private-temp-file> <validated-target>
 ```
 
-Additional flags for service detection are explicit and bounded. The
-application must:
+Notes:
 
-- execute nmap with a fixed argv vector, never through a shell;
-- validate the target as an IP/CIDR, not a hostname or option;
-- reject targets that begin with `-`;
-- parse XML with libexpat using a bounded parser;
-- display the exact command and scope before execution;
-- record the command, scope, start/end time, and result count in the audit log.
+- `-sT` uses an unprivileged TCP connect.
+- `-Pn` skips host discovery. A host is reported only when at least one selected
+  port is open because `--open` is used.
+- `-n` disables reverse DNS. nmap XML hostnames are still parsed if present.
+- `--max-rate 500` and `--max-retries 1` bound the scan's traffic.
+- `--host-timeout 30s` bounds time spent per host.
+- The overall process has a user-selected timeout (10–600 seconds, default 180).
+  If it expires, nmap is killed.
+- XML is written to a private temporary file (`0600` on POSIX), parsed, and
+  deleted. Scan results themselves stay in the application UI until imported.
 
-Windows may require Npcap for some nmap modes. The application should detect
-and explain this rather than silently elevating.
+## UI workflow
 
-## Staging model
+1. Open the encrypted database.
+2. Select **Discovery**.
+3. Enter a target such as `10.20.0.0/24` or `10.20.0.17`.
+4. Adjust the port list. The default is `22,80,443,445,3389,8080`.
+5. Confirm the authorisation checkbox.
+6. Press **Run nmap scan**.
+7. Review the staged hosts: IP address, hostname, MAC address, open ports, and
+   OS guess. Use the checkboxes to exclude hosts you do not want.
+8. Choose the CI type for imported records.
+9. Press **Import selected**.
 
-A future schema will add:
+Imported CIs use the hostname when available, otherwise the IP address, as the
+CI name. The import adds these custom attributes:
 
-```text
-scan_jobs(
-  id, started_at, finished_at, target_cidr, method,
-  operator, status, summary_json
-)
+| Attribute | Value |
+|---|---|
+| `ip_address` | IPv4 address |
+| `hostname` | Hostname reported by nmap, if any |
+| `mac_address` | Normalised lowercase colon-separated MAC, if any |
+| `vendor` | MAC vendor, if any |
+| `os_guess` | nmap OS match, if any |
+| `open_ports` | Comma-separated list such as `22/tcp,443/tcp` |
+| `discovery_method` | `nmap` |
+| `discovery_target` | The scanned CIDR or address |
 
-discovered_assets(
-  id, scan_job_id, ip_address, hostname, mac_address,
-  os_guess, open_ports, first_seen, last_seen,
-  review_status, matched_ci_id, raw_json
-)
+The import does not auto-merge with existing CIs. Duplicate names or validation
+failures are reported per host; successfully imported hosts are removed from
+the staged list. Review failures, adjust the names or the selected CI type, and
+retry the remaining hosts. To avoid duplicate records, check the inventory
+before importing.
+
+## API
+
+The bridge exposes two methods. Both require an open database.
+
+### `scan.nmap`
+
+```json
+{
+  "method": "scan.nmap",
+  "params": {
+    "target": "10.20.0.0/24",
+    "ports": "22,80,443,8000-8100",
+    "timeout_seconds": 180,
+    "authorized": true
+  }
+}
 ```
 
-`review_status`: `pending`, `merged`, `created`, `ignored`.
+The result contains `target`, `method`, `command`, `started_at`, `finished_at`,
+`host_count`, `truncated`, and a `hosts` array. Each host contains `ip_address`,
+`hostname`, `mac_address`, `vendor`, `os_guess`, `status`, `open_ports` (array),
+`port_count`, and `ports_truncated`.
 
-Nothing in `discovered_assets` is visible in the main inventory until the
-operator approves it. Matching suggestions use IP, MAC, hostname, and external
-IDs, but never auto-merge.
+### `scan.import`
 
-## Import format
-
-The review queue can also accept an external scan CSV:
-
-```csv
-ip_address,hostname,mac_address,os_guess,open_ports,first_seen,last_seen,source
-10.20.0.11,app01,AA:BB:CC:DD:EE:01,Linux,22/tcp;443/tcp,2026-11-09T09:00:00Z,2026-11-09T09:05:00Z,arp+tcp
+```json
+{
+  "method": "scan.import",
+  "params": {
+    "target": "10.20.0.0/24",
+    "type_id": "11111111-1111-4111-8111-111111111111",
+    "name_prefix": "",
+    "environment": "Production",
+    "status": "Active",
+    "criticality": "Medium",
+    "hosting_location": "DC Amsterdam",
+    "hosts": [
+      {
+        "ip_address": "10.20.0.11",
+        "hostname": "app01",
+        "mac_address": "aa:bb:cc:dd:ee:01",
+        "vendor": "Dell Inc.",
+        "os_guess": "Linux 5.15",
+        "open_ports": ["22/tcp", "443/tcp"]
+      }
+    ]
+  }
+}
 ```
 
-Rules:
+The result contains `created`, `failed`, and an `items` array with per-host
+`ok`, `id`, and `error` fields. Each created CI is written with its own audit
+entry, and the import itself is also audited.
 
-- `ip_address` is required and validated as IPv4/IPv6.
-- `mac_address` is optional and normalised to colon-separated lowercase.
-- `open_ports` is a semicolon-separated list of `port/proto`.
-- Timestamps are ISO 8601 UTC.
-- The `source` value documents how the host was discovered.
-- Duplicate `(ip_address, mac_address, source)` within one job is collapsed.
+## Validation and limits
 
-## Rate limits and safety
+- IPv4 only. A single address is normalised to `/32`.
+- CIDR prefix must be `/24` or longer. `10.0.0.0/16` is rejected.
+- Octets must be decimal `0`–`255`; leading zeros are rejected.
+- Ports must be numeric, `1`–`65535`, with optional ascending ranges.
+- At most 256 distinct ports are allowed.
+- At most 256 discovered hosts are returned.
+- nmap XML is untrusted input:
+  - maximum size 8 MiB;
+  - XML depth is limited to 64;
+  - DTDs and entity declarations are rejected;
+  - only known host/address/hostname/port/OS elements are consumed;
+  - host and per-host port counts are bounded.
 
-- Maximum default CIDR: `/24` (254 usable IPv4 addresses).
-- Maximum hosts per job: configurable, hard-capped.
-- Default per-host timeout: 1 second.
-- Default concurrency: 32 TCP connects, not a flood.
-- No UDP sweeps, no SNMP brute force, no credentials.
-- The UI displays a clear warning and requires an explicit checkbox.
+## XML parser and tests
 
-## Matching to the CMDB
+`src/core/scan.c` uses libexpat. The parser is independent of nmap, so tests use
+fixtures and do not require a live scanner. The test suite also creates a fake
+`nmap` executable on POSIX to exercise the process runner, temporary file, and
+XML parsing end to end.
 
-For each discovered asset:
+## Troubleshooting
 
-1. Exact MAC match to an existing CI's `mac_address` attribute.
-2. Exact IP match to `ip_address` or `management_ip`.
-3. Exact hostname match to CI name or `hostname` attribute.
-4. Fuzzy suggestions are shown but require confirmation.
-
-The operator can:
-
-- merge into an existing CI (only empty fields are filled by default, with an
-  explicit overwrite option),
-- create a new CI using a user-selected type,
-- ignore the asset,
-- postpone it.
-
-All actions are audited.
-
-## Security considerations
-
-- A scan can reveal sensitive network topology. Scan results are stored in the
-  encrypted database.
-- Scan output files are plaintext until imported; delete them after import.
-- nmap XML is untrusted input. Parse with a bounded parser and fuzz it.
-- Do not put credentials or SNMP community strings in CI attributes. Use a
-  secret manager reference.
-- A compromised local user can run the scanner; authorisation is recorded but
-  cannot be technically enforced.
+| Symptom | Cause / fix |
+|---|---|
+| `nmap is not installed or is not on PATH` | Install nmap or set `CMDB_NMAP` to the full path. |
+| `Scanning is limited to /24 or smaller networks` | Use a `/24`, `/25`, `/26`, `/27`, `/28`, `/29`, `/30`, `/31`, or `/32` target. |
+| `At most 256 distinct ports can be scanned` | Reduce the port list or ranges. |
+| `The nmap scan timed out` | Raise the process timeout, reduce the port range, or use a smaller target. |
+| No hosts found | The selected ports are closed/filtered, the network blocks probes, or the host is down. Try a single address and a known open port. |
+| Permission errors on Windows | Some nmap modes require Npcap or elevation. This scanner uses TCP connect and does not elevate; install/repair Npcap only if you intentionally use another nmap mode outside the application. |

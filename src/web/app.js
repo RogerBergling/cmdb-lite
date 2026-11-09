@@ -16,6 +16,8 @@ const state = {
   ciAttrs: {},
   importContent: "",
   importName: "",
+  scanResult: null,
+  scanSelected: new Set(),
   mapGraph: null,
   mapParams: null,
   mapNodeIds: new Set(),
@@ -223,6 +225,8 @@ async function lockApplication() {
   state.mapNodeIds.clear();
   state.mapRelTypes.clear();
   state.mapRelTypesInitialized = false;
+  state.scanResult = null;
+  state.scanSelected.clear();
   hide($("main-app"));
   show($("unlock-screen"));
   $("passphrase").value = "";
@@ -242,6 +246,7 @@ async function loadAll() {
     renderTypeList();
     renderRelationshipSelects();
     renderMapRelTypes();
+    renderScanTypes();
     await loadCis();
     await loadRelationships();
   } catch (error) {
@@ -1272,6 +1277,258 @@ async function commitImport() {
   }
 }
 
+function renderScanTypes() {
+  const select = $("scan-type");
+  if (!select) {
+    return;
+  }
+  const previous = select.value;
+  clear(select);
+  if (!state.types.length) {
+    select.append(el("option", { value: "", text: "No CI types available" }));
+    select.disabled = true;
+    return;
+  }
+  select.disabled = false;
+  for (const type of state.types) {
+    select.append(el("option", { value: type.id, text: type.name }));
+  }
+  if (previous && [...select.options].some((option) => option.value === previous)) {
+    select.value = previous;
+  } else {
+    select.value = state.types[0].id;
+  }
+}
+
+function scanTimestamp(value) {
+  if (!value) {
+    return "\u2014";
+  }
+  return value.replace("T", " ").replace("Z", " UTC");
+}
+
+function renderScanResults() {
+  const result = state.scanResult;
+  if (!result) {
+    hide($("scan-results"));
+    show($("scan-empty"));
+    $("scan-error").textContent = "";
+    $("scan-import-error").textContent = "";
+    return;
+  }
+  show($("scan-results"));
+  hide($("scan-empty"));
+
+  const summary = $("scan-summary");
+  clear(summary);
+  const heading = el("p");
+  heading.append(el("strong", {
+    text: `${result.host_count} discovered ${result.host_count === 1 ? "host" : "hosts"}`
+  }));
+  heading.append(document.createTextNode(` \u00b7 target `));
+  heading.append(el("code", { text: result.target }));
+  heading.append(document.createTextNode(` \u00b7 ${result.method}`));
+  summary.append(heading);
+  summary.append(el("p", {
+    class: "muted",
+    text: `Started ${scanTimestamp(result.started_at)} \u00b7 finished ${scanTimestamp(result.finished_at)}`
+  }));
+  if (result.command) {
+    summary.append(el("code", { class: "scan-command", text: result.command }));
+  }
+  if (result.truncated) {
+    summary.append(el("p", {
+      class: "warning",
+      text: "The result set reached the host limit and was truncated."
+    }));
+  }
+
+  const tbody = $("scan-table");
+  clear(tbody);
+  if (!result.hosts.length) {
+    tbody.append(el("tr", {}, el("td", {
+      class: "scan-table-empty",
+      colspan: "6",
+      text: "No hosts with an open port in the selected range were found."
+    })));
+  }
+  for (const host of result.hosts) {
+    const checked = state.scanSelected.has(host.ip_address);
+    const checkbox = el("input", {
+      type: "checkbox",
+      checked,
+      "aria-label": `Select ${host.ip_address}`,
+      onchange: (event) => toggleScanHost(host.ip_address, event.target.checked)
+    });
+    const ports = Array.isArray(host.open_ports)
+      ? host.open_ports.join(", ")
+      : (host.open_ports || "");
+    tbody.append(el("tr", {}, [
+      el("td", { class: "checkbox-col" }, checkbox),
+      el("td", { text: host.ip_address }),
+      el("td", { text: host.hostname || "\u2014" }),
+      el("td", { text: host.mac_address || "\u2014" }),
+      el("td", {}, el("span", {
+        class: "scan-port-list",
+        text: ports || "\u2014"
+      })),
+      el("td", { text: host.os_guess || "\u2014" })
+    ]));
+  }
+
+  const total = result.hosts.length;
+  const selected = state.scanSelected.size;
+  const selectAll = $("scan-select-all");
+  selectAll.checked = total > 0 && selected === total;
+  selectAll.indeterminate = selected > 0 && selected < total;
+  $("scan-import").disabled = selected === 0 || state.types.length === 0;
+}
+
+function toggleScanHost(ip, checked) {
+  if (checked) {
+    state.scanSelected.add(ip);
+  } else {
+    state.scanSelected.delete(ip);
+  }
+  renderScanResults();
+}
+
+function toggleAllScan(checked) {
+  state.scanSelected.clear();
+  if (checked && state.scanResult) {
+    for (const host of state.scanResult.hosts) {
+      state.scanSelected.add(host.ip_address);
+    }
+  }
+  renderScanResults();
+}
+
+function clearScanResults() {
+  state.scanResult = null;
+  state.scanSelected.clear();
+  renderScanResults();
+}
+
+async function runScan(event) {
+  event.preventDefault();
+  $("scan-error").textContent = "";
+  $("scan-import-error").textContent = "";
+  const target = $("scan-target").value.trim();
+  const ports = $("scan-ports").value.trim();
+  const authorized = $("scan-authorized").checked;
+  const timeoutSeconds = Number.parseInt($("scan-timeout").value, 10);
+  if (!target) {
+    $("scan-error").textContent = "Enter an IPv4 address or CIDR.";
+    return;
+  }
+  if (!ports) {
+    $("scan-error").textContent = "Enter at least one TCP port.";
+    return;
+  }
+  if (!authorized) {
+    $("scan-error").textContent = "Confirm that you are authorised to scan the target.";
+    return;
+  }
+  if (!Number.isFinite(timeoutSeconds)) {
+    $("scan-error").textContent = "Enter a valid timeout in seconds.";
+    return;
+  }
+
+  const button = $("scan-run");
+  button.disabled = true;
+  button.textContent = "Scanning...";
+  try {
+    const result = await api("scan.nmap", {
+      target,
+      ports,
+      timeout_seconds: timeoutSeconds,
+      authorized: true
+    });
+    state.scanResult = result;
+    state.scanSelected = new Set((result.hosts || []).map((host) => host.ip_address));
+    $("scan-authorized").checked = false;
+    renderScanResults();
+    if ((result.hosts || []).length === 0) {
+      toast("Scan completed. No hosts with an open port were found.", "info");
+    } else {
+      toast(`Scan completed: ${result.host_count} host(s) staged for review.`, "success");
+    }
+  } catch (error) {
+    $("scan-error").textContent = formatError(error);
+  } finally {
+    button.disabled = false;
+    button.textContent = "Run nmap scan";
+  }
+}
+
+async function importScanResults() {
+  $("scan-import-error").textContent = "";
+  if (!state.scanResult) {
+    return;
+  }
+  const typeId = $("scan-type").value;
+  const selectedHosts = state.scanResult.hosts.filter(
+    (host) => state.scanSelected.has(host.ip_address)
+  );
+  if (!typeId) {
+    $("scan-import-error").textContent = "Choose a CI type for the imported hosts.";
+    return;
+  }
+  if (!selectedHosts.length) {
+    $("scan-import-error").textContent = "Select at least one host to import.";
+    return;
+  }
+  const button = $("scan-import");
+  button.disabled = true;
+  try {
+    const outcome = await api("scan.import", {
+      target: state.scanResult.target,
+      type_id: typeId,
+      hosts: selectedHosts
+    });
+    const items = outcome.items || [];
+    const successful = new Set();
+    const failures = [];
+    for (const item of items) {
+      if (item.ok) {
+        successful.add(item.ip_address);
+      } else {
+        failures.push(item);
+      }
+    }
+    state.scanResult.hosts = state.scanResult.hosts.filter(
+      (host) => !successful.has(host.ip_address)
+    );
+    state.scanResult.host_count = state.scanResult.hosts.length;
+    for (const ip of successful) {
+      state.scanSelected.delete(ip);
+    }
+    if (!state.scanResult.hosts.length) {
+      state.scanResult = null;
+      state.scanSelected.clear();
+    }
+    renderScanResults();
+    if (failures.length) {
+      const messages = failures.slice(0, 5).map(
+        (item) => `${item.ip_address || "host"}: ${item.error || "import failed"}`
+      );
+      $("scan-import-error").textContent =
+        `${failures.length} host(s) could not be imported. ${messages.join(" ")}`;
+    }
+    if (outcome.created > 0) {
+      toast(`${outcome.created} host(s) imported as configuration items.`, "success");
+      await loadCis();
+    } else {
+      toast("No hosts were imported.", "error");
+    }
+  } catch (error) {
+    $("scan-import-error").textContent = formatError(error);
+  } finally {
+    button.disabled = false;
+    renderScanResults();
+  }
+}
+
 function askConfirm(title, message, okLabel = "Delete") {
   const modal = $("confirm-modal");
   $("confirm-title").textContent = title;
@@ -1330,6 +1587,13 @@ function bindEvents() {
   $("import-preview").addEventListener("click", previewImport);
   $("import-commit").addEventListener("click", commitImport);
 
+  $("scan-form").addEventListener("submit", runScan);
+  $("scan-select-all").addEventListener("change", (event) => {
+    toggleAllScan(event.target.checked);
+  });
+  $("scan-clear").addEventListener("click", clearScanResults);
+  $("scan-import").addEventListener("click", importScanResults);
+
   $("map-search").addEventListener("input", renderMapCiList);
   $("map-generate").addEventListener("click", generateMap);
   $("map-export").addEventListener("click", exportDrawio);
@@ -1355,6 +1619,10 @@ function activateTab(name) {
   }
   if (name === "map") {
     renderMapCiList();
+  }
+  if (name === "discovery") {
+    renderScanTypes();
+    renderScanResults();
   }
 }
 

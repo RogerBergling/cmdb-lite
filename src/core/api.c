@@ -8,10 +8,12 @@
 #include "cmdb/import.h"
 #include "cmdb/json_util.h"
 #include "cmdb/relationships.h"
+#include "cmdb/scan.h"
 #include "cmdb/schema.h"
 #include "cmdb/types.h"
 #include "cmdb/util.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -1498,6 +1500,494 @@ static cJSON *handle_security_info(cmdb_app_t *app, cmdb_error_t *err) {
   return result;
 }
 
+static cJSON *scan_host_to_json(const cmdb_scan_host_t *host) {
+  cJSON *obj = cJSON_CreateObject();
+  cJSON *ports = cJSON_CreateArray();
+  const char *cursor;
+
+  if (obj == NULL || ports == NULL) {
+    cJSON_Delete(obj);
+    cJSON_Delete(ports);
+    return NULL;
+  }
+  cJSON_AddStringToObject(obj, "ip_address", host->ip_address);
+  cJSON_AddStringToObject(obj, "hostname", host->hostname);
+  cJSON_AddStringToObject(obj, "mac_address", host->mac_address);
+  cJSON_AddStringToObject(obj, "vendor", host->vendor);
+  cJSON_AddStringToObject(obj, "os_guess", host->os_guess);
+  cJSON_AddStringToObject(obj, "status", host->status);
+  cJSON_AddNumberToObject(obj, "port_count", (double)host->port_count);
+  cJSON_AddBoolToObject(obj, "ports_truncated", host->ports_truncated);
+
+  cursor = host->open_ports;
+  while (cursor != NULL && *cursor != '\0') {
+    const char *comma = strchr(cursor, ',');
+    size_t len = comma != NULL ? (size_t)(comma - cursor) : strlen(cursor);
+    char token[64];
+    if (len >= sizeof(token)) {
+      len = sizeof(token) - 1;
+    }
+    (void)memcpy(token, cursor, len);
+    token[len] = '\0';
+    cJSON_AddItemToArray(ports, cJSON_CreateString(token));
+    if (comma == NULL) {
+      break;
+    }
+    cursor = comma + 1;
+  }
+  cJSON_AddItemToObject(obj, "open_ports", ports);
+  return obj;
+}
+
+static cJSON *scan_result_to_json(const cmdb_scan_result_t *scan) {
+  cJSON *obj = cJSON_CreateObject();
+  cJSON *hosts = cJSON_CreateArray();
+  size_t i;
+
+  if (obj == NULL || hosts == NULL) {
+    cJSON_Delete(obj);
+    cJSON_Delete(hosts);
+    return NULL;
+  }
+  cJSON_AddStringToObject(obj, "target", scan->target);
+  cJSON_AddStringToObject(obj, "method", scan->method);
+  cJSON_AddStringToObject(obj, "command", scan->command);
+  cJSON_AddStringToObject(obj, "started_at", scan->started_at);
+  cJSON_AddStringToObject(obj, "finished_at", scan->finished_at);
+  cJSON_AddNumberToObject(obj, "host_count", (double)scan->host_count);
+  cJSON_AddBoolToObject(obj, "truncated", scan->truncated);
+  for (i = 0; i < scan->host_count; i++) {
+    cJSON *item = scan_host_to_json(&scan->hosts[i]);
+    if (item == NULL) {
+      cJSON_Delete(obj);
+      cJSON_Delete(hosts);
+      return NULL;
+    }
+    cJSON_AddItemToArray(hosts, item);
+  }
+  cJSON_AddItemToObject(obj, "hosts", hosts);
+  return obj;
+}
+
+static void scan_audit(cmdb_db_t *db, const char *target, const char *ports,
+                       const char *status, const cmdb_scan_result_t *scan,
+                       const char *error) {
+  cJSON *detail = cJSON_CreateObject();
+  char *json;
+
+  if (detail == NULL) {
+    return;
+  }
+  cJSON_AddStringToObject(detail, "target", target != NULL ? target : "");
+  cJSON_AddStringToObject(detail, "ports", ports != NULL ? ports : "");
+  cJSON_AddStringToObject(detail, "status", status);
+  if (scan != NULL) {
+    cJSON_AddStringToObject(detail, "command", scan->command);
+    cJSON_AddStringToObject(detail, "started_at", scan->started_at);
+    cJSON_AddStringToObject(detail, "finished_at", scan->finished_at);
+    cJSON_AddNumberToObject(detail, "host_count", (double)scan->host_count);
+  }
+  if (error != NULL && error[0] != '\0') {
+    cJSON_AddStringToObject(detail, "error", error);
+  }
+  json = cJSON_PrintUnformatted(detail);
+  cJSON_Delete(detail);
+  if (json == NULL) {
+    return;
+  }
+  (void)cmdb_audit_add(db, "local", "scan", "network",
+                       target != NULL ? target : "", json, NULL);
+  free(json);
+}
+
+static cJSON *handle_scan_nmap(cmdb_app_t *app, cJSON *params,
+                               cmdb_error_t *err) {
+  const char *target = NULL;
+  const char *ports = NULL;
+  int authorized = 0;
+  int timeout_seconds = CMDB_SCAN_DEFAULT_TIMEOUT;
+  cmdb_scan_result_t scan;
+  cJSON *result;
+
+  if (require_params(params, err) != 0 ||
+      get_string(params, "target", &target, 1, err) != 0 ||
+      get_string(params, "ports", &ports, 0, err) != 0 ||
+      get_bool(params, "authorized", 0, &authorized, err) != 0 ||
+      get_int(params, "timeout_seconds", CMDB_SCAN_DEFAULT_TIMEOUT,
+              CMDB_SCAN_MIN_TIMEOUT, CMDB_SCAN_MAX_TIMEOUT,
+              &timeout_seconds, err) != 0) {
+    return NULL;
+  }
+  if (!authorized) {
+    cmdb_error_set(err, CMDB_ERR_VALIDATION,
+                   "You must confirm that you are authorised to scan the target");
+    return NULL;
+  }
+  if (ports == NULL || ports[0] == '\0') {
+    ports = CMDB_SCAN_DEFAULT_PORTS;
+  }
+  if (cmdb_scan_nmap_run(target, ports, timeout_seconds, &scan, err) != 0) {
+    scan_audit(app->db, target, ports, "failed", NULL, err->message);
+    return NULL;
+  }
+  result = scan_result_to_json(&scan);
+  if (result == NULL) {
+    cmdb_error_set(err, CMDB_ERR_INTERNAL, "Cannot create scan result");
+  }
+  scan_audit(app->db, scan.target, ports, "completed", &scan, NULL);
+  cmdb_scan_result_free(&scan);
+  return result;
+}
+
+static int scan_optional_text(cJSON *object, const char *key,
+                              char *out, size_t out_size,
+                              cmdb_error_t *err) {
+  cJSON *item = cJSON_GetObjectItemCaseSensitive(object, key);
+  out[0] = '\0';
+  if (item == NULL || cJSON_IsNull(item)) {
+    return 0;
+  }
+  if (!cJSON_IsString(item) || item->valuestring == NULL) {
+    cmdb_error_set(err, CMDB_ERR_VALIDATION,
+                   "%s must be a string", key);
+    return -1;
+  }
+  if (cmdb_str_copy(out, out_size, item->valuestring) != 0) {
+    cmdb_error_set(err, CMDB_ERR_VALIDATION, "%s is too long", key);
+    return -1;
+  }
+  return 0;
+}
+
+static int scan_port_token_valid(const char *token) {
+  const char *slash;
+  unsigned int port = 0;
+  size_t i;
+
+  if (token == NULL) {
+    return 0;
+  }
+  slash = strchr(token, '/');
+  if (slash == NULL || slash == token) {
+    return 0;
+  }
+  if (strcmp(slash + 1, "tcp") != 0 && strcmp(slash + 1, "udp") != 0) {
+    return 0;
+  }
+  if ((size_t)(slash - token) > 5) {
+    return 0;
+  }
+  for (i = 0; token + i < slash; i++) {
+    if (token[i] < '0' || token[i] > '9') {
+      return 0;
+    }
+    port = port * 10u + (unsigned int)(token[i] - '0');
+  }
+  return port >= 1u && port <= 65535u;
+}
+
+static int scan_import_ports(cJSON *object, char *out, size_t out_size,
+                             cmdb_error_t *err) {
+  cJSON *item = cJSON_GetObjectItemCaseSensitive(object, "open_ports");
+  size_t used = 0;
+
+  out[0] = '\0';
+  if (item == NULL || cJSON_IsNull(item)) {
+    return 0;
+  }
+  if (cJSON_IsString(item) && item->valuestring != NULL) {
+    const char *cursor = item->valuestring;
+    while (*cursor != '\0') {
+      const char *comma = strchr(cursor, ',');
+      size_t len = comma != NULL ? (size_t)(comma - cursor) : strlen(cursor);
+      char token[64];
+      if (len == 0 || len >= sizeof(token)) {
+        cmdb_error_set(err, CMDB_ERR_VALIDATION,
+                       "open_ports contains an invalid entry");
+        return -1;
+      }
+      (void)memcpy(token, cursor, len);
+      token[len] = '\0';
+      if (!scan_port_token_valid(token)) {
+        cmdb_error_set(err, CMDB_ERR_VALIDATION,
+                       "open_ports entries must look like 22/tcp");
+        return -1;
+      }
+      if (used + len + 2 >= out_size) {
+        cmdb_error_set(err, CMDB_ERR_LIMIT, "open_ports is too long");
+        return -1;
+      }
+      if (used > 0) {
+        out[used++] = ',';
+      }
+      (void)memcpy(out + used, token, len + 1);
+      used += len;
+      if (comma == NULL) {
+        break;
+      }
+      cursor = comma + 1;
+    }
+    return 0;
+  }
+  if (cJSON_IsArray(item)) {
+    int count = cJSON_GetArraySize(item);
+    cJSON *entry;
+    if (count > (int)CMDB_SCAN_MAX_HOST_PORTS) {
+      cmdb_error_set(err, CMDB_ERR_LIMIT, "Too many open ports");
+      return -1;
+    }
+    cJSON_ArrayForEach(entry, item) {
+      const char *token;
+      size_t len;
+      if (!cJSON_IsString(entry) || entry->valuestring == NULL ||
+          !scan_port_token_valid(entry->valuestring)) {
+        cmdb_error_set(err, CMDB_ERR_VALIDATION,
+                       "open_ports entries must look like 22/tcp");
+        return -1;
+      }
+      token = entry->valuestring;
+      len = strlen(token);
+      if (used + len + 2 >= out_size) {
+        cmdb_error_set(err, CMDB_ERR_LIMIT, "open_ports is too long");
+        return -1;
+      }
+      if (used > 0) {
+        out[used++] = ',';
+      }
+      (void)memcpy(out + used, token, len + 1);
+      used += len;
+    }
+    return 0;
+  }
+  cmdb_error_set(err, CMDB_ERR_VALIDATION,
+                 "open_ports must be an array or string");
+  return -1;
+}
+
+static int scan_import_one(cmdb_app_t *app, const char *type_id,
+                           const char *target, const char *name_prefix,
+                           const char *description, const char *environment,
+                           const char *status, const char *criticality,
+                           const char *location, cJSON *host,
+                           cJSON *item, cmdb_error_t *err) {
+  char ip[64];
+  char normalized[64];
+  char hostname[256];
+  char mac[32];
+  char vendor[128];
+  char os_guess[128];
+  char ports[CMDB_SCAN_OPEN_PORTS_SIZE];
+  char name[CMDB_MAX_NAME];
+  cmdb_attr_input_t attrs[10];
+  size_t attr_count = 0;
+  cmdb_ci_input_t input;
+  char id[37];
+
+  if (!cJSON_IsObject(host)) {
+    cmdb_error_set(err, CMDB_ERR_VALIDATION, "Each host must be an object");
+    return -1;
+  }
+  if (scan_optional_text(host, "ip_address", ip, sizeof(ip), err) != 0) {
+    return -1;
+  }
+  if (ip[0] == '\0' || strchr(ip, '/') != NULL) {
+    cmdb_error_set(err, CMDB_ERR_VALIDATION,
+                   "Each host requires a plain IPv4 ip_address");
+    return -1;
+  }
+  if (cmdb_scan_validate_target(ip, normalized, err) != 0) {
+    return -1;
+  }
+  cJSON_AddStringToObject(item, "ip_address", ip);
+  if (scan_optional_text(host, "hostname", hostname, sizeof(hostname),
+                         err) != 0 ||
+      scan_optional_text(host, "mac_address", mac, sizeof(mac), err) != 0 ||
+      scan_optional_text(host, "vendor", vendor, sizeof(vendor), err) != 0 ||
+      scan_optional_text(host, "os_guess", os_guess, sizeof(os_guess),
+                         err) != 0 ||
+      scan_import_ports(host, ports, sizeof(ports), err) != 0) {
+    return -1;
+  }
+  if (name_prefix[0] != '\0') {
+    int written = snprintf(name, sizeof(name), "%s%s", name_prefix,
+                           hostname[0] != '\0' ? hostname : ip);
+    if (written < 0 || (size_t)written >= sizeof(name)) {
+      cmdb_error_set(err, CMDB_ERR_VALIDATION, "Configuration item name is too long");
+      return -1;
+    }
+  } else {
+    if (cmdb_str_copy(name, sizeof(name),
+                      hostname[0] != '\0' ? hostname : ip) != 0) {
+      cmdb_error_set(err, CMDB_ERR_VALIDATION, "Configuration item name is too long");
+      return -1;
+    }
+  }
+  cJSON_AddStringToObject(item, "name", name);
+
+  memset(&input, 0, sizeof(input));
+  input.name = name;
+  input.type_id = type_id;
+  input.description = description;
+  input.environment = environment;
+  input.status = status;
+  input.criticality = criticality;
+  input.hosting_location = location;
+  attrs[attr_count].key = "ip_address";
+  attrs[attr_count++].value = ip;
+  if (hostname[0] != '\0') {
+    attrs[attr_count].key = "hostname";
+    attrs[attr_count++].value = hostname;
+  }
+  if (mac[0] != '\0') {
+    attrs[attr_count].key = "mac_address";
+    attrs[attr_count++].value = mac;
+  }
+  if (vendor[0] != '\0') {
+    attrs[attr_count].key = "vendor";
+    attrs[attr_count++].value = vendor;
+  }
+  if (os_guess[0] != '\0') {
+    attrs[attr_count].key = "os_guess";
+    attrs[attr_count++].value = os_guess;
+  }
+  if (ports[0] != '\0') {
+    attrs[attr_count].key = "open_ports";
+    attrs[attr_count++].value = ports;
+  }
+  attrs[attr_count].key = "discovery_method";
+  attrs[attr_count++].value = "nmap";
+  if (target != NULL && target[0] != '\0') {
+    attrs[attr_count].key = "discovery_target";
+    attrs[attr_count++].value = target;
+  }
+  input.attrs = attrs;
+  input.attr_count = attr_count;
+
+  if (cmdb_ci_create(app->db, &input, id, err) != 0) {
+    return -1;
+  }
+  cJSON_AddBoolToObject(item, "ok", 1);
+  cJSON_AddStringToObject(item, "id", id);
+  return 0;
+}
+
+static cJSON *handle_scan_import(cmdb_app_t *app, cJSON *params,
+                                 cmdb_error_t *err) {
+  const char *type_id = NULL;
+  const char *target = NULL;
+  const char *name_prefix = NULL;
+  const char *description = NULL;
+  const char *environment = NULL;
+  const char *status = NULL;
+  const char *criticality = NULL;
+  const char *location = NULL;
+  cJSON *hosts;
+  cJSON *items;
+  cJSON *host;
+  cJSON *result;
+  cmdb_ci_type_t type;
+  size_t created = 0;
+  size_t failed = 0;
+
+  if (require_params(params, err) != 0 ||
+      get_string(params, "type_id", &type_id, 1, err) != 0 ||
+      get_string(params, "target", &target, 0, err) != 0 ||
+      get_string(params, "name_prefix", &name_prefix, 0, err) != 0 ||
+      get_string(params, "description", &description, 0, err) != 0 ||
+      get_string(params, "environment", &environment, 0, err) != 0 ||
+      get_string(params, "status", &status, 0, err) != 0 ||
+      get_string(params, "criticality", &criticality, 0, err) != 0 ||
+      get_string(params, "hosting_location", &location, 0, err) != 0) {
+    return NULL;
+  }
+  hosts = cJSON_GetObjectItemCaseSensitive(params, "hosts");
+  if (!cJSON_IsArray(hosts) || cJSON_GetArraySize(hosts) == 0) {
+    cmdb_error_set(err, CMDB_ERR_VALIDATION,
+                   "Select at least one discovered host to import");
+    return NULL;
+  }
+  if (cJSON_GetArraySize(hosts) > (int)CMDB_SCAN_MAX_HOSTS) {
+    cmdb_error_set(err, CMDB_ERR_LIMIT, "Too many hosts to import");
+    return NULL;
+  }
+  if (cmdb_types_get(app->db, type_id, &type, err) != 0) {
+    return NULL;
+  }
+  if (name_prefix == NULL) {
+    name_prefix = "";
+  }
+  if (description == NULL || description[0] == '\0') {
+    description = "Discovered by nmap network scan";
+  }
+  if (environment == NULL) {
+    environment = "";
+  }
+  if (status == NULL) {
+    status = "";
+  }
+  if (criticality == NULL) {
+    criticality = "";
+  }
+  if (location == NULL) {
+    location = "";
+  }
+  if (target == NULL) {
+    target = "";
+  }
+
+  result = cJSON_CreateObject();
+  items = cJSON_CreateArray();
+  if (result == NULL || items == NULL) {
+    cJSON_Delete(result);
+    cJSON_Delete(items);
+    cmdb_error_set(err, CMDB_ERR_INTERNAL, "Cannot create import result");
+    return NULL;
+  }
+  cJSON_ArrayForEach(host, hosts) {
+    cJSON *item = cJSON_CreateObject();
+    cmdb_error_t item_err;
+    if (item == NULL) {
+      break;
+    }
+    cmdb_error_clear(&item_err);
+    if (scan_import_one(app, type_id, target, name_prefix, description,
+                        environment, status, criticality, location,
+                        host, item, &item_err) == 0) {
+      created++;
+    } else {
+      failed++;
+      cJSON_AddBoolToObject(item, "ok", 0);
+      cJSON_AddStringToObject(item, "error",
+                              item_err.message[0] != '\0'
+                                ? item_err.message
+                                : "Import failed");
+    }
+    cJSON_AddItemToArray(items, item);
+  }
+  cJSON_AddNumberToObject(result, "created", (double)created);
+  cJSON_AddNumberToObject(result, "failed", (double)failed);
+  cJSON_AddItemToObject(result, "items", items);
+
+  {
+    cJSON *detail = cJSON_CreateObject();
+    char *json = NULL;
+    if (detail != NULL) {
+      cJSON_AddStringToObject(detail, "target", target);
+      cJSON_AddStringToObject(detail, "type_id", type_id);
+      cJSON_AddNumberToObject(detail, "created", (double)created);
+      cJSON_AddNumberToObject(detail, "failed", (double)failed);
+      json = cJSON_PrintUnformatted(detail);
+      cJSON_Delete(detail);
+    }
+    if (json != NULL) {
+      (void)cmdb_audit_add(app->db, "local", "import", "network_scan",
+                           target, json, NULL);
+      free(json);
+    }
+  }
+  return result;
+}
+
 cJSON *cmdb_api_handle(cmdb_app_t *app, cJSON *request) {
   cJSON *params;
   cJSON *id;
@@ -1607,6 +2097,14 @@ cJSON *cmdb_api_handle(cmdb_app_t *app, cJSON *request) {
   } else if (strcmp(method, "graph.save_drawio") == 0) {
     if (require_db(app, &err) == 0) {
       result = handle_graph_save_drawio(app, params, &err);
+    }
+  } else if (strcmp(method, "scan.nmap") == 0) {
+    if (require_db(app, &err) == 0) {
+      result = handle_scan_nmap(app, params, &err);
+    }
+  } else if (strcmp(method, "scan.import") == 0) {
+    if (require_db(app, &err) == 0) {
+      result = handle_scan_import(app, params, &err);
     }
   } else if (strcmp(method, "security.info") == 0) {
     if (require_db(app, &err) == 0) {

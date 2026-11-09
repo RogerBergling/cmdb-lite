@@ -12,8 +12,9 @@ cmdb.exe
 ```
 
 The executable is built with CMake, Visual Studio 2022, and vcpkg. SQLCipher,
-libsodium, OpenSSL, and the C/C++ runtime are linked statically. The only
-external runtime component is **Microsoft Edge WebView2**.
+libsodium, OpenSSL, expat, and the C/C++ runtime are linked statically. The only
+external runtime component is **Microsoft Edge WebView2**. Network discovery
+additionally requires an installed `nmap.exe`; it is not bundled.
 
 ## Prerequisites
 
@@ -39,19 +40,19 @@ powershell -ExecutionPolicy Bypass -File .\setup-windows.ps1
 The script:
 
 1. Locates vcpkg and Visual Studio.
-2. Installs `sqlcipher:x64-windows-static` and
-   `libsodium:x64-windows-static`.
+2. Installs `sqlcipher:x64-windows-static`,
+   `libsodium:x64-windows-static`, and `expat:x64-windows-static`.
 3. Configures a Release build with the static triplet.
 4. Builds and runs the tests.
 5. Creates:
    - `dist\cmdb-lite-windows-x64\bin\cmdb.exe`
    - `dist\cmdb-lite-windows-x64.zip`
-   - `dist\cmdb-lite-0.1.0-windows-x64.msi` when WiX Toolset v3 is installed
+   - `dist\cmdb-lite-0.2.0-windows-x64.msi` when WiX Toolset v3 is installed
 
 ## Manual build
 
 ```powershell
-vcpkg install sqlcipher:x64-windows-static libsodium:x64-windows-static
+vcpkg install sqlcipher:x64-windows-static libsodium:x64-windows-static expat:x64-windows-static
 
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
   -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
@@ -91,7 +92,7 @@ elevation. It installs under `Program Files\cmdb-lite`, creates a Start Menu
 shortcut, and registers the application for uninstall.
 
 ```powershell
-msiexec /i .\dist\cmdb-lite-0.1.0-windows-x64.msi
+msiexec /i .\dist\cmdb-lite-0.2.0-windows-x64.msi
 ```
 
 The portable ZIP is also supported:
@@ -123,12 +124,12 @@ cmdb-lite-windows-x64/
 
 dist/
   cmdb-lite-windows-x64.zip
-  cmdb-lite-0.1.0-windows-x64.msi
+  cmdb-lite-0.2.0-windows-x64.msi
 ```
 
-There should be **no** `sqlcipher.dll`, `libsodium.dll`, `libcrypto-*.dll`, or
-`WebView2Loader.dll` in the package. The static triplet links those libraries,
-and `webview/webview` uses its built-in WebView2 loader.
+There should be **no** `sqlcipher.dll`, `libsodium.dll`, `libcrypto-*.dll`,
+`expat.dll`, or `WebView2Loader.dll` in the package. The static triplet links
+those libraries, and `webview/webview` uses its built-in WebView2 loader.
 
 ## Validation checklist
 
@@ -147,6 +148,9 @@ Run this on a clean Windows VM before calling the Windows build supported:
 - [ ] Create a relationship manually.
 - [ ] Generate a dependency map.
 - [ ] Export a `.drawio` file and open it in draw.io/diagrams.net.
+- [ ] With nmap on `PATH`, scan a single authorised test host and import a
+      selected result.
+- [ ] Without nmap, run a scan and verify the clear "not installed" error.
 - [ ] Try a wrong passphrase; it is rejected and the database is not modified.
 - [ ] Test on a machine without WebView2; the error message is clear.
 - [ ] Verify the ZIP contains no unexpected DLLs.
@@ -177,7 +181,7 @@ signtool sign /f your-cert.pfx /p your-password `
   build\Release\cmdb.exe
 signtool sign /f your-cert.pfx /p your-password `
   /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
-  dist\cmdb-lite-0.1.0-windows-x64.msi
+  dist\cmdb-lite-0.2.0-windows-x64.msi
 ```
 
 Never commit the certificate or password.

@@ -204,6 +204,53 @@ void test_api(void) {
     cJSON_Delete(response);
   }
 
+  response = api_call(app, "{\"id\":20,\"method\":\"scan.nmap\",\"params\":{"
+                            "\"target\":\"10.20.0.0/24\"}}");
+  TEST_ASSERT(response != NULL);
+  if (response != NULL) {
+    ok = cJSON_GetObjectItemCaseSensitive(response, "ok");
+    TEST_ASSERT(cJSON_IsFalse(ok));
+    cJSON_Delete(response);
+  }
+
+  (void)snprintf(request, sizeof(request),
+                 "{\"id\":21,\"method\":\"scan.import\",\"params\":{"
+                 "\"target\":\"10.20.0.0/24\",\"type_id\":\"%s\","
+                 "\"name_prefix\":\"scan-\",\"hosts\":[{"
+                 "\"ip_address\":\"10.20.0.77\","
+                 "\"hostname\":\"imported-app\","
+                 "\"mac_address\":\"aa:bb:cc:dd:ee:77\","
+                 "\"os_guess\":\"Linux 6.8\","
+                 "\"open_ports\":[\"22/tcp\",\"443/tcp\"]}]}}",
+                 type_id);
+  response = api_call(app, request);
+  TEST_ASSERT(response != NULL);
+  if (response != NULL) {
+    ok = cJSON_GetObjectItemCaseSensitive(response, "ok");
+    TEST_ASSERT(cJSON_IsTrue(ok));
+    result = cJSON_GetObjectItemCaseSensitive(response, "result");
+    TEST_ASSERT(cJSON_IsObject(result));
+    if (cJSON_IsObject(result)) {
+      cJSON *created = cJSON_GetObjectItemCaseSensitive(result, "created");
+      TEST_ASSERT(cJSON_IsNumber(created));
+      TEST_ASSERT(created != NULL && created->valueint == 1);
+    }
+    cJSON_Delete(response);
+  }
+
+  response = api_call(app, "{\"id\":22,\"method\":\"cis.list\",\"params\":{"
+                            "\"query\":\"scan-imported-app\"}}");
+  TEST_ASSERT(response != NULL);
+  if (response != NULL) {
+    result = cJSON_GetObjectItemCaseSensitive(response, "result");
+    if (cJSON_IsObject(result)) {
+      cJSON *total = cJSON_GetObjectItemCaseSensitive(result, "total");
+      TEST_ASSERT(cJSON_IsNumber(total));
+      TEST_ASSERT(total != NULL && total->valueint == 1);
+    }
+    cJSON_Delete(response);
+  }
+
   response = api_call(app, "{\"id\":7,\"method\":\"security.info\",\"params\":{}}");
   TEST_ASSERT(response != NULL);
   if (response != NULL) {

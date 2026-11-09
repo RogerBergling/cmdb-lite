@@ -55,7 +55,8 @@ Write-Host ""
 Write-Host "== Installing vcpkg dependencies ==" -ForegroundColor Cyan
 & $vcpkg install `
     "sqlcipher:x64-windows-static" `
-    "libsodium:x64-windows-static"
+    "libsodium:x64-windows-static" `
+    "expat:x64-windows-static"
 if ($LASTEXITCODE -ne 0) {
     throw "vcpkg install failed with exit code $LASTEXITCODE."
 }

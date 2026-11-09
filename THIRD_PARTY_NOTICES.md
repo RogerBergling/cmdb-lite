@@ -40,6 +40,14 @@ and does not replace the license text shipped with each dependency.
   wiping.
 - Copyright: Frank Denis and contributors.
 
+### libexpat
+
+- License: MIT
+- Purpose: bounded parsing of nmap XML output.
+- Copyright: Expat maintainers and contributors.
+- Linux packages normally depend on the distribution's expat library; Windows
+  builds link it statically.
+
 ### GTK 3 and WebKitGTK 4.1 (Linux)
 
 - GTK: LGPL-2.1-or-later
@@ -64,6 +72,13 @@ and does not replace the license text shipped with each dependency.
 - Linux packages normally depend on the distribution's OpenSSL. Windows builds
   must ship a compatible OpenSSL library and its notices, or build SQLCipher
   against an approved crypto provider.
+
+### nmap (optional runtime)
+
+- License: Nmap Public Source License (NPSL) for the current release.
+- Purpose: optional network discovery; invoked as an external executable.
+- nmap is **not** bundled or redistributed by cmdb-lite. Users install it
+  separately. Review the NPSL before redistributing nmap with a package.
 
 ## Build and test tools
 

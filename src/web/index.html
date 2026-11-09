@@ -65,6 +65,7 @@
       <button class="tab" type="button" data-tab="types">CI Types</button>
       <button class="tab" type="button" data-tab="relationships">Relationships</button>
       <button class="tab" type="button" data-tab="import">Import</button>
+      <button class="tab" type="button" data-tab="discovery">Discovery</button>
       <button class="tab" type="button" data-tab="map">Dependency Map</button>
     </nav>
 
@@ -273,6 +274,73 @@
           <p><strong>CI files:</strong> <code>ci_name</code> and <code>ci_type</code> are required. Optional: <code>ci_id</code>, <code>description</code>, <code>environment</code>, <code>status</code>, <code>business_service</code>, <code>technical_owner</code>, <code>support_team</code>, <code>criticality</code>, <code>hosting_location</code>, <code>last_updated</code>, <code>external_id</code>, and <code>custom.&lt;key&gt;</code>.</p>
           <p><strong>Relationship files:</strong> <code>source_ci</code>, <code>relationship_type</code>, and <code>target_ci</code> are required. Optional: <code>description</code>.</p>
           <p>See <code>docs/import-format.md</code> in the repository for full rules and examples.</p>
+        </div>
+      </section>
+
+      <section id="panel-discovery" class="panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Network Discovery</h2>
+            <p class="muted">Run an authorised nmap TCP connect scan, review the staged hosts, then import only the ones you select.</p>
+          </div>
+        </div>
+        <div class="discovery-layout">
+          <aside class="card scan-controls">
+            <form id="scan-form" autocomplete="off">
+              <label for="scan-target">Target IPv4 address or CIDR</label>
+              <input id="scan-target" type="text" spellcheck="false" placeholder="192.168.1.0/24" required>
+              <p class="hint">A single address or a /24 to /32 network. At most 256 addresses.</p>
+
+              <label for="scan-ports">TCP ports</label>
+              <input id="scan-ports" type="text" spellcheck="false" value="22,80,443,445,3389,8080" required>
+              <p class="hint">Numeric ports or ranges, for example <code>22,80,443,8000-8100</code>. Up to 256 distinct ports.</p>
+
+              <label for="scan-timeout">Process timeout (seconds)</label>
+              <input id="scan-timeout" type="number" min="10" max="600" value="180">
+
+              <div class="checkbox-line scan-auth">
+                <input id="scan-authorized" type="checkbox">
+                <label for="scan-authorized">I confirm that I own this network or have explicit written authorisation to scan it.</label>
+              </div>
+              <p class="warning">Scanning networks without authorisation may be illegal. This performs unprivileged TCP connect discovery only; it does not attempt exploitation, brute force, or credential guessing.</p>
+
+              <button id="scan-run" type="submit" class="primary wide">Run nmap scan</button>
+              <p id="scan-error" class="error" role="alert"></p>
+              <p class="hint">Requires <code>nmap</code> on PATH (or <code>CMDB_NMAP</code> set to its full path). A host is listed only when at least one selected port is open. Staged results stay in this window until you import them.</p>
+            </form>
+          </aside>
+          <div class="card scan-results-card">
+            <div id="scan-empty" class="empty">No scan results yet.</div>
+            <div id="scan-results" class="hidden">
+              <div id="scan-summary" class="scan-summary"></div>
+              <div class="scan-import-bar">
+                <div>
+                  <label for="scan-type">Import selected hosts as</label>
+                  <select id="scan-type" required></select>
+                </div>
+                <div class="button-row">
+                  <button id="scan-clear" type="button" class="secondary">Clear results</button>
+                  <button id="scan-import" type="button" class="primary">Import selected</button>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th class="checkbox-col"><input id="scan-select-all" type="checkbox" aria-label="Select all discovered hosts"></th>
+                      <th>IP address</th>
+                      <th>Hostname</th>
+                      <th>MAC address</th>
+                      <th>Open ports</th>
+                      <th>OS guess</th>
+                    </tr>
+                  </thead>
+                  <tbody id="scan-table"></tbody>
+                </table>
+              </div>
+              <p id="scan-import-error" class="error" role="alert"></p>
+            </div>
+          </div>
         </div>
       </section>
 

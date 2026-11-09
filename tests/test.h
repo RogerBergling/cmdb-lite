@@ -14,6 +14,7 @@ void test_graph(void);
 void test_drawio(void);
 void test_import(void);
 void test_api(void);
+void test_scan(void);
 
 #define TEST_ASSERT(condition) \
   do { \

@@ -13,6 +13,7 @@ void test_graph(void);
 void test_drawio(void);
 void test_import(void);
 void test_api(void);
+void test_scan(void);
 
 int main(void) {
   (void)printf("cmdb-lite tests\n");
@@ -25,6 +26,7 @@ int main(void) {
   RUN_TEST(test_drawio);
   RUN_TEST(test_import);
   RUN_TEST(test_api);
+  RUN_TEST(test_scan);
 
   (void)printf("\n%d failure(s)\n", test_failures);
   return test_failures == 0 ? 0 : 1;

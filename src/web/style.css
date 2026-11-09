@@ -102,6 +102,20 @@ textarea {
   transition: border-color 0.16s ease, box-shadow 0.16s ease;
 }
 
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 2.3rem;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 1.15rem) calc(50% - 0.12rem),
+    calc(100% - 0.82rem) calc(50% - 0.12rem);
+  background-size: 0.36rem 0.36rem, 0.36rem 0.36rem;
+  background-repeat: no-repeat;
+}
+
 input:focus,
 select:focus,
 textarea:focus {
@@ -607,6 +621,67 @@ tbody tr:last-child td { border-bottom: 0; }
 
 .doc-note code { color: #bfe9e2; }
 
+/* Discovery */
+
+.discovery-layout {
+  display: grid;
+  grid-template-columns: minmax(18rem, 24rem) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.scan-controls { padding: 1rem; }
+.scan-results-card { min-height: 24rem; padding: 1rem; }
+
+.scan-auth {
+  align-items: flex-start;
+  padding: 0.65rem;
+  border: 1px solid rgba(251, 191, 36, 0.28);
+  border-radius: var(--radius-sm);
+  background: rgba(251, 191, 36, 0.06);
+}
+
+.scan-auth input { margin-top: 0.18rem; }
+
+.scan-summary {
+  margin-bottom: 0.9rem;
+  padding-bottom: 0.8rem;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 0.88rem;
+}
+
+.scan-summary p { margin: 0.2rem 0; }
+.scan-summary .scan-command {
+  display: block;
+  margin-top: 0.45rem;
+  padding: 0.45rem 0.55rem;
+  overflow-x: auto;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.18);
+  color: #bfe9e2;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.scan-import-bar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.8rem;
+}
+
+.scan-import-bar > div:first-child { min-width: 12rem; }
+.scan-import-bar label { margin-top: 0; }
+.scan-import-bar .button-row { margin-bottom: 0.1rem; }
+
+.checkbox-col { width: 2.6rem; }
+.checkbox-col input { width: auto; accent-color: var(--accent); }
+.scan-table-empty { text-align: center; color: var(--muted); }
+.scan-port-list { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.8rem; }
+.scan-import-error { margin-top: 0.6rem; }
+
 /* Map */
 
 .map-layout {
@@ -756,6 +831,7 @@ tbody tr:last-child td { border-bottom: 0; }
 @media (max-width: 900px) {
   .split,
   .import-layout,
+  .discovery-layout,
   .map-layout {
     grid-template-columns: 1fr;
   }
@@ -771,5 +847,6 @@ tbody tr:last-child td { border-bottom: 0; }
   .form-grid { grid-template-columns: 1fr; }
   .toolbar { grid-template-columns: 1fr; }
   .panel-heading { flex-direction: column; }
+  .scan-import-bar { flex-direction: column; align-items: stretch; }
   .unlock-card { padding: 1.4rem; }
 }

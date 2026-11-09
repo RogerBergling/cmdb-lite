@@ -189,15 +189,12 @@ spreadsheet software. `cmdb-lite` treats all imported cells as literal data and
 never executes them. When exporting CSV in a future version, such cells will be
 escaped or prefixed so spreadsheet applications do not evaluate them.
 
-## Network scan results (planned)
+## Network discovery results
 
-The network scanner will write to a staging table, not directly to the CMDB. The
-reviewable scan CSV format will be:
+Network discovery is a separate workflow in the **Discovery** tab; it is not a
+CSV/TSV import format. nmap XML is parsed into staged hosts and the operator
+selects which hosts to import. See [`scanning.md`](scanning.md).
 
-```csv
-ip_address,hostname,mac_address,os_guess,open_ports,first_seen,last_seen,source
-10.20.0.11,app01,AA:BB:CC:DD:EE:01,Linux,22/tcp;443/tcp,2026-11-09T09:00:00Z,2026-11-09T09:05:00Z,arp+tcp
-```
-
-Each discovered host is reviewed, matched to an existing CI, or created as a new
-CI. Scan data is evidence, not an automatic source of truth.
+Each discovered host is reviewed and created as a new CI with the selected CI
+type. There is no automatic merge into existing CIs. Scan data is evidence, not
+an automatic source of truth.

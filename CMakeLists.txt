@@ -5,7 +5,7 @@ if(POLICY CMP0135)
 endif()
 
 project(cmdb-lite
-  VERSION 0.1.0
+  VERSION 0.2.0
   DESCRIPTION "Local-first encrypted Configuration Management Database"
   LANGUAGES C)
 
@@ -92,6 +92,7 @@ endif()
 if(WIN32)
   find_package(sqlcipher CONFIG REQUIRED)
   find_package(unofficial-sodium CONFIG REQUIRED)
+  find_package(expat CONFIG REQUIRED)
   set(CMDB_CRYPTO_LIBS
     sqlcipher::sqlcipher
     unofficial-sodium::sodium
@@ -99,10 +100,13 @@ if(WIN32)
     bcrypt
     crypt32
     ws2_32)
+  set(CMDB_EXPAT_LIBS expat::expat)
 else()
   find_package(PkgConfig REQUIRED)
   find_package(Threads REQUIRED)
   find_package(ZLIB REQUIRED)
+  find_package(EXPAT REQUIRED)
+  set(CMDB_EXPAT_LIBS EXPAT::EXPAT)
   pkg_check_modules(SQLCIPHER REQUIRED IMPORTED_TARGET sqlcipher)
   pkg_check_modules(SODIUM REQUIRED IMPORTED_TARGET libsodium)
   set(CMDB_CRYPTO_LIBS
@@ -164,6 +168,7 @@ add_library(cmdb_core STATIC
   src/core/json_util.c
   src/core/meta.c
   src/core/relationships.c
+  src/core/scan.c
   src/core/schema.c
   src/core/types.c
   src/core/util.c
@@ -199,6 +204,7 @@ target_compile_definitions(cmdb_core PRIVATE
 target_compile_definitions(cmdb_core PUBLIC SQLITE_HAS_CODEC)
 target_link_libraries(cmdb_core PUBLIC
   ${CMDB_CRYPTO_LIBS}
+  ${CMDB_EXPAT_LIBS}
   cjson)
 
 if(NOT WIN32)
@@ -308,6 +314,7 @@ if(CMDB_BUILD_TESTS)
     tests/test_graph.c
     tests/test_import.c
     tests/test_relationships.c
+    tests/test_scan.c
     tests/test_types.c)
   target_compile_options(cmdb_tests PRIVATE ${CMDB_WARNINGS})
   target_link_libraries(cmdb_tests PRIVATE cmdb_core)
@@ -378,7 +385,7 @@ if(CMDB_BUILD_UI)
     set(CPACK_RPM_PACKAGE_DESCRIPTION
       "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}")
     set(CPACK_RPM_PACKAGE_REQUIRES
-      "gtk3, webkit2gtk4.1, openssl-libs, glib2, sqlcipher, libsodium")
+      "gtk3, webkit2gtk4.1, expat, openssl-libs, glib2, sqlcipher, libsodium")
     set(CPACK_RPM_PACKAGE_AUTOREQ ON)
     set(CPACK_RPM_FILE_NAME RPM-DEFAULT)
   endif()
