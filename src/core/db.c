@@ -18,6 +18,8 @@ struct cmdb_db {
   char *path;
   cmdb_meta_t meta;
   char key_hex[65];
+  char migration_backup[CMDB_MAX_PATH];
+  int migrated;
 };
 
 static void db_wipe(cmdb_db_t *db) {
@@ -172,6 +174,64 @@ static int db_open_handle(cmdb_db_t *db, int create, cmdb_error_t *err) {
   sqlite3_extended_result_codes(db->handle, 1);
   sqlite3_busy_timeout(db->handle, 5000);
   return 0;
+}
+
+static int db_schema_version(cmdb_db_t *db, int *out,
+                             cmdb_error_t *err) {
+  char value[64];
+  int version = 0;
+
+  if (cmdb_schema_meta_get(db, "schema_version", value, sizeof(value),
+                           err) != 0) {
+    return -1;
+  }
+  if (cmdb_parse_int(value, 0, 1000000, &version) != 0) {
+    cmdb_error_set(err, CMDB_ERR_VALIDATION, "Invalid schema version");
+    return -1;
+  }
+  *out = version;
+  return 0;
+}
+
+static int db_migration_backup_path(const char *db_path, int schema_version,
+                                    char out[CMDB_MAX_PATH],
+                                    cmdb_error_t *err) {
+  char stamp[21];
+  char compact[24];
+  size_t in_index;
+  size_t out_index = 0;
+  int attempt;
+
+  cmdb_iso8601_now(stamp);
+  for (in_index = 0; stamp[in_index] != '\0' &&
+                     out_index + 1 < sizeof(compact); in_index++) {
+    if (stamp[in_index] == '-' || stamp[in_index] == ':') {
+      continue;
+    }
+    compact[out_index++] = stamp[in_index];
+  }
+  compact[out_index] = '\0';
+  for (attempt = 0; attempt < 100; attempt++) {
+    int written;
+    if (attempt == 0) {
+      written = snprintf(out, CMDB_MAX_PATH, "%s.pre-v%d-%s.cmdb",
+                         db_path, schema_version, compact);
+    } else {
+      written = snprintf(out, CMDB_MAX_PATH, "%s.pre-v%d-%s-%d.cmdb",
+                         db_path, schema_version, compact, attempt);
+    }
+    if (written < 0 || written >= CMDB_MAX_PATH) {
+      cmdb_error_set(err, CMDB_ERR_LIMIT,
+                     "Pre-upgrade backup path is too long");
+      return -1;
+    }
+    if (!cmdb_path_exists(out)) {
+      return 0;
+    }
+  }
+  cmdb_error_set(err, CMDB_ERR_CONFLICT,
+                 "Cannot choose a unique pre-upgrade backup path");
+  return -1;
 }
 
 int cmdb_db_create(const char *path, const char *passphrase,
@@ -344,6 +404,35 @@ int cmdb_db_open(const char *path, const char *passphrase,
     free(db);
     return -1;
   }
+  {
+    int schema_version = 0;
+    if (db_schema_version(db, &schema_version, err) != 0) {
+      db_wipe(db);
+      free(db);
+      return -1;
+    }
+    if (schema_version < CMDB_SCHEMA_VERSION) {
+      cmdb_error_t backup_err;
+      char backup_path[CMDB_MAX_PATH];
+      cmdb_error_clear(&backup_err);
+      if (db_migration_backup_path(db->path, schema_version, backup_path,
+                                   &backup_err) != 0 ||
+          cmdb_db_backup(db, backup_path, &backup_err) != 0) {
+        cmdb_error_set(err, CMDB_ERR_IO,
+                       "Cannot create the pre-upgrade backup");
+        cmdb_error_set_detail(err, "%s",
+                              backup_err.message[0] != '\0'
+                                ? backup_err.message
+                                : "backup failed");
+        db_wipe(db);
+        free(db);
+        return -1;
+      }
+      (void)cmdb_str_copy(db->migration_backup,
+                          sizeof(db->migration_backup), backup_path);
+      db->migrated = 1;
+    }
+  }
   if (cmdb_schema_migrate(db, err) != 0) {
     db_wipe(db);
     free(db);
@@ -514,6 +603,73 @@ cleanup:
   return ok ? 0 : -1;
 }
 
+int cmdb_db_restore(const char *source, const char *destination,
+                    cmdb_error_t *err) {
+  cmdb_meta_t meta;
+  char *destination_meta = NULL;
+
+  if (source == NULL || destination == NULL ||
+      source[0] == '\0' || destination[0] == '\0' ||
+      strlen(source) >= CMDB_MAX_PATH ||
+      strlen(destination) >= CMDB_MAX_PATH) {
+    cmdb_error_set(err, CMDB_ERR_INVALID_ARGUMENT,
+                   "Invalid restore path");
+    return -1;
+  }
+  if (strcmp(source, destination) == 0) {
+    cmdb_error_set(err, CMDB_ERR_CONFLICT,
+                   "Source and destination must be different");
+    return -1;
+  }
+  if (!cmdb_is_regular_file(source)) {
+    cmdb_error_set(err, CMDB_ERR_NOT_FOUND,
+                   "Backup database file does not exist");
+    return -1;
+  }
+  if (!cmdb_meta_exists(source)) {
+    cmdb_error_set(err, CMDB_ERR_NOT_FOUND,
+                   "Backup metadata file is missing");
+    return -1;
+  }
+  if (cmdb_path_exists(destination)) {
+    cmdb_error_set(err, CMDB_ERR_CONFLICT,
+                   "The restore destination already exists");
+    cmdb_error_set_detail(err, "%s", destination);
+    return -1;
+  }
+  destination_meta = cmdb_path_meta(destination);
+  if (destination_meta == NULL) {
+    cmdb_error_set(err, CMDB_ERR_INTERNAL,
+                   "Cannot build the restore metadata path");
+    return -1;
+  }
+  if (cmdb_path_exists(destination_meta)) {
+    cmdb_error_set(err, CMDB_ERR_CONFLICT,
+                   "The restore metadata path already exists");
+    cmdb_error_set_detail(err, "%s", destination_meta);
+    free(destination_meta);
+    return -1;
+  }
+  free(destination_meta);
+  if (cmdb_meta_read(source, &meta, err) != 0) {
+    return -1;
+  }
+  if (cmdb_file_copy_atomic(source, destination, 0600, err) != 0) {
+    return -1;
+  }
+  if (cmdb_meta_create(destination, &meta, err) != 0) {
+    (void)cmdb_file_remove(destination);
+    return -1;
+  }
+  (void)cmdb_file_chmod_0600(destination);
+  destination_meta = cmdb_path_meta(destination);
+  if (destination_meta != NULL) {
+    (void)cmdb_file_chmod_0600(destination_meta);
+    free(destination_meta);
+  }
+  return 0;
+}
+
 sqlite3 *cmdb_db_sqlite(cmdb_db_t *db) {
   return db != NULL ? db->handle : NULL;
 }
@@ -524,6 +680,14 @@ const char *cmdb_db_path(const cmdb_db_t *db) {
 
 const cmdb_meta_t *cmdb_db_meta(const cmdb_db_t *db) {
   return db != NULL ? &db->meta : NULL;
+}
+
+int cmdb_db_was_migrated(const cmdb_db_t *db) {
+  return db != NULL ? db->migrated : 0;
+}
+
+const char *cmdb_db_migration_backup(const cmdb_db_t *db) {
+  return db != NULL ? db->migration_backup : "";
 }
 
 int cmdb_db_exec(cmdb_db_t *db, const char *sql, cmdb_error_t *err) {

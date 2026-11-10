@@ -2,6 +2,8 @@
 
 const state = {
   dbPath: "",
+  lastDatabase: "",
+  recentDatabases: [],
   theme: "system",
   types: [],
   categories: [],
@@ -18,6 +20,10 @@ const state = {
   ciAttrs: {},
   importContent: "",
   importName: "",
+  auditEntries: [],
+  auditTotal: 0,
+  auditOffset: 0,
+  auditLimit: 50,
   scanResult: null,
   scanSelected: new Set(),
   scanActions: {},
@@ -196,6 +202,43 @@ async function loadThemePreference() {
   }
 }
 
+function renderRecentDatabases() {
+  const wrap = $("recent-databases");
+  const list = $("recent-database-list");
+  clear(list);
+  if (!state.recentDatabases.length) {
+    hide(wrap);
+    return;
+  }
+  show(wrap);
+  for (const path of state.recentDatabases) {
+    list.append(el("button", {
+      type: "button",
+      class: "recent-database",
+      title: path,
+      text: path,
+      onclick: () => {
+        $("db-path").value = path;
+        $("passphrase").focus();
+      }
+    }));
+  }
+}
+
+async function loadSettings() {
+  try {
+    const settings = await api("settings.get");
+    state.lastDatabase = settings.last_database || "";
+    state.recentDatabases = settings.recent_databases || [];
+    if (!$("db-path").value && state.lastDatabase) {
+      $("db-path").value = state.lastDatabase;
+    }
+    renderRecentDatabases();
+  } catch (error) {
+    /* Settings are optional. */
+  }
+}
+
 function setUnlockMode(mode) {  state.unlockMode = mode;
   $("mode-open").classList.toggle("active", mode === "open");
   $("mode-create").classList.toggle("active", mode === "create");
@@ -244,14 +287,22 @@ async function submitUnlock(event) {
   const submit = $("unlock-submit");
   submit.disabled = true;
   try {
+    let opened;
     if (state.unlockMode === "create") {
-      await api("db.create", { path, passphrase });
+      opened = await api("db.create", { path, passphrase });
     } else {
-      await api("db.open", { path, passphrase });
+      opened = await api("db.open", { path, passphrase });
     }
     $("passphrase").value = "";
     $("passphrase2").value = "";
     state.dbPath = path;
+    await loadSettings();
+    if (opened && opened.migrated) {
+      const backup = opened.backup_path
+        ? ` Pre-upgrade backup: ${opened.backup_path}`
+        : "";
+      toast(`Database upgraded.${backup}`, "success");
+    }
     await enterApplication();
   } catch (error) {
     setError($("unlock-error"), formatError(error));
@@ -269,8 +320,45 @@ async function enterApplication() {
   await loadThemePreference();
 }
 
-async function backupDatabase() {
+async function restoreBackup() {
+  setError($("unlock-error"), "");
   try {
+    const source = await api("dialog.choose_database", {
+      mode: "open",
+      suggested_name: "inventory.cmdb"
+    });
+    if (!source || !source.path) {
+      return;
+    }
+    const destination = await api("dialog.choose_database", {
+      mode: "save",
+      suggested_name: "inventory-restored.cmdb"
+    });
+    if (!destination || !destination.path) {
+      return;
+    }
+    const confirmed = await askConfirm(
+      "Restore backup",
+      `Restore "${source.path}" to "${destination.path}"? The destination must not exist.`,
+      "Restore"
+    );
+    if (!confirmed) {
+      return;
+    }
+    const result = await api("db.restore", {
+      source: source.path,
+      destination: destination.path
+    });
+    $("db-path").value = result.path;
+    state.lastDatabase = result.path;
+    toast("Backup restored. Enter its passphrase to open it.", "success");
+    $("passphrase").focus();
+  } catch (error) {
+    setError($("unlock-error"), formatError(error));
+  }
+}
+
+async function backupDatabase() {  try {
     const result = await api("db.backup");
     if (result && result.saved) {
       toast(`Backup written to ${result.path}`, "success");
@@ -307,6 +395,9 @@ async function lockApplication() {  try {
   state.scanJobId = null;
   window.clearInterval(state.scanPoll);
   state.scanPoll = null;
+  state.auditEntries = [];
+  state.auditTotal = 0;
+  state.auditOffset = 0;
   state.diagrams = [];
   state.diagram = null;
   state.diagramSelected.clear();
@@ -315,8 +406,9 @@ async function lockApplication() {  try {
   show($("unlock-screen"));
   $("passphrase").value = "";
   $("passphrase2").value = "";
-  $("db-path").value = "";
+  $("db-path").value = state.lastDatabase;
   $("unlock-error").textContent = "";
+  renderRecentDatabases();
 }
 
 async function loadAll() {
@@ -447,8 +539,28 @@ function renderInventory() {
     : summary;
 }
 
-async function deleteCi(ci) {
-  const confirmed = await askConfirm(
+function openExportModal() {
+  $("export-error").textContent = "";
+  show($("export-modal"));
+}
+
+async function runExport(event) {
+  event.preventDefault();
+  $("export-error").textContent = "";
+  try {
+    const result = await api("export.save", {
+      kind: $("export-format").value
+    });
+    if (result && result.saved) {
+      toast(`Exported to ${result.path}`, "success");
+      hide($("export-modal"));
+    }
+  } catch (error) {
+    $("export-error").textContent = formatError(error);
+  }
+}
+
+async function deleteCi(ci) {  const confirmed = await askConfirm(
     "Delete configuration item",
     `Delete "${ci.name}" and all of its relationships? This cannot be undone.`,
     "Delete"
@@ -1500,6 +1612,62 @@ async function commitImport() {
   }
 }
 
+function renderAudit() {
+  const tbody = $("audit-table");
+  clear(tbody);
+  for (const entry of state.auditEntries) {
+    tbody.append(el("tr", {}, [
+      el("td", { text: scanTimestamp(entry.ts) }),
+      el("td", { text: entry.action }),
+      el("td", { text: entry.entity_type }),
+      el("td", {}, el("code", { text: entry.entity_id || "\u2014" })),
+      el("td", {}, el("span", {
+        class: "audit-detail",
+        title: entry.detail || "",
+        text: entry.detail || "\u2014"
+      }))
+    ]));
+  }
+  $("audit-empty").classList.toggle("hidden", state.auditEntries.length !== 0);
+  const start = state.auditTotal === 0 ? 0 : state.auditOffset + 1;
+  const end = Math.min(state.auditOffset + state.auditEntries.length,
+                       state.auditTotal);
+  $("audit-page").textContent =
+    `${start}\u2013${end} of ${state.auditTotal}`;
+  $("audit-prev").disabled = state.auditOffset <= 0;
+  $("audit-next").disabled =
+    state.auditOffset + state.auditEntries.length >= state.auditTotal;
+}
+
+async function loadAudit() {
+  try {
+    const result = await api("audit.list", {
+      limit: state.auditLimit,
+      offset: state.auditOffset
+    });
+    state.auditEntries = result.items || [];
+    state.auditTotal = result.total || 0;
+    state.auditOffset = result.offset || 0;
+    renderAudit();
+  } catch (error) {
+    $("audit-status").textContent = formatError(error);
+  }
+}
+
+async function verifyAudit() {
+  $("audit-status").textContent = "Verifying chain...";
+  try {
+    const result = await api("audit.verify");
+    $("audit-status").textContent = result.valid
+      ? `Audit chain verified: ${result.count} entries.`
+      : "Audit chain verification FAILED.";
+    toast(result.valid ? "Audit chain verified." : "Audit chain is invalid.",
+          result.valid ? "success" : "error");
+  } catch (error) {
+    $("audit-status").textContent = formatError(error);
+  }
+}
+
 function renderScanTypes() {
   const select = $("scan-type");
   if (!select) {
@@ -2423,6 +2591,7 @@ function bindEvents() {
   $("mode-open").addEventListener("click", () => setUnlockMode("open"));
   $("mode-create").addEventListener("click", () => setUnlockMode("create"));
   $("browse-db").addEventListener("click", browseDatabase);
+  $("restore-backup").addEventListener("click", restoreBackup);
   $("unlock-form").addEventListener("submit", submitUnlock);
   $("theme-app").addEventListener("change", changeTheme);
   $("theme-unlock").addEventListener("change", changeTheme);
@@ -2434,6 +2603,8 @@ function bindEvents() {
   }
 
   $("add-ci").addEventListener("click", () => openCiModal());
+  $("export-data").addEventListener("click", openExportModal);
+  $("export-form").addEventListener("submit", runExport);
   $("ci-search").addEventListener("input", () => {
     window.clearTimeout(state.searchTimer);
     state.searchTimer = window.setTimeout(loadCis, 250);
@@ -2460,6 +2631,17 @@ function bindEvents() {
   $("import-file").addEventListener("change", readImportFile);
   $("import-preview").addEventListener("click", previewImport);
   $("import-commit").addEventListener("click", commitImport);
+
+  $("audit-refresh").addEventListener("click", loadAudit);
+  $("audit-verify").addEventListener("click", verifyAudit);
+  $("audit-prev").addEventListener("click", () => {
+    state.auditOffset = Math.max(0, state.auditOffset - state.auditLimit);
+    loadAudit();
+  });
+  $("audit-next").addEventListener("click", () => {
+    state.auditOffset += state.auditLimit;
+    loadAudit();
+  });
 
   $("scan-form").addEventListener("submit", runScan);
   $("scan-select-all").addEventListener("change", (event) => {
@@ -2518,6 +2700,9 @@ function activateTab(name) {
     renderScanTypes();
     loadScanJobs(state.scanJobId);
   }
+  if (name === "audit") {
+    loadAudit();
+  }
   if (name === "diagrams") {
     renderDiagramSelects();
     if (state.diagram) {
@@ -2532,6 +2717,7 @@ async function init() {
   applyTheme(storedTheme() || "system");
   bindEvents();
   setUnlockMode("open");
+  await loadSettings();
   try {
     const info = await api("app.info");
     if (info.database_open) {

@@ -29,6 +29,11 @@
           <button id="browse-db" type="button" class="secondary">Browse</button>
         </div>
         <p class="hint">The database and its <code>.meta</code> sidecar are stored where you choose.</p>
+        <div id="recent-databases" class="recent-databases hidden">
+          <span class="hint">Recent databases</span>
+          <div id="recent-database-list" class="recent-list"></div>
+        </div>
+        <button id="restore-backup" type="button" class="secondary wide restore-button">Restore a backup to a new database…</button>
 
         <label for="passphrase">Master passphrase</label>
         <input id="passphrase" type="password" minlength="12" maxlength="1024" autocomplete="current-password" required>
@@ -83,6 +88,7 @@
       <button class="tab" type="button" data-tab="types">CI Types</button>
       <button class="tab" type="button" data-tab="relationships">Relationships</button>
       <button class="tab" type="button" data-tab="import">Import</button>
+      <button class="tab" type="button" data-tab="audit">Audit</button>
       <button class="tab" type="button" data-tab="discovery">Discovery</button>
       <button class="tab" type="button" data-tab="diagrams">Diagrams</button>
       <button class="tab" type="button" data-tab="map">Dependency Map</button>
@@ -95,7 +101,10 @@
             <h2>Inventory</h2>
             <p class="muted" id="inventory-summary">Loading configuration items...</p>
           </div>
-          <button id="add-ci" type="button" class="primary">Add CI</button>
+          <div class="button-row">
+            <button id="export-data" type="button" class="secondary">Export</button>
+            <button id="add-ci" type="button" class="primary">Add CI</button>
+          </div>
         </div>
         <div class="toolbar">
           <input id="ci-search" type="search" placeholder="Search name, description, owner..." aria-label="Search inventory">
@@ -296,6 +305,40 @@
           <p><strong>CI files:</strong> <code>ci_name</code> and <code>ci_type</code> are required. Optional: <code>ci_id</code>, <code>description</code>, <code>environment</code>, <code>status</code>, <code>business_service</code>, <code>technical_owner</code>, <code>support_team</code>, <code>criticality</code>, <code>hosting_location</code>, <code>last_updated</code>, <code>external_id</code>, and <code>custom.&lt;key&gt;</code>.</p>
           <p><strong>Relationship files:</strong> <code>source_ci</code>, <code>relationship_type</code>, and <code>target_ci</code> are required. Optional: <code>description</code>.</p>
           <p>See <code>docs/import-format.md</code> in the repository for full rules and examples.</p>
+        </div>
+      </section>
+
+      <section id="panel-audit" class="panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Audit log</h2>
+            <p class="muted">Append-only, hash-chained history of changes and operator actions.</p>
+          </div>
+          <div class="button-row">
+            <button id="audit-refresh" type="button" class="secondary">Refresh</button>
+            <button id="audit-verify" type="button" class="primary">Verify chain</button>
+          </div>
+        </div>
+        <p id="audit-status" class="hint" role="status"></p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Action</th>
+                <th>Entity</th>
+                <th>Entity ID</th>
+                <th>Detail</th>
+              </tr>
+            </thead>
+            <tbody id="audit-table"></tbody>
+          </table>
+          <p id="audit-empty" class="empty hidden">No audit entries.</p>
+        </div>
+        <div class="audit-pager">
+          <button id="audit-prev" type="button" class="secondary small">Previous</button>
+          <span id="audit-page" class="muted"></span>
+          <button id="audit-next" type="button" class="secondary small">Next</button>
         </div>
       </section>
 
@@ -569,6 +612,29 @@
         <div class="modal-actions">
           <button type="button" class="secondary" data-close="ci-modal">Cancel</button>
           <button type="submit" class="primary" id="ci-save">Save CI</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="export-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="export-modal-title">
+    <div class="modal small-modal">
+      <div class="modal-heading">
+        <h2 id="export-modal-title">Export inventory</h2>
+        <button type="button" class="icon-button" data-close="export-modal" aria-label="Close">&times;</button>
+      </div>
+      <form id="export-form" autocomplete="off">
+        <label for="export-format">Format</label>
+        <select id="export-format">
+          <option value="ci_csv">CI inventory — CSV</option>
+          <option value="rel_csv">Relationships — CSV</option>
+          <option value="json">Full snapshot — JSON</option>
+        </select>
+        <p class="hint">Exports are plaintext files outside the encrypted database. CSV files are import-compatible.</p>
+        <p id="export-error" class="error" role="alert"></p>
+        <div class="modal-actions">
+          <button type="button" class="secondary" data-close="export-modal">Cancel</button>
+          <button type="submit" class="primary">Choose file and export</button>
         </div>
       </form>
     </div>

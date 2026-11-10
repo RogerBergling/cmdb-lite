@@ -5,7 +5,7 @@ if(POLICY CMP0135)
 endif()
 
 project(cmdb-lite
-  VERSION 0.4.0
+  VERSION 0.5.0
   DESCRIPTION "Local-first encrypted Configuration Management Database"
   LANGUAGES C)
 
@@ -167,6 +167,7 @@ add_library(cmdb_core STATIC
   src/core/diagram.c
   src/core/drawio.c
   src/core/error.c
+  src/core/export.c
   src/core/graph.c
   src/core/import.c
   src/core/json_util.c
@@ -176,6 +177,7 @@ add_library(cmdb_core STATIC
   src/core/scan_manager.c
   src/core/scan_store.c
   src/core/schema.c
+  src/core/settings.c
   src/core/types.c
   src/core/util.c
   src/core/uuid.c)

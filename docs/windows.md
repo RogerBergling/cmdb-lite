@@ -47,7 +47,7 @@ The script:
 5. Creates:
    - `dist\cmdb-lite-windows-x64\bin\cmdb.exe`
    - `dist\cmdb-lite-windows-x64.zip`
-   - `dist\cmdb-lite-0.4.0-windows-x64.msi` when WiX Toolset v3 is installed
+   - `dist\cmdb-lite-0.5.0-windows-x64.msi` when WiX Toolset v3 is installed
 
 ## Manual build
 
@@ -92,7 +92,7 @@ elevation. It installs under `Program Files\cmdb-lite`, creates a Start Menu
 shortcut, and registers the application for uninstall.
 
 ```powershell
-msiexec /i .\dist\cmdb-lite-0.4.0-windows-x64.msi
+msiexec /i .\dist\cmdb-lite-0.5.0-windows-x64.msi
 ```
 
 The portable ZIP is also supported:
@@ -124,7 +124,7 @@ cmdb-lite-windows-x64/
 
 dist/
   cmdb-lite-windows-x64.zip
-  cmdb-lite-0.4.0-windows-x64.msi
+  cmdb-lite-0.5.0-windows-x64.msi
 ```
 
 There should be **no** `sqlcipher.dll`, `libsodium.dll`, `libcrypto-*.dll`,
@@ -156,6 +156,10 @@ Run this on a clean Windows VM before calling the Windows build supported:
 - [ ] Export a `.drawio` file and open it in draw.io/diagrams.net.
 - [ ] Use **Backup**, reopen the backup with the same passphrase, and verify
       the inventory and `.meta` sidecar.
+- [ ] Restore the backup to a new path and open it.
+- [ ] Verify that the last database is pre-filled after restarting the app.
+- [ ] Export CI CSV, relationship CSV, and JSON; re-import the CI CSV.
+- [ ] Open the Audit tab, page through entries, and verify the hash chain.
 - [ ] With nmap on `PATH`, scan a single authorised test host with `-sV` and
       import a selected result.
 - [ ] Without nmap, run a scan and verify the clear "not installed" error.
@@ -189,7 +193,7 @@ signtool sign /f your-cert.pfx /p your-password `
   build\Release\cmdb.exe
 signtool sign /f your-cert.pfx /p your-password `
   /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
-  dist\cmdb-lite-0.4.0-windows-x64.msi
+  dist\cmdb-lite-0.5.0-windows-x64.msi
 ```
 
 Never commit the certificate or password.

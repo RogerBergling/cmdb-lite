@@ -36,6 +36,8 @@ int cmdb_file_read_all(const char *path, size_t max_bytes,
                        char **out, size_t *out_len, cmdb_error_t *err);
 int cmdb_file_write_atomic(const char *path, const void *data, size_t len,
                            unsigned int mode, cmdb_error_t *err);
+int cmdb_file_copy_atomic(const char *source, const char *destination,
+                          unsigned int mode, cmdb_error_t *err);
 int cmdb_file_remove(const char *path);
 int cmdb_file_chmod_0600(const char *path);
 

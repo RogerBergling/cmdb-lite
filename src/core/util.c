@@ -763,6 +763,159 @@ done:
   return ok ? 0 : -1;
 }
 
+int cmdb_file_copy_atomic(const char *source, const char *destination,
+                          unsigned int mode, cmdb_error_t *err) {
+  char *temp;
+  size_t temp_len;
+  int ok = 0;
+
+  if (source == NULL || destination == NULL ||
+      !cmdb_is_regular_file(source)) {
+    cmdb_error_set(err, CMDB_ERR_IO, "Source file does not exist");
+    cmdb_error_set_detail(err, "%s", source != NULL ? source : "");
+    return -1;
+  }
+  if (cmdb_path_exists(destination)) {
+    cmdb_error_set(err, CMDB_ERR_CONFLICT, "Destination file already exists");
+    cmdb_error_set_detail(err, "%s", destination);
+    return -1;
+  }
+  temp_len = strlen(destination) + 64;
+  temp = cmdb_malloc(temp_len);
+  (void)snprintf(temp, temp_len, "%s.tmp.%lu.0", destination,
+                 (unsigned long)getpid());
+
+#ifdef _WIN32
+  {
+    wchar_t *wide_source = utf8_to_wide_path(source);
+    wchar_t *wide_temp = utf8_to_wide_path(temp);
+    wchar_t *wide_destination = utf8_to_wide_path(destination);
+    FILE *in = NULL;
+    FILE *out = NULL;
+    char buffer[65536];
+    size_t got;
+    (void)mode;
+
+    if (wide_source == NULL || wide_temp == NULL ||
+        wide_destination == NULL) {
+      cmdb_error_set(err, CMDB_ERR_IO, "Invalid UTF-8 path");
+      free(wide_source);
+      free(wide_temp);
+      free(wide_destination);
+      free(temp);
+      return -1;
+    }
+    in = _wfopen(wide_source, L"rb");
+    if (in == NULL) {
+      cmdb_error_set(err, CMDB_ERR_IO, "Cannot open source file");
+      goto win_fail;
+    }
+    out = _wfopen(wide_temp, L"wb");
+    if (out == NULL) {
+      cmdb_error_set(err, CMDB_ERR_IO, "Cannot create temporary file");
+      goto win_fail;
+    }
+    while ((got = fread(buffer, 1, sizeof(buffer), in)) > 0) {
+      if (fwrite(buffer, 1, got, out) != got) {
+        cmdb_error_set(err, CMDB_ERR_IO, "Cannot copy file");
+        goto win_fail;
+      }
+    }
+    if (ferror(in) || fflush(out) != 0 || fclose(out) != 0) {
+      out = NULL;
+      cmdb_error_set(err, CMDB_ERR_IO, "Cannot copy file");
+      goto win_fail;
+    }
+    out = NULL;
+    (void)fclose(in);
+    in = NULL;
+    if (!MoveFileExW(wide_temp, wide_destination, 0)) {
+      cmdb_error_set(err, CMDB_ERR_IO, "Cannot install copied file");
+      cmdb_error_set_detail(err, "Windows error %lu",
+                            (unsigned long)GetLastError());
+      goto win_fail;
+    }
+    ok = 1;
+    goto win_done;
+win_fail:
+    if (in != NULL) {
+      (void)fclose(in);
+    }
+    if (out != NULL) {
+      (void)fclose(out);
+    }
+    if (wide_temp != NULL) {
+      (void)DeleteFileW(wide_temp);
+    }
+win_done:
+    free(wide_source);
+    free(wide_temp);
+    free(wide_destination);
+  }
+#else
+  {
+    FILE *in = fopen(source, "rb");
+    FILE *out;
+    char buffer[65536];
+    size_t got;
+
+    if (in == NULL) {
+      cmdb_error_set(err, CMDB_ERR_IO, "Cannot open source file");
+      cmdb_error_set_detail(err, "%s: %s", source, strerror(errno));
+      free(temp);
+      return -1;
+    }
+    (void)unlink(temp);
+    out = fopen(temp, "wb");
+    if (out == NULL) {
+      (void)fclose(in);
+      cmdb_error_set(err, CMDB_ERR_IO, "Cannot create temporary file");
+      cmdb_error_set_detail(err, "%s: %s", temp, strerror(errno));
+      free(temp);
+      return -1;
+    }
+    while ((got = fread(buffer, 1, sizeof(buffer), in)) > 0) {
+      if (fwrite(buffer, 1, got, out) != got) {
+        (void)fclose(in);
+        (void)fclose(out);
+        (void)unlink(temp);
+        cmdb_error_set(err, CMDB_ERR_IO, "Cannot copy file");
+        free(temp);
+        return -1;
+      }
+    }
+    if (ferror(in) || fflush(out) != 0 || fsync(fileno(out)) != 0) {
+      (void)fclose(in);
+      (void)fclose(out);
+      (void)unlink(temp);
+      cmdb_error_set(err, CMDB_ERR_IO, "Cannot copy file");
+      free(temp);
+      return -1;
+    }
+    if (fclose(out) != 0) {
+      (void)fclose(in);
+      (void)unlink(temp);
+      cmdb_error_set(err, CMDB_ERR_IO, "Cannot copy file");
+      free(temp);
+      return -1;
+    }
+    (void)fclose(in);
+    if (rename(temp, destination) != 0) {
+      (void)unlink(temp);
+      cmdb_error_set(err, CMDB_ERR_IO, "Cannot install copied file");
+      cmdb_error_set_detail(err, "%s: %s", destination, strerror(errno));
+      free(temp);
+      return -1;
+    }
+    (void)chmod(destination, (mode_t)mode);
+    ok = 1;
+  }
+#endif
+
+  free(temp);
+  return ok ? 0 : -1;
+}
+
 int cmdb_file_remove(const char *path) {
 #ifdef _WIN32
   wchar_t *wide;

@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -326,3 +327,60 @@ jobs:
       - name: Whitespace check
         shell: pwsh
         run: git diff --check
+
+  release:
+    name: Publish GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, fedora, flatpak, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Linux packages
+        uses: actions/download-artifact@v4
+        with:
+          name: cmdb-lite-linux-x86_64
+          path: release/linux
+
+      - name: Download Fedora packages
+        uses: actions/download-artifact@v4
+        with:
+          name: cmdb-lite-fedora-x86_64
+          path: release/fedora
+
+      - name: Download Flatpak
+        uses: actions/download-artifact@v4
+        with:
+          name: cmdb-lite-flatpak-x86_64
+          path: release/flatpak
+
+      - name: Download Windows packages
+        uses: actions/download-artifact@v4
+        with:
+          name: cmdb-lite-windows-x64
+          path: release/windows
+
+      - name: Assemble release assets
+        run: |
+          set -euo pipefail
+          mkdir -p release/assets
+          cp release/linux/*.deb release/assets/
+          cp release/linux/*.tar.gz release/assets/
+          cp release/fedora/*.rpm release/assets/
+          cp release/flatpak/*.flatpak release/assets/
+          cp release/windows/*.zip release/assets/
+          cp release/windows/dist/*.msi release/assets/
+          cd release/assets
+          sha256sum * > SHA256SUMS
+          ls -lh
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "cmdb-lite $GITHUB_REF_NAME" \
+            --generate-notes \
+            release/assets/*

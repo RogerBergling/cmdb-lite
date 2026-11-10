@@ -427,6 +427,42 @@ legend {
   font-size: 0.8rem;
 }
 
+.recent-databases {
+  margin-top: 0.45rem;
+}
+
+.recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-top: 0.25rem;
+}
+
+.recent-database {
+  width: 100%;
+  overflow: hidden;
+  padding: 0.32rem 0.45rem;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-family: ui-monospace, "Cascadia Code", "Ubuntu Mono", monospace;
+  font-size: 0.76rem;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-database:hover {
+  border-color: var(--line);
+  color: var(--text);
+  background: var(--list-hover);
+}
+
+.restore-button {
+  margin-top: 0.7rem;
+}
+
 .unlock-theme {
   justify-content: space-between;
   margin-top: 0.9rem;
@@ -833,6 +869,28 @@ tbody tr:last-child td { border-bottom: 0; }
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+/* Audit */
+
+.audit-pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  margin-top: 0.7rem;
+}
+
+.audit-detail {
+  display: inline-block;
+  max-width: 34rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
+  color: var(--muted);
+  font-family: ui-monospace, "Cascadia Code", "Ubuntu Mono", monospace;
+  font-size: 0.78rem;
 }
 
 /* Map */

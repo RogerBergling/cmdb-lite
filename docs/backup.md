@@ -34,6 +34,22 @@ backup. Use **Backup** instead.
 
 ## Restore
 
+### In-app restore to a new path
+
+1. On the unlock screen, choose **Restore a backup to a new database…**.
+2. Select the backup `.cmdb` file. Its `.meta` sidecar must be next to it.
+3. Choose a **new** destination path that does not exist.
+4. Confirm the restore.
+5. Enter the passphrase that was active when the backup was created.
+
+The in-app restore copies the database and creates the matching `.meta` sidecar.
+It never overwrites an existing database. To replace a database, restore to a
+new path first, verify it, and then switch to it.
+
+The **Audit** tab can verify the restored chain.
+
+### Manual restore
+
 1. Close `cmdb-lite`.
 2. Keep the current database and `.meta` somewhere safe.
 3. Copy the backup pair back to the path you want to use:

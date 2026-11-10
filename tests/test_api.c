@@ -4,6 +4,7 @@
 #include "cmdb/api.h"
 #include "cmdb/ci.h"
 #include "cmdb/diagram.h"
+#include "cmdb/export.h"
 #include "cmdb/scan.h"
 #include "cmdb/types.h"
 #include "cmdb/util.h"
@@ -104,6 +105,9 @@ void test_api(void) {
   cmdb_api_host_t host;
   char drawio_path[4096];
   char backup_path[4096];
+  char restored_path[4096];
+  char export_path[4096];
+  char export_json_path[4096];
 
   TEST_ASSERT(dir != NULL);
   if (dir == NULL) {
@@ -112,6 +116,14 @@ void test_api(void) {
   test_path(path, sizeof(path), dir, "api.cmdb");
   test_path(drawio_path, sizeof(drawio_path), dir, "map.drawio");
   test_path(backup_path, sizeof(backup_path), dir, "backup.cmdb");
+  test_path(restored_path, sizeof(restored_path), dir, "restored.cmdb");
+  test_path(export_path, sizeof(export_path), dir, "export.csv");
+  test_path(export_json_path, sizeof(export_json_path), dir, "export.json");
+#ifdef _WIN32
+  _putenv_s("CMDB_CONFIG_DIR", dir);
+#else
+  setenv("CMDB_CONFIG_DIR", dir, 1);
+#endif
   memset(&host, 0, sizeof(host));
   host.choose_file = choose_file_stub;
   cmdb_error_clear(&err);
@@ -240,6 +252,23 @@ void test_api(void) {
       TEST_ASSERT(cJSON_IsString(theme));
       TEST_ASSERT(theme != NULL && strcmp(theme->valuestring, "light") == 0);
       TEST_ASSERT(cJSON_IsTrue(persisted));
+    }
+    cJSON_Delete(response);
+  }
+
+  response = api_call(app, "{\"id\":38,\"method\":\"settings.get\",\"params\":{}}");
+  TEST_ASSERT(response != NULL);
+  if (response != NULL) {
+    result = cJSON_GetObjectItemCaseSensitive(response, "result");
+    TEST_ASSERT(cJSON_IsObject(result));
+    if (cJSON_IsObject(result)) {
+      cJSON *last = cJSON_GetObjectItemCaseSensitive(result, "last_database");
+      cJSON *recent = cJSON_GetObjectItemCaseSensitive(result,
+                                                       "recent_databases");
+      TEST_ASSERT(cJSON_IsString(last));
+      TEST_ASSERT(last != NULL && strcmp(last->valuestring, path) == 0);
+      TEST_ASSERT(cJSON_IsArray(recent));
+      TEST_ASSERT(cJSON_GetArraySize(recent) >= 1);
     }
     cJSON_Delete(response);
   }
@@ -458,6 +487,23 @@ void test_api(void) {
   TEST_ASSERT(cmdb_is_regular_file(drawio_path));
   TEST_ASSERT(test_file_contains(drawio_path, "<mxfile"));
 
+  response = api_call(app, "{\"id\":39,\"method\":\"audit.list\",\"params\":{"
+                            "\"limit\":10,\"offset\":0}}");
+  TEST_ASSERT(response != NULL);
+  if (response != NULL) {
+    result = cJSON_GetObjectItemCaseSensitive(response, "result");
+    TEST_ASSERT(cJSON_IsObject(result));
+    if (cJSON_IsObject(result)) {
+      cJSON *total = cJSON_GetObjectItemCaseSensitive(result, "total");
+      cJSON *items = cJSON_GetObjectItemCaseSensitive(result, "items");
+      TEST_ASSERT(cJSON_IsNumber(total));
+      TEST_ASSERT(total != NULL && total->valueint > 0);
+      TEST_ASSERT(cJSON_IsArray(items));
+      TEST_ASSERT(cJSON_GetArraySize(items) > 0);
+    }
+    cJSON_Delete(response);
+  }
+
   response = api_call(app, "{\"id\":10,\"method\":\"audit.verify\",\"params\":{}}");
   TEST_ASSERT(response != NULL);
   if (response != NULL) {
@@ -504,8 +550,16 @@ void test_api(void) {
 
   {
     cmdb_db_t *backup_db = NULL;
+    cmdb_db_t *restored_db = NULL;
     size_t count = 0;
     cmdb_error_clear(&err);
+    TEST_ASSERT(cmdb_export_save(cmdb_app_db(app), CMDB_EXPORT_CI_CSV,
+                                 export_path, &err) == 0);
+    TEST_ASSERT(test_file_contains(export_path, "ci_name,ci_type"));
+    TEST_ASSERT(test_file_contains(export_path, "api-app"));
+    TEST_ASSERT(cmdb_export_save(cmdb_app_db(app), CMDB_EXPORT_JSON,
+                                 export_json_path, &err) == 0);
+    TEST_ASSERT(test_file_contains(export_json_path, "\"cis\""));
     TEST_ASSERT(cmdb_db_backup(cmdb_app_db(app), backup_path, &err) == 0);
     TEST_ASSERT(cmdb_db_open(backup_path, TEST_PASSPHRASE, &backup_db,
                              &err) == 0);
@@ -514,8 +568,19 @@ void test_api(void) {
       TEST_ASSERT(count == 2);
       cmdb_db_close(backup_db);
     }
+    TEST_ASSERT(cmdb_db_restore(backup_path, restored_path, &err) == 0);
+    TEST_ASSERT(cmdb_db_open(restored_path, TEST_PASSPHRASE, &restored_db,
+                             &err) == 0);
+    if (restored_db != NULL) {
+      TEST_ASSERT(cmdb_ci_count(restored_db, &count, &err) == 0);
+      TEST_ASSERT(count == 2);
+      cmdb_db_close(restored_db);
+    }
   }
   test_cleanup_db(dir, "backup.cmdb");
+  test_cleanup_db(dir, "restored.cmdb");
+  (void)remove(export_path);
+  (void)remove(export_json_path);
 
   response = api_call(app, "{\"id\":8,\"method\":\"db.lock\",\"params\":{}}");
   TEST_ASSERT(response != NULL);

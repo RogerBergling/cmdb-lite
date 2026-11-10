@@ -6,12 +6,14 @@
 #include "cmdb/ci.h"
 #include "cmdb/diagram.h"
 #include "cmdb/drawio.h"
+#include "cmdb/export.h"
 #include "cmdb/graph.h"
 #include "cmdb/import.h"
 #include "cmdb/json_util.h"
 #include "cmdb/relationships.h"
 #include "cmdb/scan.h"
 #include "cmdb/schema.h"
+#include "cmdb/settings.h"
 #include "cmdb/types.h"
 #include "cmdb/util.h"
 
@@ -621,8 +623,81 @@ static cJSON *handle_app_info(cmdb_app_t *app) {
   return result;
 }
 
-static cJSON *handle_prefs_get(cmdb_app_t *app, cmdb_error_t *err) {
-  char theme[16] = "system";
+static cJSON *settings_to_json(const cmdb_settings_t *settings) {
+  cJSON *result = cJSON_CreateObject();
+  cJSON *recent;
+  size_t i;
+
+  if (result == NULL) {
+    return NULL;
+  }
+  cJSON_AddStringToObject(result, "last_database", settings->last_database);
+  recent = cJSON_CreateArray();
+  if (recent == NULL) {
+    cJSON_Delete(result);
+    return NULL;
+  }
+  for (i = 0; i < settings->recent_count; i++) {
+    cJSON_AddItemToArray(recent,
+                         cJSON_CreateString(settings->recent_databases[i]));
+  }
+  cJSON_AddItemToObject(result, "recent_databases", recent);
+  return result;
+}
+
+static void settings_remember_path(const char *path) {
+  cmdb_settings_t settings;
+  cmdb_error_t err;
+
+  if (path == NULL || path[0] == '\0') {
+    return;
+  }
+  cmdb_error_clear(&err);
+  if (cmdb_settings_load(&settings, &err) != 0) {
+    return;
+  }
+  cmdb_settings_remember(&settings, path);
+  (void)cmdb_settings_save(&settings, &err);
+}
+
+static cJSON *handle_settings_get(cmdb_error_t *err) {
+  cmdb_settings_t settings;
+  cJSON *result;
+
+  if (cmdb_settings_load(&settings, err) != 0) {
+    return NULL;
+  }
+  result = settings_to_json(&settings);
+  if (result == NULL) {
+    cmdb_error_set(err, CMDB_ERR_INTERNAL, "Cannot create settings result");
+  }
+  return result;
+}
+
+static cJSON *handle_settings_remember(cJSON *params, cmdb_error_t *err) {
+  const char *path = NULL;
+  cmdb_settings_t settings;
+  cJSON *result;
+
+  if (require_params(params, err) != 0 ||
+      get_string(params, "path", &path, 1, err) != 0) {
+    return NULL;
+  }
+  if (cmdb_settings_load(&settings, err) != 0) {
+    return NULL;
+  }
+  cmdb_settings_remember(&settings, path);
+  if (cmdb_settings_save(&settings, err) != 0) {
+    return NULL;
+  }
+  result = settings_to_json(&settings);
+  if (result == NULL) {
+    cmdb_error_set(err, CMDB_ERR_INTERNAL, "Cannot create settings result");
+  }
+  return result;
+}
+
+static cJSON *handle_prefs_get(cmdb_app_t *app, cmdb_error_t *err) {  char theme[16] = "system";
   int persisted = 0;
   cJSON *result;
 
@@ -694,6 +769,7 @@ static cJSON *handle_db_create(cmdb_app_t *app, cJSON *params,
   }
   cmdb_json_wipe_string(params, "passphrase");
   app->db = db;
+  settings_remember_path(path);
   result = cJSON_CreateObject();
   if (result != NULL) {
     cJSON_AddStringToObject(result, "path", path);
@@ -726,9 +802,16 @@ static cJSON *handle_db_open(cmdb_app_t *app, cJSON *params,
   cmdb_json_wipe_string(params, "passphrase");
   app->db = db;
   (void)cmdb_scan_jobs_recover(app->db, NULL);
+  settings_remember_path(path);
   result = cJSON_CreateObject();
   if (result != NULL) {
     cJSON_AddStringToObject(result, "path", path);
+    cJSON_AddBoolToObject(result, "migrated",
+                          cmdb_db_was_migrated(app->db));
+    if (cmdb_db_migration_backup(app->db)[0] != '\0') {
+      cJSON_AddStringToObject(result, "backup_path",
+                              cmdb_db_migration_backup(app->db));
+    }
   }
   return result;
 }
@@ -1662,9 +1745,105 @@ static cJSON *handle_graph_save_drawio(cmdb_app_t *app, cJSON *params,
   return result;
 }
 
-static cJSON *handle_db_backup(cmdb_app_t *app, cJSON *params,
-                               cmdb_error_t *err) {
+static cJSON *handle_export_save(cmdb_app_t *app, cJSON *params,
+                                 cmdb_error_t *err) {
+  const char *kind_text = NULL;
+  cmdb_export_kind_t kind;
+  const char *filter_name;
+  const char *pattern;
+  const char *suggested;
   char *path = NULL;
+  cJSON *result;
+
+  if (require_params(params, err) != 0 ||
+      get_string(params, "kind", &kind_text, 1, err) != 0) {
+    return NULL;
+  }
+  if (strcmp(kind_text, "ci_csv") == 0) {
+    kind = CMDB_EXPORT_CI_CSV;
+    filter_name = "CSV files";
+    pattern = "*.csv";
+    suggested = "inventory.csv";
+  } else if (strcmp(kind_text, "rel_csv") == 0) {
+    kind = CMDB_EXPORT_REL_CSV;
+    filter_name = "CSV files";
+    pattern = "*.csv";
+    suggested = "relationships.csv";
+  } else if (strcmp(kind_text, "json") == 0) {
+    kind = CMDB_EXPORT_JSON;
+    filter_name = "JSON files";
+    pattern = "*.json";
+    suggested = "inventory.json";
+  } else {
+    cmdb_error_set(err, CMDB_ERR_VALIDATION,
+                   "kind must be ci_csv, rel_csv, or json");
+    return NULL;
+  }
+  if (app->host.choose_file == NULL) {
+    cmdb_error_set(err, CMDB_ERR_INTERNAL, "File dialog is unavailable");
+    return NULL;
+  }
+  if (app->host.choose_file(app->host.userdata, 1, "Export CMDB data",
+                            filter_name, pattern, suggested, &path,
+                            err) != 0) {
+    return NULL;
+  }
+  if (path == NULL) {
+    result = cJSON_CreateObject();
+    if (result != NULL) {
+      cJSON_AddBoolToObject(result, "saved", 0);
+    }
+    return result;
+  }
+  {
+    const char *db_path = cmdb_db_path(app->db);
+    char *meta_path = cmdb_path_meta(db_path);
+    int conflict = 0;
+    if (meta_path != NULL && strcmp(path, meta_path) == 0) {
+      conflict = 1;
+    }
+    if (db_path != NULL && strcmp(path, db_path) == 0) {
+      conflict = 1;
+    }
+    free(meta_path);
+    if (conflict || path_has_extension(path, ".cmdb") ||
+        path_has_extension(path, ".meta")) {
+      free(path);
+      cmdb_error_set(err, CMDB_ERR_VALIDATION,
+                     "Choose an export path, not a CMDB database path");
+      return NULL;
+    }
+  }
+  if (cmdb_export_save(app->db, kind, path, err) != 0) {
+    free(path);
+    return NULL;
+  }
+  {
+    cJSON *detail = cJSON_CreateObject();
+    char *json = NULL;
+    if (detail != NULL) {
+      cJSON_AddStringToObject(detail, "kind", kind_text);
+      cJSON_AddStringToObject(detail, "path", path);
+      json = cJSON_PrintUnformatted(detail);
+      cJSON_Delete(detail);
+    }
+    if (json != NULL) {
+      (void)cmdb_audit_add(app->db, "local", "export", "data", kind_text,
+                           json, NULL);
+      free(json);
+    }
+  }
+  result = cJSON_CreateObject();
+  if (result != NULL) {
+    cJSON_AddBoolToObject(result, "saved", 1);
+    cJSON_AddStringToObject(result, "path", path);
+  }
+  free(path);
+  return result;
+}
+
+static cJSON *handle_db_backup(cmdb_app_t *app, cJSON *params,
+                               cmdb_error_t *err) {  char *path = NULL;
   cJSON *result;
 
   (void)params;
@@ -1712,6 +1891,27 @@ static cJSON *handle_db_backup(cmdb_app_t *app, cJSON *params,
   return result;
 }
 
+static cJSON *handle_db_restore(cJSON *params, cmdb_error_t *err) {
+  const char *source = NULL;
+  const char *destination = NULL;
+  cJSON *result;
+
+  if (require_params(params, err) != 0 ||
+      get_string(params, "source", &source, 1, err) != 0 ||
+      get_string(params, "destination", &destination, 1, err) != 0) {
+    return NULL;
+  }
+  if (cmdb_db_restore(source, destination, err) != 0) {
+    return NULL;
+  }
+  result = cJSON_CreateObject();
+  if (result != NULL) {
+    cJSON_AddBoolToObject(result, "restored", 1);
+    cJSON_AddStringToObject(result, "path", destination);
+  }
+  return result;
+}
+
 static cJSON *handle_choose_database(cmdb_app_t *app, cJSON *params,
                                      cmdb_error_t *err) {
   const char *mode = NULL;
@@ -1750,6 +1950,63 @@ static cJSON *handle_choose_database(cmdb_app_t *app, cJSON *params,
     }
   }
   free(path);
+  return result;
+}
+
+static cJSON *handle_audit_list(cmdb_app_t *app, cJSON *params,
+                                cmdb_error_t *err) {
+  int limit = 100;
+  int offset = 0;
+  cmdb_audit_entry_t *entries = NULL;
+  size_t count = 0;
+  size_t total = 0;
+  size_t i;
+  cJSON *result;
+  cJSON *items;
+
+  if (params != NULL) {
+    if (get_int(params, "limit", 100, 1, (int)CMDB_MAX_LIST_LIMIT,
+                &limit, err) != 0 ||
+        get_int(params, "offset", 0, 0, 1000000, &offset, err) != 0) {
+      return NULL;
+    }
+  }
+  if (cmdb_audit_list(app->db, (size_t)limit, (size_t)offset, &entries,
+                      &count, &total, err) != 0) {
+    return NULL;
+  }
+  result = cJSON_CreateObject();
+  items = cJSON_CreateArray();
+  if (result == NULL || items == NULL) {
+    cmdb_audit_entries_free(entries, count);
+    cJSON_Delete(result);
+    cJSON_Delete(items);
+    cmdb_error_set(err, CMDB_ERR_INTERNAL, "Cannot create audit list");
+    return NULL;
+  }
+  for (i = 0; i < count; i++) {
+    cJSON *item = cJSON_CreateObject();
+    if (item == NULL) {
+      break;
+    }
+    cJSON_AddNumberToObject(item, "id", (double)entries[i].id);
+    cJSON_AddStringToObject(item, "ts", entries[i].ts);
+    cJSON_AddStringToObject(item, "actor", entries[i].actor);
+    cJSON_AddStringToObject(item, "action", entries[i].action);
+    cJSON_AddStringToObject(item, "entity_type", entries[i].entity_type);
+    cJSON_AddStringToObject(item, "entity_id", entries[i].entity_id);
+    cJSON_AddStringToObject(item, "detail",
+                            entries[i].detail != NULL ? entries[i].detail : "");
+    cJSON_AddStringToObject(item, "prev_hash", entries[i].prev_hash);
+    cJSON_AddStringToObject(item, "hash", entries[i].hash);
+    cJSON_AddItemToArray(items, item);
+  }
+  cmdb_audit_entries_free(entries, count);
+  cJSON_AddNumberToObject(result, "total", (double)total);
+  cJSON_AddNumberToObject(result, "count", (double)count);
+  cJSON_AddNumberToObject(result, "offset", (double)offset);
+  cJSON_AddNumberToObject(result, "limit", (double)limit);
+  cJSON_AddItemToObject(result, "items", items);
   return result;
 }
 
@@ -2734,6 +2991,10 @@ cJSON *cmdb_api_handle(cmdb_app_t *app, cJSON *request) {
     if (require_db(app, &err) == 0) {
       result = handle_prefs_set(app, params, &err);
     }
+  } else if (strcmp(method, "settings.get") == 0) {
+    result = handle_settings_get(&err);
+  } else if (strcmp(method, "settings.remember") == 0) {
+    result = handle_settings_remember(params, &err);
   } else if (strcmp(method, "db.create") == 0) {
     result = handle_db_create(app, params, &err);
   } else if (strcmp(method, "db.open") == 0) {
@@ -2746,6 +3007,8 @@ cJSON *cmdb_api_handle(cmdb_app_t *app, cJSON *request) {
     if (require_db(app, &err) == 0) {
       result = handle_db_backup(app, params, &err);
     }
+  } else if (strcmp(method, "db.restore") == 0) {
+    result = handle_db_restore(params, &err);
   } else if (strcmp(method, "dialog.choose_database") == 0) {
     result = handle_choose_database(app, params, &err);
   } else if (strcmp(method, "types.list") == 0) {
@@ -2876,6 +3139,10 @@ cJSON *cmdb_api_handle(cmdb_app_t *app, cJSON *request) {
     if (require_db(app, &err) == 0) {
       result = handle_scan_import(app, params, &err);
     }
+  } else if (strcmp(method, "export.save") == 0) {
+    if (require_db(app, &err) == 0) {
+      result = handle_export_save(app, params, &err);
+    }
   } else if (strcmp(method, "diagrams.list") == 0) {
     if (require_db(app, &err) == 0) {
       result = handle_diagrams_list(app, &err);
@@ -2899,6 +3166,10 @@ cJSON *cmdb_api_handle(cmdb_app_t *app, cJSON *request) {
   } else if (strcmp(method, "audit.verify") == 0) {
     if (require_db(app, &err) == 0) {
       result = handle_audit_verify(app, &err);
+    }
+  } else if (strcmp(method, "audit.list") == 0) {
+    if (require_db(app, &err) == 0) {
+      result = handle_audit_list(app, params, &err);
     }
   } else {
     cmdb_error_set(&err, CMDB_ERR_NOT_FOUND, "Unknown API method");

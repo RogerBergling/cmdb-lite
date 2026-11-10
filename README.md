@@ -3,7 +3,7 @@
 A local-first, encrypted Configuration Management Database (CMDB) for Linux and
 Windows.
 
-> **Status: v0.4.0 feature release.** The repository contains the C17 core,
+> **Status: v0.5.0 feature release.** The repository contains the C17 core,
 > SQLCipher storage layer, Argon2id key derivation, CI categories/types/custom
 > fields, typed relationships, CSV/TSV import, dependency graph builder,
 > `.drawio` export, an embedded diagram editor, persisted nmap discovery with
@@ -21,6 +21,10 @@ Windows.
 | ![Diagram editor](docs/screenshots/diagrams.png) | ![Dependency map](docs/screenshots/dependency-map.png) |
 | **CI types and custom fields** | **Light theme** |
 | ![CI types](docs/screenshots/ci-types.png) | ![Light theme](docs/screenshots/inventory-light.png) |
+| **Audit log** | **Export** |
+| ![Audit log](docs/screenshots/audit.png) | ![Export](docs/screenshots/export.png) |
+| **Unlock / recent databases** | |
+| ![Unlock](docs/screenshots/unlock.png) | |
 
 The screenshots use sample inventory data.
 
@@ -35,12 +39,12 @@ Release assets:
 
 | Platform | Files |
 |---|---|
-| Debian/Ubuntu | `cmdb-lite_0.4.0_amd64.deb` |
-| Fedora/RHEL | `cmdb-lite-0.4.0-*.rpm` |
-| Portable Linux | `cmdb-lite-0.4.0-linux-x86_64.tar.gz` |
+| Debian/Ubuntu | `cmdb-lite_0.5.0_amd64.deb` |
+| Fedora/RHEL | `cmdb-lite-0.5.0-*.rpm` |
+| Portable Linux | `cmdb-lite-0.5.0-linux-x86_64.tar.gz` |
 | Flatpak (Linux) | `cmdb-lite.flatpak` |
 | Windows portable | `cmdb-lite-windows-x64.zip` |
-| Windows installer | `cmdb-lite-0.4.0-windows-x64.msi` |
+| Windows installer | `cmdb-lite-0.5.0-windows-x64.msi` |
 | Checksums | `SHA256SUMS` |
 
 Verify the download before running it:
@@ -81,7 +85,7 @@ Install the dependencies first, then the package:
 ```bash
 sudo apt update
 sudo apt install -y libgtk-3-0t64 libwebkit2gtk-4.1-0 libssl3t64
-sudo apt install ./cmdb-lite_0.4.0_amd64.deb
+sudo apt install ./cmdb-lite_0.5.0_amd64.deb
 cmdb
 ```
 
@@ -95,7 +99,7 @@ fully self-contained option.
 Install with `dnf` so dependencies are resolved automatically:
 
 ```bash
-sudo dnf install ./cmdb-lite-0.4.0-*.rpm
+sudo dnf install ./cmdb-lite-0.5.0-*.rpm
 cmdb
 ```
 
@@ -117,21 +121,21 @@ libsodium, OpenSSL, expat, and the C/C++ runtime are linked statically.
 **MSI installer**
 
 ```powershell
-msiexec /i .\cmdb-lite-0.4.0-windows-x64.msi
+msiexec /i .\cmdb-lite-0.5.0-windows-x64.msi
 ```
 
 The MSI is per-machine, requires administrator elevation, and creates a Start
 Menu shortcut. Uninstall with:
 
 ```powershell
-msiexec /x .\cmdb-lite-0.4.0-windows-x64.msi
+msiexec /x .\cmdb-lite-0.5.0-windows-x64.msi
 ```
 
 ### Portable Linux tarball
 
 ```bash
-tar -xzf cmdb-lite-0.4.0-linux-x86_64.tar.gz
-./cmdb-lite-0.4.0-linux-x86_64/bin/cmdb
+tar -xzf cmdb-lite-0.5.0-linux-x86_64.tar.gz
+./cmdb-lite-0.5.0-linux-x86_64/bin/cmdb
 ```
 
 The ELF requires GTK3, WebKitGTK 4.1, expat, and the system OpenSSL 3
@@ -176,19 +180,20 @@ persisted staging, matching/merge review, cancellation, and troubleshooting.
 ### Upgrading
 
 Application upgrades replace the executable only. Your database and `.meta`
-sidecar stay where they are. Before upgrading, lock the application and copy
-both files together, or use the in-app **Backup** button.
+sidecar stay where they are. The application remembers the last database and
+shows recent databases on the unlock screen.
 
-The v0.4.0 release migrates the schema from version 1 to version 2 (CI
-categories and persisted scan staging). The migration is applied in place when
-the database is opened; back up first.
+v0.5.0 does not change the database schema; it remains schema version 3. Before
+any future schema migration, the application now creates an automatic
+pre-upgrade backup and shows its path. You can also use the in-app **Backup**
+button at any time.
 
 ```bash
 # Debian/Ubuntu
-sudo apt install ./cmdb-lite_0.4.0_amd64.deb
+sudo apt install ./cmdb-lite_0.5.0_amd64.deb
 
 # Fedora
-sudo dnf upgrade ./cmdb-lite-0.4.0-*.rpm
+sudo dnf upgrade ./cmdb-lite-0.5.0-*.rpm
 ```
 
 On Windows, install the new MSI or replace the portable executable and open the
@@ -245,6 +250,13 @@ password vault instead.
   empty fields or overwrite scan fields), or ignore for each host.
 - **Encrypted database backup** from the application; the backup is consistent
   while the database is open and includes the matching `.meta` sidecar.
+- **Restore to a new database path** from the unlock screen.
+- **Automatic pre-migration backup** before a schema upgrade, with the backup
+  path shown after opening.
+- **Last database and recent database list**, stored in a per-user config file
+  without the passphrase.
+- **CSV/JSON export** for CI inventory, relationships, and a full snapshot.
+- **Audit log viewer** with hash-chain verification.
 - Append-only audit log with a hash chain.
 - **Single-file executables**: a Linux ELF and a Windows EXE with the HTML/CSS/JS
   UI embedded; no separate `web/` folder is needed.
@@ -805,7 +817,7 @@ It installs the static vcpkg dependencies, builds, tests, and creates:
 
 ```text
 dist\cmdb-lite-windows-x64.zip
-dist\cmdb-lite-0.4.0-windows-x64.msi
+dist\cmdb-lite-0.5.0-windows-x64.msi
 dist\cmdb-lite-windows-x64\bin\cmdb.exe
 ```
 
@@ -861,10 +873,15 @@ GitHub Actions Windows runner.
   model, service/OS detection, persisted staging, matching/merge review, and
   troubleshooting.
 - [`docs/backup.md`](docs/backup.md) — in-app encrypted backup and restore.
+- [`docs/export.md`](docs/export.md) — CSV and JSON export formats.
+- [`docs/audit.md`](docs/audit.md) — audit viewer and chain verification.
+- [`docs/settings.md`](docs/settings.md) — last/recent database configuration.
 - [`docs/flatpak.md`](docs/flatpak.md) — Flatpak build, install, sandbox, and
   nmap limitations.
 - [`docs/upgrading.md`](docs/upgrading.md) — backups, database compatibility,
   package upgrades, rollback, and post-upgrade checks.
+- [`docs/releasing.md`](docs/releasing.md) — tag-driven release automation and
+  artifact verification.
 - [`docs/windows.md`](docs/windows.md) — Windows build, WebView2 behaviour,
   portable package layout, and clean-VM validation checklist.
 
@@ -951,7 +968,9 @@ self-contained Linux bundle with the GNOME runtime and nmap. The Windows CI job
 single `bin/cmdb.exe` with no unexpected DLLs (verified by CI). GUI launch, MSI
 install/uninstall, and WebView2 behaviour must still be validated on a clean
 Windows VM using the checklist in
-[`docs/windows.md`](docs/windows.md).
+[`docs/windows.md`](docs/windows.md). Pushing a `v*` tag runs all four platform
+jobs and publishes the assets with `SHA256SUMS` automatically; see
+[`docs/releasing.md`](docs/releasing.md).
 
 ## Import examples
 

@@ -3,6 +3,7 @@
 #include "cmdb/crypto.h"
 #include "cmdb/util.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 static int get_previous_hash(cmdb_db_t *db, char out[65], cmdb_error_t *err) {
@@ -180,8 +181,91 @@ int cmdb_audit_verify(cmdb_db_t *db, int *valid, cmdb_error_t *err) {
   return 0;
 }
 
-int cmdb_audit_count(cmdb_db_t *db, size_t *out, cmdb_error_t *err) {
+int cmdb_audit_list(cmdb_db_t *db, size_t limit, size_t offset,
+                    cmdb_audit_entry_t **out, size_t *count, size_t *total,
+                    cmdb_error_t *err) {
   sqlite3_stmt *stmt = NULL;
+  cmdb_audit_entry_t *items;
+  size_t total_value = 0;
+  size_t index = 0;
+  int rc;
+
+  if (db == NULL || out == NULL || count == NULL || total == NULL) {
+    cmdb_error_set(err, CMDB_ERR_INVALID_ARGUMENT, "Invalid audit list");
+    return -1;
+  }
+  *out = NULL;
+  *count = 0;
+  *total = 0;
+  if (limit == 0 || limit > CMDB_MAX_LIST_LIMIT) {
+    limit = CMDB_MAX_LIST_LIMIT;
+  }
+  if (cmdb_audit_count(db, &total_value, err) != 0) {
+    return -1;
+  }
+  *total = total_value;
+  if (total_value == 0 || offset >= total_value) {
+    return 0;
+  }
+  items = cmdb_calloc(limit, sizeof(*items));
+  if (sqlite3_prepare_v2(
+        cmdb_db_sqlite(db),
+        "SELECT id, ts, actor, action, entity_type, entity_id, detail, "
+        "prev_hash, hash FROM audit_log ORDER BY id DESC LIMIT ? OFFSET ?;",
+        -1, &stmt, NULL) != SQLITE_OK) {
+    free(items);
+    cmdb_error_set(err, CMDB_ERR_DATABASE, "Cannot list audit entries");
+    return -1;
+  }
+  sqlite3_bind_int64(stmt, 1, (sqlite3_int64)limit);
+  sqlite3_bind_int64(stmt, 2, (sqlite3_int64)offset);
+  while (index < limit && (rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+    const char *text;
+    items[index].id = sqlite3_column_int64(stmt, 0);
+    text = (const char *)sqlite3_column_text(stmt, 1);
+    (void)cmdb_str_copy(items[index].ts, sizeof(items[index].ts), text);
+    text = (const char *)sqlite3_column_text(stmt, 2);
+    (void)cmdb_str_copy(items[index].actor, sizeof(items[index].actor), text);
+    text = (const char *)sqlite3_column_text(stmt, 3);
+    (void)cmdb_str_copy(items[index].action, sizeof(items[index].action), text);
+    text = (const char *)sqlite3_column_text(stmt, 4);
+    (void)cmdb_str_copy(items[index].entity_type,
+                        sizeof(items[index].entity_type), text);
+    text = (const char *)sqlite3_column_text(stmt, 5);
+    (void)cmdb_str_copy(items[index].entity_id,
+                        sizeof(items[index].entity_id), text);
+    text = (const char *)sqlite3_column_text(stmt, 6);
+    items[index].detail = cmdb_strdup(text != NULL ? text : "");
+    text = (const char *)sqlite3_column_text(stmt, 7);
+    (void)cmdb_str_copy(items[index].prev_hash,
+                        sizeof(items[index].prev_hash), text);
+    text = (const char *)sqlite3_column_text(stmt, 8);
+    (void)cmdb_str_copy(items[index].hash, sizeof(items[index].hash), text);
+    index++;
+  }
+  sqlite3_finalize(stmt);
+  if (rc != SQLITE_ROW && rc != SQLITE_DONE) {
+    cmdb_audit_entries_free(items, index);
+    cmdb_error_set(err, CMDB_ERR_DATABASE, "Cannot list audit entries");
+    return -1;
+  }
+  *out = items;
+  *count = index;
+  return 0;
+}
+
+void cmdb_audit_entries_free(cmdb_audit_entry_t *entries, size_t count) {
+  size_t i;
+  if (entries == NULL) {
+    return;
+  }
+  for (i = 0; i < count; i++) {
+    free(entries[i].detail);
+  }
+  free(entries);
+}
+
+int cmdb_audit_count(cmdb_db_t *db, size_t *out, cmdb_error_t *err) {  sqlite3_stmt *stmt = NULL;
   int rc;
 
   if (db == NULL || out == NULL) {

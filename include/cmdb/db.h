@@ -2,6 +2,7 @@
 #define CMDB_DB_H
 
 #include "cmdb/error.h"
+#include "cmdb/limits.h"
 #include "cmdb/meta.h"
 
 #include <sqlcipher/sqlite3.h>
@@ -21,10 +22,14 @@ int cmdb_db_open(const char *path, const char *passphrase,
 void cmdb_db_close(cmdb_db_t *db);
 
 int cmdb_db_backup(cmdb_db_t *db, const char *path, cmdb_error_t *err);
+int cmdb_db_restore(const char *source, const char *destination,
+                    cmdb_error_t *err);
 
 sqlite3 *cmdb_db_sqlite(cmdb_db_t *db);
 const char *cmdb_db_path(const cmdb_db_t *db);
 const cmdb_meta_t *cmdb_db_meta(const cmdb_db_t *db);
+int cmdb_db_was_migrated(const cmdb_db_t *db);
+const char *cmdb_db_migration_backup(const cmdb_db_t *db);
 
 int cmdb_db_exec(cmdb_db_t *db, const char *sql, cmdb_error_t *err);
 int cmdb_db_begin(cmdb_db_t *db, cmdb_error_t *err);
