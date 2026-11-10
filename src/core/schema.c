@@ -5,6 +5,7 @@
 #include "cmdb/util.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #ifndef CMDB_VERSION
@@ -15,6 +16,15 @@ static const char schema_sql[] =
   "CREATE TABLE IF NOT EXISTS app_meta (\n"
   "  key TEXT PRIMARY KEY NOT NULL,\n"
   "  value TEXT NOT NULL\n"
+  ");\n"
+  "CREATE TABLE IF NOT EXISTS ci_categories (\n"
+  "  id TEXT PRIMARY KEY NOT NULL,\n"
+  "  name TEXT NOT NULL COLLATE NOCASE UNIQUE,\n"
+  "  description TEXT NOT NULL DEFAULT '',\n"
+  "  color TEXT NOT NULL DEFAULT '',\n"
+  "  sort_order INTEGER NOT NULL DEFAULT 0,\n"
+  "  created_at TEXT NOT NULL,\n"
+  "  updated_at TEXT NOT NULL\n"
   ");\n"
   "CREATE TABLE IF NOT EXISTS ci_types (\n"
   "  id TEXT PRIMARY KEY NOT NULL,\n"
@@ -107,8 +117,18 @@ static const char schema_sql[] =
   ");\n"
   "CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts);\n";
 
-static const char scan_schema_sql[] =
-  "CREATE TABLE IF NOT EXISTS scan_jobs (\n"
+static const char categories_schema_sql[] =
+  "CREATE TABLE IF NOT EXISTS ci_categories (\n"
+  "  id TEXT PRIMARY KEY NOT NULL,\n"
+  "  name TEXT NOT NULL COLLATE NOCASE UNIQUE,\n"
+  "  description TEXT NOT NULL DEFAULT '',\n"
+  "  color TEXT NOT NULL DEFAULT '',\n"
+  "  sort_order INTEGER NOT NULL DEFAULT 0,\n"
+  "  created_at TEXT NOT NULL,\n"
+  "  updated_at TEXT NOT NULL\n"
+  ");\n";
+
+static const char scan_schema_sql[] =  "CREATE TABLE IF NOT EXISTS scan_jobs (\n"
   "  id TEXT PRIMARY KEY NOT NULL,\n"
   "  target TEXT NOT NULL,\n"
   "  ports TEXT NOT NULL,\n"
@@ -152,6 +172,14 @@ typedef struct {
   const char *id;
   const char *name;
   const char *description;
+  const char *color;
+  int sort_order;
+} seed_category_t;
+
+typedef struct {
+  const char *id;
+  const char *name;
+  const char *description;
   const char *icon;
   const char *color;
   const char *category;
@@ -173,6 +201,19 @@ typedef struct {
   const char *description;
   const char *color;
 } seed_rel_type_t;
+
+static const seed_category_t seed_categories[] = {
+  {"c1111111-1111-4111-8111-111111111111", "Compute",
+   "Physical and virtual compute resources", "#dae8fc", 10},
+  {"c2222222-2222-4222-8222-222222222222", "Network",
+   "Network devices and segments", "#d5e8d4", 20},
+  {"c3333333-3333-4333-8333-333333333333", "Applications",
+   "Applications and databases", "#fff2cc", 30},
+  {"c4444444-4444-4444-8444-444444444444", "Services",
+   "Business and cloud services", "#e6d0de", 40},
+  {"c5555555-5555-4555-8555-555555555555", "Other",
+   "Uncategorised and miscellaneous types", "#f5f5f5", 50}
+};
 
 static const seed_type_t seed_types[] = {
   {"11111111-1111-4111-8111-111111111111", "Linux Server",
@@ -357,6 +398,161 @@ int cmdb_schema_meta_get(cmdb_db_t *db, const char *key,
   return -1;
 }
 
+static int schema_migrate_categories(cmdb_db_t *db, const char *now,
+                                     cmdb_error_t *err) {
+  sqlite3_stmt *insert = NULL;
+  sqlite3_stmt *select = NULL;
+  sqlite3_stmt *find = NULL;
+  sqlite3_stmt *update = NULL;
+  char **names = NULL;
+  size_t name_count = 0;
+  size_t capacity = 0;
+  size_t i;
+  int rc;
+
+  if (cmdb_db_exec(db, categories_schema_sql, err) != 0) {
+    return -1;
+  }
+  if (sqlite3_prepare_v2(
+        cmdb_db_sqlite(db),
+        "INSERT INTO ci_categories"
+        "(id, name, description, color, sort_order, created_at, updated_at) "
+        "VALUES(?, ?, ?, ?, ?, ?, ?);",
+        -1, &insert, NULL) != SQLITE_OK) {
+    cmdb_error_set(err, CMDB_ERR_DATABASE, "Cannot prepare category migration");
+    return -1;
+  }
+  for (i = 0; i < sizeof(seed_categories) / sizeof(seed_categories[0]); i++) {
+    sqlite3_reset(insert);
+    sqlite3_clear_bindings(insert);
+    sqlite3_bind_text(insert, 1, seed_categories[i].id, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(insert, 2, seed_categories[i].name, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(insert, 3, seed_categories[i].description, -1,
+                      SQLITE_TRANSIENT);
+    sqlite3_bind_text(insert, 4, seed_categories[i].color, -1,
+                      SQLITE_TRANSIENT);
+    sqlite3_bind_int(insert, 5, seed_categories[i].sort_order);
+    sqlite3_bind_text(insert, 6, now, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(insert, 7, now, -1, SQLITE_TRANSIENT);
+    rc = sqlite3_step(insert);
+    if (rc != SQLITE_DONE && rc != SQLITE_CONSTRAINT) {
+      cmdb_error_set(err, CMDB_ERR_DATABASE, "Cannot seed categories");
+      goto fail;
+    }
+  }
+
+  /*
+   * Collect the legacy names before updating ci_types. Updating the table
+   * while iterating the DISTINCT cursor can make SQLite return the newly
+   * written category IDs as if they were legacy names.
+   */
+  if (sqlite3_prepare_v2(
+        cmdb_db_sqlite(db),
+        "SELECT DISTINCT category COLLATE NOCASE FROM ci_types "
+        "WHERE category <> '';",
+        -1, &select, NULL) != SQLITE_OK) {
+    cmdb_error_set(err, CMDB_ERR_DATABASE,
+                   "Cannot prepare category migration");
+    goto fail;
+  }
+  while ((rc = sqlite3_step(select)) == SQLITE_ROW) {
+    const char *name = (const char *)sqlite3_column_text(select, 0);
+    if (name == NULL || name[0] == '\0') {
+      continue;
+    }
+    if (name_count == capacity) {
+      size_t next = capacity == 0 ? 8 : capacity * 2;
+      names = cmdb_realloc(names, next * sizeof(*names));
+      capacity = next;
+    }
+    names[name_count++] = cmdb_strdup(name);
+  }
+  sqlite3_finalize(select);
+  select = NULL;
+  if (rc != SQLITE_DONE) {
+    cmdb_error_set(err, CMDB_ERR_DATABASE, "Cannot read legacy categories");
+    goto fail;
+  }
+
+  if (sqlite3_prepare_v2(
+        cmdb_db_sqlite(db),
+        "SELECT id FROM ci_categories WHERE name = ? COLLATE NOCASE;",
+        -1, &find, NULL) != SQLITE_OK ||
+      sqlite3_prepare_v2(
+        cmdb_db_sqlite(db),
+        "UPDATE ci_types SET category = ? WHERE category = ? COLLATE NOCASE;",
+        -1, &update, NULL) != SQLITE_OK) {
+    cmdb_error_set(err, CMDB_ERR_DATABASE,
+                   "Cannot prepare category migration");
+    goto fail;
+  }
+  for (i = 0; i < name_count; i++) {
+    char category_id[37];
+    sqlite3_reset(find);
+    sqlite3_clear_bindings(find);
+    sqlite3_bind_text(find, 1, names[i], -1, SQLITE_TRANSIENT);
+    if (sqlite3_step(find) == SQLITE_ROW) {
+      (void)cmdb_str_copy(category_id, sizeof(category_id),
+                          (const char *)sqlite3_column_text(find, 0));
+    } else {
+      if (cmdb_random_uuid(category_id) != 0) {
+        cmdb_error_set(err, CMDB_ERR_INTERNAL,
+                       "Cannot generate category ID");
+        goto fail;
+      }
+      sqlite3_reset(insert);
+      sqlite3_clear_bindings(insert);
+      sqlite3_bind_text(insert, 1, category_id, -1, SQLITE_TRANSIENT);
+      sqlite3_bind_text(insert, 2, names[i], -1, SQLITE_TRANSIENT);
+      sqlite3_bind_text(insert, 3, "Migrated category", -1, SQLITE_TRANSIENT);
+      sqlite3_bind_text(insert, 4, "", -1, SQLITE_TRANSIENT);
+      sqlite3_bind_int(insert, 5, 100);
+      sqlite3_bind_text(insert, 6, now, -1, SQLITE_TRANSIENT);
+      sqlite3_bind_text(insert, 7, now, -1, SQLITE_TRANSIENT);
+      if (sqlite3_step(insert) != SQLITE_DONE) {
+        cmdb_error_set(err, CMDB_ERR_DATABASE,
+                       "Cannot migrate category");
+        goto fail;
+      }
+    }
+    sqlite3_reset(update);
+    sqlite3_clear_bindings(update);
+    sqlite3_bind_text(update, 1, category_id, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(update, 2, names[i], -1, SQLITE_TRANSIENT);
+    if (sqlite3_step(update) != SQLITE_DONE) {
+      cmdb_error_set(err, CMDB_ERR_DATABASE, "Cannot migrate category values");
+      goto fail;
+    }
+  }
+  for (i = 0; i < name_count; i++) {
+    free(names[i]);
+  }
+  free(names);
+  sqlite3_finalize(insert);
+  sqlite3_finalize(find);
+  sqlite3_finalize(update);
+  return 0;
+
+fail:
+  for (i = 0; i < name_count; i++) {
+    free(names[i]);
+  }
+  free(names);
+  if (insert != NULL) {
+    sqlite3_finalize(insert);
+  }
+  if (select != NULL) {
+    sqlite3_finalize(select);
+  }
+  if (find != NULL) {
+    sqlite3_finalize(find);
+  }
+  if (update != NULL) {
+    sqlite3_finalize(update);
+  }
+  return -1;
+}
+
 int cmdb_schema_migrate(cmdb_db_t *db, cmdb_error_t *err) {
   char value[64];
   int version = 0;
@@ -416,6 +612,14 @@ int cmdb_schema_migrate(cmdb_db_t *db, cmdb_error_t *err) {
       sqlite3_finalize(stmt);
     }
   }
+  if (version < 3) {
+    char now[21];
+    cmdb_iso8601_now(now);
+    if (schema_migrate_categories(db, now, err) != 0) {
+      (void)cmdb_db_rollback(db, NULL);
+      return -1;
+    }
+  }
   {
     char next[32];
     (void)snprintf(next, sizeof(next), "%d", CMDB_SCHEMA_VERSION);
@@ -448,8 +652,19 @@ int cmdb_schema_validate(cmdb_db_t *db, cmdb_error_t *err) {
   return 0;
 }
 
+static const char *seed_category_id(const char *name) {
+  size_t i;
+  for (i = 0; i < sizeof(seed_categories) / sizeof(seed_categories[0]); i++) {
+    if (strcmp(seed_categories[i].name, name) == 0) {
+      return seed_categories[i].id;
+    }
+  }
+  return "";
+}
+
 int cmdb_schema_seed(cmdb_db_t *db, cmdb_error_t *err) {
   sqlite3 *handle;
+  sqlite3_stmt *category_stmt = NULL;
   sqlite3_stmt *type_stmt = NULL;
   sqlite3_stmt *field_stmt = NULL;
   sqlite3_stmt *rel_stmt = NULL;
@@ -467,6 +682,39 @@ int cmdb_schema_seed(cmdb_db_t *db, cmdb_error_t *err) {
   if (cmdb_db_begin(db, err) != 0) {
     return -1;
   }
+
+  if (sqlite3_prepare_v2(handle,
+                         "INSERT OR IGNORE INTO ci_categories"
+                         "(id, name, description, color, sort_order, "
+                         "created_at, updated_at) "
+                         "VALUES(?, ?, ?, ?, ?, ?, ?);",
+                         -1, &category_stmt, NULL) != SQLITE_OK) {
+    cmdb_error_set(err, CMDB_ERR_DATABASE, "Cannot prepare category seed");
+    cmdb_error_set_detail(err, "%s", sqlite3_errmsg(handle));
+    goto fail;
+  }
+  for (i = 0; i < sizeof(seed_categories) / sizeof(seed_categories[0]); i++) {
+    sqlite3_reset(category_stmt);
+    sqlite3_clear_bindings(category_stmt);
+    sqlite3_bind_text(category_stmt, 1, seed_categories[i].id, -1,
+                      SQLITE_TRANSIENT);
+    sqlite3_bind_text(category_stmt, 2, seed_categories[i].name, -1,
+                      SQLITE_TRANSIENT);
+    sqlite3_bind_text(category_stmt, 3, seed_categories[i].description, -1,
+                      SQLITE_TRANSIENT);
+    sqlite3_bind_text(category_stmt, 4, seed_categories[i].color, -1,
+                      SQLITE_TRANSIENT);
+    sqlite3_bind_int(category_stmt, 5, seed_categories[i].sort_order);
+    sqlite3_bind_text(category_stmt, 6, now, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(category_stmt, 7, now, -1, SQLITE_TRANSIENT);
+    if (sqlite3_step(category_stmt) != SQLITE_DONE) {
+      cmdb_error_set(err, CMDB_ERR_DATABASE, "Cannot seed categories");
+      cmdb_error_set_detail(err, "%s", sqlite3_errmsg(handle));
+      goto fail;
+    }
+  }
+  sqlite3_finalize(category_stmt);
+  category_stmt = NULL;
 
   if (sqlite3_prepare_v2(handle,
                          "INSERT OR IGNORE INTO ci_types"
@@ -487,8 +735,8 @@ int cmdb_schema_seed(cmdb_db_t *db, cmdb_error_t *err) {
     sqlite3_bind_text(type_stmt, 3, seed_types[i].description, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(type_stmt, 4, seed_types[i].icon, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(type_stmt, 5, seed_types[i].color, -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(type_stmt, 6, seed_types[i].category, -1,
-                      SQLITE_TRANSIENT);
+    sqlite3_bind_text(type_stmt, 6, seed_category_id(seed_types[i].category),
+                      -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(type_stmt, 7, now, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(type_stmt, 8, now, -1, SQLITE_TRANSIENT);
     if (sqlite3_step(type_stmt) != SQLITE_DONE) {
@@ -558,9 +806,11 @@ int cmdb_schema_seed(cmdb_db_t *db, cmdb_error_t *err) {
     }
   }
 
+  sqlite3_finalize(category_stmt);
   sqlite3_finalize(type_stmt);
   sqlite3_finalize(field_stmt);
   sqlite3_finalize(rel_stmt);
+  category_stmt = NULL;
   type_stmt = NULL;
   field_stmt = NULL;
   rel_stmt = NULL;
@@ -581,6 +831,9 @@ int cmdb_schema_seed(cmdb_db_t *db, cmdb_error_t *err) {
   return 0;
 
 fail:
+  if (category_stmt != NULL) {
+    sqlite3_finalize(category_stmt);
+  }
   if (type_stmt != NULL) {
     sqlite3_finalize(type_stmt);
   }

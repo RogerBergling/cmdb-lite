@@ -2,7 +2,10 @@
 
 The **Diagrams** tab is an offline canvas for arranging CIs and creating typed
 relationships. It is a lightweight `.drawio`-compatible editor, not the official
-draw.io web application.
+draw.io web application. The official draw.io bundle is intentionally not
+included: it adds roughly 50 MB of static assets and requires serving a large
+multi-file web application. The built-in editor covers the CMDB relationship
+workflow, and its saved XML can be opened in diagrams.net or draw.io Desktop.
 
 ## Workflow
 

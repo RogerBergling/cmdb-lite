@@ -1,6 +1,7 @@
 #include "cmdb/types.h"
 
 #include "cmdb/audit.h"
+#include "cmdb/categories.h"
 #include "cmdb/json_util.h"
 #include "cmdb/util.h"
 
@@ -88,16 +89,21 @@ static int read_type_row(sqlite3_stmt *stmt, cmdb_ci_type_t *out) {
     return -1;
   }
   text = sqlite3_column_text(stmt, 5);
-  if (cmdb_str_copy(out->category, sizeof(out->category),
+  if (cmdb_str_copy(out->category_id, sizeof(out->category_id),
                     (const char *)text) != 0) {
     return -1;
   }
   text = sqlite3_column_text(stmt, 6);
-  if (cmdb_str_copy(out->created_at, sizeof(out->created_at),
+  if (cmdb_str_copy(out->category, sizeof(out->category),
                     (const char *)text) != 0) {
     return -1;
   }
   text = sqlite3_column_text(stmt, 7);
+  if (cmdb_str_copy(out->created_at, sizeof(out->created_at),
+                    (const char *)text) != 0) {
+    return -1;
+  }
+  text = sqlite3_column_text(stmt, 8);
   if (cmdb_str_copy(out->updated_at, sizeof(out->updated_at),
                     (const char *)text) != 0) {
     return -1;
@@ -137,9 +143,13 @@ int cmdb_types_list(cmdb_db_t *db, cmdb_ci_type_t **out, size_t *count,
 
   types = cmdb_calloc(total, sizeof(*types));
   if (sqlite3_prepare_v2(handle,
-                         "SELECT id, name, description, icon, color, category, "
-                         "created_at, updated_at FROM ci_types "
-                         "ORDER BY category COLLATE NOCASE, name COLLATE NOCASE;",
+                         "SELECT t.id, t.name, t.description, t.icon, t.color, "
+                         "t.category, COALESCE(c.name, ''), t.created_at, "
+                         "t.updated_at FROM ci_types t "
+                         "LEFT JOIN ci_categories c ON c.id = t.category "
+                         "ORDER BY COALESCE(c.sort_order, 100000), "
+                         "COALESCE(c.name, '') COLLATE NOCASE, "
+                         "t.name COLLATE NOCASE;",
                          -1, &stmt, NULL) != SQLITE_OK) {
     free(types);
     cmdb_error_set(err, CMDB_ERR_DATABASE, "Cannot list CI types");
@@ -177,8 +187,11 @@ int cmdb_types_get(cmdb_db_t *db, const char *id, cmdb_ci_type_t *out,
   memset(out, 0, sizeof(*out));
 
   if (sqlite3_prepare_v2(cmdb_db_sqlite(db),
-                         "SELECT id, name, description, icon, color, category, "
-                         "created_at, updated_at FROM ci_types WHERE id = ?;",
+                         "SELECT t.id, t.name, t.description, t.icon, t.color, "
+                         "t.category, COALESCE(c.name, ''), t.created_at, "
+                         "t.updated_at FROM ci_types t "
+                         "LEFT JOIN ci_categories c ON c.id = t.category "
+                         "WHERE t.id = ?;",
                          -1, &stmt, NULL) != SQLITE_OK) {
     cmdb_error_set(err, CMDB_ERR_DATABASE, "Cannot read CI type");
     return -1;
@@ -215,9 +228,11 @@ int cmdb_types_find_by_name(cmdb_db_t *db, const char *name,
   memset(out, 0, sizeof(*out));
 
   if (sqlite3_prepare_v2(cmdb_db_sqlite(db),
-                         "SELECT id, name, description, icon, color, category, "
-                         "created_at, updated_at FROM ci_types "
-                         "WHERE name = ? COLLATE NOCASE;",
+                         "SELECT t.id, t.name, t.description, t.icon, t.color, "
+                         "t.category, COALESCE(c.name, ''), t.created_at, "
+                         "t.updated_at FROM ci_types t "
+                         "LEFT JOIN ci_categories c ON c.id = t.category "
+                         "WHERE t.name = ? COLLATE NOCASE;",
                          -1, &stmt, NULL) != SQLITE_OK) {
     cmdb_error_set(err, CMDB_ERR_DATABASE, "Cannot read CI type");
     return -1;
@@ -266,7 +281,7 @@ static int audit_type(cmdb_db_t *db, const char *action, const char *id,
 
 int cmdb_types_create(cmdb_db_t *db, const char *name, const char *description,
                       const char *icon, const char *color,
-                      const char *category, char out_id[37],
+                      const char *category_id, char out_id[37],
                       cmdb_error_t *err) {
   sqlite3_stmt *stmt = NULL;
   char id[37];
@@ -283,11 +298,16 @@ int cmdb_types_create(cmdb_db_t *db, const char *name, const char *description,
                     "CI type description", err) != 0 ||
       validate_text(icon, 63, 0, "CI type icon", err) != 0 ||
       validate_text(color, 15, 0, "CI type color", err) != 0 ||
-      validate_text(category, 63, 0, "CI type category", err) != 0) {
+      validate_text(category_id, 36, 0, "CI type category", err) != 0) {
     return -1;
   }
   if (strlen(name) == 0) {
     cmdb_error_set(err, CMDB_ERR_VALIDATION, "CI type name is required");
+    return -1;
+  }
+  if (category_id != NULL && category_id[0] != '\0' &&
+      !cmdb_categories_exists(db, category_id)) {
+    cmdb_error_set(err, CMDB_ERR_VALIDATION, "Category not found");
     return -1;
   }
   if (cmdb_random_uuid(id) != 0) {
@@ -314,7 +334,7 @@ int cmdb_types_create(cmdb_db_t *db, const char *name, const char *description,
                     -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(stmt, 4, icon != NULL ? icon : "", -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(stmt, 5, color != NULL ? color : "", -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(stmt, 6, category != NULL ? category : "",
+  sqlite3_bind_text(stmt, 6, category_id != NULL ? category_id : "",
                     -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(stmt, 7, now, -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(stmt, 8, now, -1, SQLITE_TRANSIENT);
@@ -350,7 +370,7 @@ fail:
 
 int cmdb_types_update(cmdb_db_t *db, const char *id, const char *name,
                       const char *description, const char *icon,
-                      const char *color, const char *category,
+                      const char *color, const char *category_id,
                       cmdb_error_t *err) {
   cmdb_ci_type_t existing;
   sqlite3_stmt *stmt = NULL;
@@ -369,11 +389,16 @@ int cmdb_types_update(cmdb_db_t *db, const char *id, const char *name,
                     "CI type description", err) != 0 ||
       validate_text(icon, 63, 0, "CI type icon", err) != 0 ||
       validate_text(color, 15, 0, "CI type color", err) != 0 ||
-      validate_text(category, 63, 0, "CI type category", err) != 0) {
+      validate_text(category_id, 36, 0, "CI type category", err) != 0) {
     return -1;
   }
   if (strlen(name) == 0) {
     cmdb_error_set(err, CMDB_ERR_VALIDATION, "CI type name is required");
+    return -1;
+  }
+  if (category_id != NULL && category_id[0] != '\0' &&
+      !cmdb_categories_exists(db, category_id)) {
+    cmdb_error_set(err, CMDB_ERR_VALIDATION, "Category not found");
     return -1;
   }
 
@@ -394,7 +419,7 @@ int cmdb_types_update(cmdb_db_t *db, const char *id, const char *name,
                     -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(stmt, 3, icon != NULL ? icon : "", -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(stmt, 4, color != NULL ? color : "", -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(stmt, 5, category != NULL ? category : "",
+  sqlite3_bind_text(stmt, 5, category_id != NULL ? category_id : "",
                     -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(stmt, 6, now, -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(stmt, 7, id, -1, SQLITE_TRANSIENT);

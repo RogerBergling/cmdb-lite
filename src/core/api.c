@@ -2,6 +2,7 @@
 
 #include "app_internal.h"
 #include "cmdb/audit.h"
+#include "cmdb/categories.h"
 #include "cmdb/ci.h"
 #include "cmdb/diagram.h"
 #include "cmdb/drawio.h"
@@ -110,6 +111,135 @@ static int get_bool(cJSON *params, const char *key, int default_value,
   return cmdb_json_bool(params, key, default_value, value, err);
 }
 
+static cJSON *category_to_json(const cmdb_category_t *category) {
+  cJSON *obj = cJSON_CreateObject();
+  if (obj == NULL) {
+    return NULL;
+  }
+  cJSON_AddStringToObject(obj, "id", category->id);
+  cJSON_AddStringToObject(obj, "name", category->name);
+  cJSON_AddStringToObject(obj, "description", category->description);
+  cJSON_AddStringToObject(obj, "color", category->color);
+  cJSON_AddNumberToObject(obj, "sort_order", category->sort_order);
+  cJSON_AddStringToObject(obj, "created_at", category->created_at);
+  cJSON_AddStringToObject(obj, "updated_at", category->updated_at);
+  return obj;
+}
+
+static cJSON *handle_categories_list(cmdb_app_t *app, cmdb_error_t *err) {
+  cmdb_category_t *categories = NULL;
+  size_t count = 0;
+  size_t i;
+  cJSON *result = cJSON_CreateObject();
+  cJSON *items = cJSON_CreateArray();
+
+  if (result == NULL || items == NULL) {
+    cJSON_Delete(result);
+    cJSON_Delete(items);
+    cmdb_error_set(err, CMDB_ERR_INTERNAL, "Cannot create category list");
+    return NULL;
+  }
+  if (cmdb_categories_list(app->db, &categories, &count, err) != 0) {
+    cJSON_Delete(result);
+    cJSON_Delete(items);
+    return NULL;
+  }
+  for (i = 0; i < count; i++) {
+    cJSON *item = category_to_json(&categories[i]);
+    if (item != NULL) {
+      cJSON_AddItemToArray(items, item);
+    }
+  }
+  cmdb_categories_free(categories);
+  cJSON_AddItemToObject(result, "items", items);
+  return result;
+}
+
+static cJSON *handle_categories_create(cmdb_app_t *app, cJSON *params,
+                                       cmdb_error_t *err) {
+  const char *name = NULL;
+  const char *description = NULL;
+  const char *color = NULL;
+  int sort_order = 0;
+  char id[37];
+  cJSON *result;
+
+  if (require_params(params, err) != 0 ||
+      get_string(params, "name", &name, 1, err) != 0 ||
+      get_string(params, "description", &description, 0, err) != 0 ||
+      get_string(params, "color", &color, 0, err) != 0 ||
+      get_int(params, "sort_order", 0, 0, 10000, &sort_order, err) != 0) {
+    return NULL;
+  }
+  if (cmdb_categories_create(app->db, name, description, color, sort_order,
+                             id, err) != 0) {
+    return NULL;
+  }
+  result = cJSON_CreateObject();
+  if (result != NULL) {
+    cJSON_AddStringToObject(result, "id", id);
+  }
+  return result;
+}
+
+static cJSON *handle_categories_update(cmdb_app_t *app, cJSON *params,
+                                       cmdb_error_t *err) {
+  const char *id = NULL;
+  const char *name = NULL;
+  const char *description = NULL;
+  const char *color = NULL;
+  int sort_order = 0;
+  cmdb_category_t existing;
+  cJSON *result;
+
+  if (require_params(params, err) != 0 ||
+      get_string(params, "id", &id, 1, err) != 0 ||
+      get_string(params, "name", &name, 0, err) != 0 ||
+      get_string(params, "description", &description, 0, err) != 0 ||
+      get_string(params, "color", &color, 0, err) != 0) {
+    return NULL;
+  }
+  if (cmdb_categories_get(app->db, id, &existing, err) != 0) {
+    return NULL;
+  }
+  if (get_int(params, "sort_order", existing.sort_order, 0, 10000,
+              &sort_order, err) != 0) {
+    return NULL;
+  }
+  if (cmdb_categories_update(app->db, id,
+                             name != NULL ? name : existing.name,
+                             description != NULL ? description
+                                                 : existing.description,
+                             color != NULL ? color : existing.color,
+                             sort_order, err) != 0) {
+    return NULL;
+  }
+  result = cJSON_CreateObject();
+  if (result != NULL) {
+    cJSON_AddStringToObject(result, "id", id);
+  }
+  return result;
+}
+
+static cJSON *handle_categories_delete(cmdb_app_t *app, cJSON *params,
+                                       cmdb_error_t *err) {
+  const char *id = NULL;
+  cJSON *result;
+
+  if (require_params(params, err) != 0 ||
+      get_string(params, "id", &id, 1, err) != 0) {
+    return NULL;
+  }
+  if (cmdb_categories_delete(app->db, id, err) != 0) {
+    return NULL;
+  }
+  result = cJSON_CreateObject();
+  if (result != NULL) {
+    cJSON_AddBoolToObject(result, "deleted", 1);
+  }
+  return result;
+}
+
 static cJSON *type_to_json(const cmdb_ci_type_t *type) {
   cJSON *obj = cJSON_CreateObject();
   if (obj == NULL) {
@@ -120,6 +250,7 @@ static cJSON *type_to_json(const cmdb_ci_type_t *type) {
   cJSON_AddStringToObject(obj, "description", type->description);
   cJSON_AddStringToObject(obj, "icon", type->icon);
   cJSON_AddStringToObject(obj, "color", type->color);
+  cJSON_AddStringToObject(obj, "category_id", type->category_id);
   cJSON_AddStringToObject(obj, "category", type->category);
   cJSON_AddStringToObject(obj, "created_at", type->created_at);
   cJSON_AddStringToObject(obj, "updated_at", type->updated_at);
@@ -490,6 +621,55 @@ static cJSON *handle_app_info(cmdb_app_t *app) {
   return result;
 }
 
+static cJSON *handle_prefs_get(cmdb_app_t *app, cmdb_error_t *err) {
+  char theme[16] = "system";
+  int persisted = 0;
+  cJSON *result;
+
+  (void)err;
+  if (app->db != NULL) {
+    cmdb_error_t local;
+    cmdb_error_clear(&local);
+    if (cmdb_schema_meta_get(app->db, "ui.theme", theme, sizeof(theme),
+                             &local) == 0) {
+      persisted = 1;
+    } else {
+      (void)cmdb_str_copy(theme, sizeof(theme), "system");
+    }
+  }
+  result = cJSON_CreateObject();
+  if (result != NULL) {
+    cJSON_AddStringToObject(result, "theme", theme);
+    cJSON_AddBoolToObject(result, "persisted", persisted);
+  }
+  return result;
+}
+
+static cJSON *handle_prefs_set(cmdb_app_t *app, cJSON *params,
+                               cmdb_error_t *err) {
+  const char *theme = NULL;
+  cJSON *result;
+
+  if (require_params(params, err) != 0 ||
+      get_string(params, "theme", &theme, 1, err) != 0) {
+    return NULL;
+  }
+  if (strcmp(theme, "system") != 0 && strcmp(theme, "light") != 0 &&
+      strcmp(theme, "dark") != 0) {
+    cmdb_error_set(err, CMDB_ERR_VALIDATION,
+                   "theme must be system, light, or dark");
+    return NULL;
+  }
+  if (cmdb_schema_meta_set(app->db, "ui.theme", theme, err) != 0) {
+    return NULL;
+  }
+  result = cJSON_CreateObject();
+  if (result != NULL) {
+    cJSON_AddStringToObject(result, "theme", theme);
+  }
+  return result;
+}
+
 static cJSON *handle_db_create(cmdb_app_t *app, cJSON *params,
                                cmdb_error_t *err) {
   const char *path = NULL;
@@ -645,6 +825,36 @@ static cJSON *handle_types_get(cmdb_app_t *app, cJSON *params,
   return result;
 }
 
+static int resolve_category_id(cmdb_app_t *app, const char *category_id,
+                               const char *category_name,
+                               char out_id[37], cmdb_error_t *err) {
+  cmdb_category_t category;
+
+  out_id[0] = '\0';
+  if (category_id != NULL && category_id[0] != '\0') {
+    (void)cmdb_str_copy(out_id, 37, category_id);
+    return 0;
+  }
+  if (category_name == NULL || category_name[0] == '\0') {
+    return 0;
+  }
+  cmdb_error_clear(err);
+  if (cmdb_categories_find_by_name(app->db, category_name, &category,
+                                   err) == 0) {
+    (void)cmdb_str_copy(out_id, 37, category.id);
+    return 0;
+  }
+  if (err->code != CMDB_ERR_NOT_FOUND) {
+    return -1;
+  }
+  cmdb_error_clear(err);
+  if (cmdb_categories_create(app->db, category_name, "", "", 100,
+                             out_id, err) != 0) {
+    return -1;
+  }
+  return 0;
+}
+
 static cJSON *handle_types_create(cmdb_app_t *app, cJSON *params,
                                   cmdb_error_t *err) {
   const char *name = NULL;
@@ -652,6 +862,8 @@ static cJSON *handle_types_create(cmdb_app_t *app, cJSON *params,
   const char *icon = NULL;
   const char *color = NULL;
   const char *category = NULL;
+  const char *category_id = NULL;
+  char resolved_category[37];
   char id[37];
   cJSON *result;
 
@@ -660,11 +872,16 @@ static cJSON *handle_types_create(cmdb_app_t *app, cJSON *params,
       get_string(params, "description", &description, 0, err) != 0 ||
       get_string(params, "icon", &icon, 0, err) != 0 ||
       get_string(params, "color", &color, 0, err) != 0 ||
-      get_string(params, "category", &category, 0, err) != 0) {
+      get_string(params, "category", &category, 0, err) != 0 ||
+      get_string(params, "category_id", &category_id, 0, err) != 0) {
     return NULL;
   }
-  if (cmdb_types_create(app->db, name, description, icon, color, category,
-                        id, err) != 0) {
+  if (resolve_category_id(app, category_id, category, resolved_category,
+                          err) != 0) {
+    return NULL;
+  }
+  if (cmdb_types_create(app->db, name, description, icon, color,
+                        resolved_category, id, err) != 0) {
     return NULL;
   }
   result = cJSON_CreateObject();
@@ -682,6 +899,8 @@ static cJSON *handle_types_update(cmdb_app_t *app, cJSON *params,
   const char *icon = NULL;
   const char *color = NULL;
   const char *category = NULL;
+  const char *category_id = NULL;
+  char resolved_category[37];
   cmdb_ci_type_t existing;
   cJSON *result;
 
@@ -691,10 +910,18 @@ static cJSON *handle_types_update(cmdb_app_t *app, cJSON *params,
       get_string(params, "description", &description, 0, err) != 0 ||
       get_string(params, "icon", &icon, 0, err) != 0 ||
       get_string(params, "color", &color, 0, err) != 0 ||
-      get_string(params, "category", &category, 0, err) != 0) {
+      get_string(params, "category", &category, 0, err) != 0 ||
+      get_string(params, "category_id", &category_id, 0, err) != 0) {
     return NULL;
   }
   if (cmdb_types_get(app->db, id, &existing, err) != 0) {
+    return NULL;
+  }
+  if (category == NULL && category_id == NULL) {
+    (void)cmdb_str_copy(resolved_category, sizeof(resolved_category),
+                        existing.category_id);
+  } else if (resolve_category_id(app, category_id, category,
+                                 resolved_category, err) != 0) {
     return NULL;
   }
   if (cmdb_types_update(app->db, id,
@@ -702,7 +929,7 @@ static cJSON *handle_types_update(cmdb_app_t *app, cJSON *params,
                         description != NULL ? description : existing.description,
                         icon != NULL ? icon : existing.icon,
                         color != NULL ? color : existing.color,
-                        category != NULL ? category : existing.category,
+                        resolved_category,
                         err) != 0) {
     return NULL;
   }
@@ -2501,6 +2728,12 @@ cJSON *cmdb_api_handle(cmdb_app_t *app, cJSON *request) {
 
   if (strcmp(method, "app.info") == 0) {
     result = handle_app_info(app);
+  } else if (strcmp(method, "prefs.get") == 0) {
+    result = handle_prefs_get(app, &err);
+  } else if (strcmp(method, "prefs.set") == 0) {
+    if (require_db(app, &err) == 0) {
+      result = handle_prefs_set(app, params, &err);
+    }
   } else if (strcmp(method, "db.create") == 0) {
     result = handle_db_create(app, params, &err);
   } else if (strcmp(method, "db.open") == 0) {
@@ -2518,6 +2751,22 @@ cJSON *cmdb_api_handle(cmdb_app_t *app, cJSON *request) {
   } else if (strcmp(method, "types.list") == 0) {
     if (require_db(app, &err) == 0) {
       result = handle_types_list(app, &err);
+    }
+  } else if (strcmp(method, "categories.list") == 0) {
+    if (require_db(app, &err) == 0) {
+      result = handle_categories_list(app, &err);
+    }
+  } else if (strcmp(method, "categories.create") == 0) {
+    if (require_db(app, &err) == 0) {
+      result = handle_categories_create(app, params, &err);
+    }
+  } else if (strcmp(method, "categories.update") == 0) {
+    if (require_db(app, &err) == 0) {
+      result = handle_categories_update(app, params, &err);
+    }
+  } else if (strcmp(method, "categories.delete") == 0) {
+    if (require_db(app, &err) == 0) {
+      result = handle_categories_delete(app, params, &err);
     }
   } else if (strcmp(method, "types.get") == 0) {
     if (require_db(app, &err) == 0) {

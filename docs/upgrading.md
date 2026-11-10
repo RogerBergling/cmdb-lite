@@ -44,11 +44,14 @@ wrong.
 
 ## Database compatibility
 
-v0.3.0 migrates the database schema from version 1 to version 2. It adds the
-`ci_types.category` column and the persisted scan staging tables (`scan_jobs`,
-`discovered_assets`). The migration runs automatically when the database is
-opened and is transactional. Back up the `.cmdb` and `.meta` pair before opening
-a v0.1.0/v0.2.0 database with v0.3.0.
+v0.4.0 migrates the database schema from version 2 to version 3. It adds the
+managed `ci_categories` table and converts existing free-text CI type category
+labels into category records with stable IDs. Databases created by v0.1.0 or
+v0.2.0 pass through the v2 scan-staging migration first.
+
+The migration runs automatically when the database is opened and is
+transactional. Back up the `.cmdb` and `.meta` pair before opening an older
+database with v0.4.0.
 
 After migration, do not open the same file with an older application. Restore
 the pre-upgrade backup if you need to roll back.
@@ -67,7 +70,7 @@ For future releases:
 
 ```bash
 # Stop any running instance, then install the new package over the old one.
-sudo apt install ./cmdb-lite_0.3.0_amd64.deb
+sudo apt install ./cmdb-lite_0.4.0_amd64.deb
 ```
 
 `apt` replaces `/usr/bin/cmdb` and leaves your database untouched. Your database
@@ -89,7 +92,7 @@ dpkg -s cmdb-lite | grep '^Version:'
 ## Fedora / RHEL (`.rpm`)
 
 ```bash
-sudo dnf upgrade ./cmdb-lite-0.3.0-1.x86_64.rpm
+sudo dnf upgrade ./cmdb-lite-0.4.0-1.x86_64.rpm
 ```
 
 or, if the RPM is in a repository:
@@ -111,8 +114,8 @@ The portable archive contains a single `cmdb` ELF. Keep the old binary until the
 new one starts successfully:
 
 ```bash
-tar -xzf cmdb-lite-0.3.0-linux-x86_64.tar.gz
-./cmdb-lite-0.3.0-linux-x86_64/bin/cmdb
+tar -xzf cmdb-lite-0.4.0-linux-x86_64.tar.gz
+./cmdb-lite-0.4.0-linux-x86_64/bin/cmdb
 ```
 
 The database is opened from the path you choose in the application. File paths
@@ -139,7 +142,7 @@ executable does not store the database next to itself.
 ## Windows MSI
 
 ```powershell
-msiexec /i .\cmdb-lite-0.3.0-windows-x64.msi
+msiexec /i .\cmdb-lite-0.4.0-windows-x64.msi
 ```
 
 The per-machine MSI upgrades the installed executable and Start Menu shortcut.
@@ -149,7 +152,7 @@ required.
 To uninstall:
 
 ```powershell
-msiexec /x .\cmdb-lite-0.3.0-windows-x64.msi
+msiexec /x .\cmdb-lite-0.4.0-windows-x64.msi
 ```
 
 Uninstalling removes the application only. Back up your database first if you

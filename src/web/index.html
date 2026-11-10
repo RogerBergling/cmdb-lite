@@ -47,6 +47,15 @@
         <strong>Security</strong>
         <span>SQLCipher 4 (AES-256) &middot; Argon2id key derivation &middot; offline-only.</span>
       </div>
+
+      <label class="theme-picker unlock-theme" for="theme-unlock">
+        <span>Theme</span>
+        <select id="theme-unlock" class="theme-select" aria-label="Color theme">
+          <option value="system">System</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </label>
     </div>
   </section>
 
@@ -57,6 +66,14 @@
         <span>cmdb-lite</span>
       </div>
       <div class="db-chip" id="db-path-label" title="Open database"></div>
+      <label class="theme-picker" for="theme-app">
+        <span>Theme</span>
+        <select id="theme-app" class="theme-select" aria-label="Color theme">
+          <option value="system">System</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </label>
       <button id="backup-db" type="button" class="secondary small">Backup</button>
       <button id="lock-button" type="button" class="secondary small">Lock</button>
     </header>
@@ -112,7 +129,10 @@
             <h2>CI Types</h2>
             <p class="muted">Define the categories and custom fields used by your inventory.</p>
           </div>
-          <button id="add-type" type="button" class="primary">Add CI Type</button>
+          <div class="button-row">
+            <button id="manage-categories" type="button" class="secondary">Categories</button>
+            <button id="add-type" type="button" class="primary">Add CI Type</button>
+          </div>
         </div>
         <div class="split">
           <div class="list-panel">
@@ -554,6 +574,50 @@
     </div>
   </div>
 
+  <div id="category-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="category-modal-title">
+    <div class="modal wide-modal">
+      <div class="modal-heading">
+        <h2 id="category-modal-title">CI categories</h2>
+        <button type="button" class="icon-button" data-close="category-modal" aria-label="Close">&times;</button>
+      </div>
+      <div class="table-wrap compact">
+        <table>
+          <thead>
+            <tr><th>Name</th><th>Description</th><th>Color</th><th>Order</th><th class="actions-col">Actions</th></tr>
+          </thead>
+          <tbody id="category-table"></tbody>
+        </table>
+        <p id="category-empty" class="empty hidden">No categories yet.</p>
+      </div>
+      <form id="category-form" class="inline-form" autocomplete="off">
+        <input id="category-id" type="hidden">
+        <div class="form-grid">
+          <div>
+            <label for="category-name">Name *</label>
+            <input id="category-name" type="text" maxlength="63" required>
+          </div>
+          <div>
+            <label for="category-color">Color</label>
+            <input id="category-color" type="text" maxlength="15" placeholder="#dae8fc">
+          </div>
+          <div class="wide-field">
+            <label for="category-description">Description</label>
+            <textarea id="category-description" rows="2" maxlength="255"></textarea>
+          </div>
+          <div>
+            <label for="category-sort">Sort order</label>
+            <input id="category-sort" type="number" min="0" max="10000" value="0">
+          </div>
+          <div class="form-actions">
+            <button id="category-save" type="submit" class="primary small">Add category</button>
+            <button id="category-cancel" type="button" class="secondary small hidden">Cancel</button>
+          </div>
+        </div>
+        <p id="category-error" class="error" role="alert"></p>
+      </form>
+    </div>
+  </div>
+
   <div id="type-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="type-modal-title">
     <div class="modal">
       <div class="modal-heading">
@@ -573,8 +637,7 @@
           </div>
           <div class="wide-field">
             <label for="type-category">Category</label>
-            <input id="type-category" type="text" maxlength="63" list="type-category-list" placeholder="Compute, Network, Applications...">
-            <datalist id="type-category-list"></datalist>
+            <select id="type-category"></select>
           </div>
           <div>
             <label for="type-icon">Icon key</label>

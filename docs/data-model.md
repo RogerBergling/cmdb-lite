@@ -1,7 +1,7 @@
 # Data model
 
 The database is a single SQLCipher file. All tables live in the same encrypted
-file. Schema version 2 is created and migrated by `src/core/schema.c`.
+file. Schema version 3 is created and migrated by `src/core/schema.c`.
 
 ## `app_meta`
 
@@ -9,16 +9,32 @@ Key/value application metadata stored inside the encrypted database.
 
 | Key | Meaning |
 |---|---|
-| `schema_version` | Integer schema version; currently `2`. |
+| `schema_version` | Integer schema version; currently `3`. |
 | `created_at` | Database creation timestamp (UTC). |
 | `app_version` | Application version that created/updated the schema. |
+| `ui.theme` | Optional `system`, `light`, or `dark` preference. |
 
 The KDF salt and parameters are stored in the sidecar `.meta` file, not in this
 table. They are not secret, but the database cannot be opened without them.
 
+## `ci_categories`
+
+Managed grouping for CI types.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | TEXT | UUID primary key. |
+| `name` | TEXT | Unique, case-insensitive. |
+| `description` | TEXT | Free text. |
+| `color` | TEXT | Optional display colour. |
+| `sort_order` | INTEGER | Ordering in the type list. |
+| `created_at`, `updated_at` | TEXT | ISO 8601 UTC. |
+
+Seeded categories: Compute, Network, Applications, Services, and Other.
+
 ## `ci_types`
 
-User-defined CI types grouped by a free-text category.
+User-defined CI types assigned to a managed category.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -27,7 +43,7 @@ User-defined CI types grouped by a free-text category.
 | `description` | TEXT | Free text. |
 | `icon` | TEXT | Optional icon key for the UI. |
 | `color` | TEXT | Optional display colour. |
-| `category` | TEXT | Category label such as Compute, Network, or Applications. Empty means uncategorised. |
+| `category` | TEXT | Category UUID, or empty for uncategorised. The column name is retained for compatibility; it references `ci_categories.id`. |
 | `created_at`, `updated_at` | TEXT | ISO 8601 UTC. |
 
 The application seeds editable examples: Linux Server, Windows Server, Virtual
@@ -189,6 +205,7 @@ The chain is verified by `cmdb_audit_verify`. See
 ## Entity relationships
 
 ```text
+ci_categories 1 ─── n ci_types
 ci_types 1 ─── n ci_type_fields
 ci_types 1 ─── n cis
 cis     1 ─── n ci_attributes

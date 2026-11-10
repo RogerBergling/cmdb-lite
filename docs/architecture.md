@@ -99,7 +99,8 @@ requests to `cmdb_app_handle`. File dialogs are implemented in:
 | `meta.c` | KDF sidecar format, checksum, validation. |
 | `db.c` | SQLCipher open/create, key setup, pragmas, transactions, savepoints. |
 | `schema.c` | Schema DDL, default CI/relationship types, schema version. |
-| `types.c` | CI types and custom field definitions. |
+| `types.c` | CI types, category assignment, and custom field definitions. |
+| `categories.c` | Managed CI categories, ordering, colors, and assignment cleanup. |
 | `ci.c` | CI records, attributes, validation, name/external-ID resolution. |
 | `relationships.c` | Typed directed relationships. |
 | `import.c` | Bounded CSV/TSV parser, preview, transactional import. |
@@ -148,6 +149,14 @@ external files but is only rendered structurally in the UI; it is not executed.
 `cmdb_db_backup` opens a destination SQLCipher database with the in-memory key,
 uses `sqlite3_backup` to copy pages, and writes the matching `.meta` sidecar. The
 source database remains open and consistent.
+
+### Theme preference
+
+The UI stores `ui.theme` (`system`, `light`, or `dark`) in `app_meta`, with a
+best-effort `localStorage` copy for the unlock screen. The C core exposes
+`prefs.get` and `prefs.set`; no sensitive data is stored. CSS variables define
+the dark palette, and `html[data-theme="light"]` plus a `prefers-color-scheme`
+override define the light/system palettes.
 
 ### Flatpak
 

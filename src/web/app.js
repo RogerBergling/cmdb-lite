@@ -2,7 +2,9 @@
 
 const state = {
   dbPath: "",
+  theme: "system",
   types: [],
+  categories: [],
   cis: [],
   relTypes: [],
   rels: [],
@@ -142,8 +144,59 @@ function setError(element, message) {
   element.textContent = message || "";
 }
 
-function setUnlockMode(mode) {
-  state.unlockMode = mode;
+function storedTheme() {
+  try {
+    const value = window.localStorage.getItem("cmdb.theme");
+    return ["system", "light", "dark"].includes(value) ? value : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function applyTheme(theme) {
+  const value = ["system", "light", "dark"].includes(theme) ? theme : "system";
+  state.theme = value;
+  document.documentElement.setAttribute("data-theme", value);
+  for (const id of ["theme-app", "theme-unlock"]) {
+    const select = $(id);
+    if (select) {
+      select.value = value;
+    }
+  }
+  try {
+    window.localStorage.setItem("cmdb.theme", value);
+  } catch (error) {
+    /* The embedded webview may not expose localStorage. */
+  }
+}
+
+async function changeTheme(event) {
+  const theme = event.target.value;
+  applyTheme(theme);
+  if (!state.dbPath) {
+    return;
+  }
+  try {
+    await api("prefs.set", { theme });
+  } catch (error) {
+    toast(formatError(error), "error");
+  }
+}
+
+async function loadThemePreference() {
+  try {
+    const prefs = await api("prefs.get");
+    if (prefs && prefs.persisted && prefs.theme) {
+      applyTheme(prefs.theme);
+    } else {
+      await api("prefs.set", { theme: state.theme });
+    }
+  } catch (error) {
+    /* Keep the locally selected/system theme. */
+  }
+}
+
+function setUnlockMode(mode) {  state.unlockMode = mode;
   $("mode-open").classList.toggle("active", mode === "open");
   $("mode-create").classList.toggle("active", mode === "create");
   $("mode-open").setAttribute("aria-selected", mode === "open" ? "true" : "false");
@@ -213,6 +266,7 @@ async function enterApplication() {
   $("db-path-label").textContent = state.dbPath;
   $("db-path-label").title = state.dbPath;
   await loadAll();
+  await loadThemePreference();
 }
 
 async function backupDatabase() {
@@ -235,6 +289,7 @@ async function lockApplication() {  try {
   }
   state.dbPath = "";
   state.types = [];
+  state.categories = [];
   state.cis = [];
   state.relTypes = [];
   state.rels = [];
@@ -266,11 +321,13 @@ async function lockApplication() {  try {
 
 async function loadAll() {
   try {
-    const [typesResult, relTypesResult] = await Promise.all([
+    const [typesResult, relTypesResult, categoriesResult] = await Promise.all([
       api("types.list", {}),
-      api("relationships.types", {})
+      api("relationships.types", {}),
+      api("categories.list", {})
     ]);
     state.types = typesResult.items || [];
+    state.categories = categoriesResult.items || [];
     state.relTypes = relTypesResult.items || [];
     renderTypeList();
     renderRelationshipSelects();
@@ -628,6 +685,13 @@ async function renderTypeList() {
   const categories = [...groups.keys()].sort((a, b) => {
     if (a === "Uncategorised") return 1;
     if (b === "Uncategorised") return -1;
+    const first = state.categories.find((item) => item.name === a);
+    const second = state.categories.find((item) => item.name === b);
+    const firstOrder = first ? first.sort_order : 100000;
+    const secondOrder = second ? second.sort_order : 100000;
+    if (firstOrder !== secondOrder) {
+      return firstOrder - secondOrder;
+    }
     return a.localeCompare(b);
   });
   for (const category of categories) {
@@ -775,14 +839,17 @@ function openTypeModal(typeId = null) {
   $("type-description").value = type ? type.description : "";
   $("type-icon").value = type ? type.icon : "";
   $("type-color").value = type ? type.color : "";
-  $("type-category").value = type ? type.category : "";
   {
-    const list = $("type-category-list");
-    clear(list);
-    const categories = [...new Set(state.types.map((item) => item.category).filter(Boolean))];
-    for (const category of categories.sort()) {
-      list.append(el("option", { value: category }));
+    const select = $("type-category");
+    clear(select);
+    select.append(el("option", { value: "", text: "Uncategorised" }));
+    for (const category of state.categories) {
+      select.append(el("option", {
+        value: category.id,
+        text: category.name
+      }));
     }
+    select.value = type && type.category_id ? type.category_id : "";
   }
   $("type-modal-title").textContent = type ? "Edit CI type" : "Add CI type";
   show($("type-modal"));
@@ -798,7 +865,7 @@ async function saveType(event) {
     description: $("type-description").value,
     icon: $("type-icon").value,
     color: $("type-color").value,
-    category: $("type-category").value.trim()
+    category_id: $("type-category").value
   };
   try {
     let newId = id;
@@ -821,8 +888,106 @@ async function saveType(event) {
   }
 }
 
-async function deleteType() {
-  if (!state.selectedTypeId) {
+function renderCategoryTable() {
+  const tbody = $("category-table");
+  clear(tbody);
+  for (const category of state.categories) {
+    const edit = el("button", {
+      type: "button",
+      class: "secondary small",
+      text: "Edit",
+      onclick: () => editCategory(category)
+    });
+    const remove = el("button", {
+      type: "button",
+      class: "danger small",
+      text: "Delete",
+      onclick: () => deleteCategory(category)
+    });
+    tbody.append(el("tr", {}, [
+      el("td", { text: category.name }),
+      el("td", { text: category.description || "\u2014" }),
+      el("td", { text: category.color || "\u2014" }),
+      el("td", { text: String(category.sort_order) }),
+      el("td", {}, el("div", { class: "table-actions" }, [edit, remove]))
+    ]));
+  }
+  $("category-empty").classList.toggle("hidden", state.categories.length !== 0);
+}
+
+function resetCategoryForm() {
+  $("category-form").reset();
+  $("category-id").value = "";
+  $("category-sort").value = "0";
+  $("category-error").textContent = "";
+  $("category-save").textContent = "Add category";
+  $("category-cancel").classList.add("hidden");
+}
+
+function openCategoryModal() {
+  renderCategoryTable();
+  resetCategoryForm();
+  show($("category-modal"));
+  $("category-name").focus();
+}
+
+function editCategory(category) {
+  $("category-id").value = category.id;
+  $("category-name").value = category.name;
+  $("category-description").value = category.description || "";
+  $("category-color").value = category.color || "";
+  $("category-sort").value = String(category.sort_order);
+  $("category-error").textContent = "";
+  $("category-save").textContent = "Save category";
+  $("category-cancel").classList.remove("hidden");
+}
+
+async function saveCategory(event) {
+  event.preventDefault();
+  const id = $("category-id").value;
+  const params = {
+    name: $("category-name").value.trim(),
+    description: $("category-description").value,
+    color: $("category-color").value.trim(),
+    sort_order: Number.parseInt($("category-sort").value, 10) || 0
+  };
+  try {
+    if (id) {
+      await api("categories.update", { id, ...params });
+      toast("Category updated.", "success");
+    } else {
+      await api("categories.create", params);
+      toast("Category created.", "success");
+    }
+    await loadAll();
+    renderCategoryTable();
+    resetCategoryForm();
+  } catch (error) {
+    $("category-error").textContent = formatError(error);
+  }
+}
+
+async function deleteCategory(category) {
+  const confirmed = await askConfirm(
+    "Delete category",
+    `Delete "${category.name}"? CI types in this category become uncategorised.`,
+    "Delete"
+  );
+  if (!confirmed) {
+    return;
+  }
+  try {
+    await api("categories.delete", { id: category.id });
+    await loadAll();
+    renderCategoryTable();
+    resetCategoryForm();
+    toast("Category deleted.", "success");
+  } catch (error) {
+    $("category-error").textContent = formatError(error);
+  }
+}
+
+async function deleteType() {  if (!state.selectedTypeId) {
     return;
   }
   const confirmed = await askConfirm(
@@ -2259,6 +2424,8 @@ function bindEvents() {
   $("mode-create").addEventListener("click", () => setUnlockMode("create"));
   $("browse-db").addEventListener("click", browseDatabase);
   $("unlock-form").addEventListener("submit", submitUnlock);
+  $("theme-app").addEventListener("change", changeTheme);
+  $("theme-unlock").addEventListener("change", changeTheme);
   $("backup-db").addEventListener("click", backupDatabase);
   $("lock-button").addEventListener("click", lockApplication);
 
@@ -2279,9 +2446,12 @@ function bindEvents() {
   });
 
   $("add-type").addEventListener("click", () => openTypeModal());
+  $("manage-categories").addEventListener("click", openCategoryModal);
   $("edit-type").addEventListener("click", () => openTypeModal(state.selectedTypeId));
   $("delete-type").addEventListener("click", deleteType);
   $("type-form").addEventListener("submit", saveType);
+  $("category-form").addEventListener("submit", saveCategory);
+  $("category-cancel").addEventListener("click", resetCategoryForm);
   $("field-form").addEventListener("submit", saveField);
   $("field-cancel").addEventListener("click", resetFieldForm);
 
@@ -2359,6 +2529,7 @@ function activateTab(name) {
 }
 
 async function init() {
+  applyTheme(storedTheme() || "system");
   bindEvents();
   setUnlockMode("open");
   try {

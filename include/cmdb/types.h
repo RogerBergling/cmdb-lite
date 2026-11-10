@@ -17,6 +17,7 @@ typedef struct {
   char description[CMDB_MAX_DESCRIPTION];
   char icon[64];
   char color[16];
+  char category_id[37];
   char category[64];
   char created_at[21];
   char updated_at[21];

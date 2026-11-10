@@ -2,6 +2,7 @@
 #include "test_util.h"
 
 #include "cmdb/types.h"
+#include "cmdb/categories.h"
 
 #include <string.h>
 
@@ -18,6 +19,8 @@ void test_types(void) {
   cmdb_type_field_t got_field;
   size_t field_count = 0;
   cmdb_type_field_input_t input;
+  cmdb_category_t category;
+  char category_id[37];
   char type_id[37];
   char field_id[37];
   char duplicate_id[37];
@@ -40,17 +43,24 @@ void test_types(void) {
 
   TEST_ASSERT(cmdb_types_find_by_name(db, "Linux Server", &linux_type, &err) == 0);
   TEST_ASSERT(strcmp(linux_type.name, "Linux Server") == 0);
+  TEST_ASSERT(strcmp(linux_type.category, "Compute") == 0);
+
+  TEST_ASSERT(cmdb_categories_create(db, "Test", "Test category", "#123456", 10,
+                                      category_id, &err) == 0);
+  TEST_ASSERT(cmdb_categories_get(db, category_id, &category, &err) == 0);
+  TEST_ASSERT(strcmp(category.name, "Test") == 0);
 
   TEST_ASSERT(cmdb_types_create(db, "Test Type", "A test type", "test", "#123456",
-                                "Test", type_id, &err) == 0);
+                                category_id, type_id, &err) == 0);
   TEST_ASSERT(cmdb_types_get(db, type_id, &new_type, &err) == 0);
   TEST_ASSERT(strcmp(new_type.name, "Test Type") == 0);
   TEST_ASSERT(strcmp(new_type.category, "Test") == 0);
+  TEST_ASSERT(strcmp(new_type.category_id, category_id) == 0);
   TEST_ASSERT(cmdb_types_update(db, type_id, "Test Type", "A test type",
-                                "test", "#123456", "Test Updated",
+                                "test", "#123456", category_id,
                                 &err) == 0);
   TEST_ASSERT(cmdb_types_get(db, type_id, &new_type, &err) == 0);
-  TEST_ASSERT(strcmp(new_type.category, "Test Updated") == 0);
+  TEST_ASSERT(strcmp(new_type.category, "Test") == 0);
 
   memset(&input, 0, sizeof(input));
   input.key = "ip_address";

@@ -10,7 +10,7 @@
 extern "C" {
 #endif
 
-#define CMDB_SCHEMA_VERSION 2
+#define CMDB_SCHEMA_VERSION 3
 
 int cmdb_schema_create(cmdb_db_t *db, cmdb_error_t *err);
 int cmdb_schema_seed(cmdb_db_t *db, cmdb_error_t *err);

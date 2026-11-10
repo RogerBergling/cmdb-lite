@@ -3,7 +3,7 @@
 A local-first, encrypted Configuration Management Database (CMDB) for Linux and
 Windows.
 
-> **Status: v0.3.0 feature release.** The repository contains the C17 core,
+> **Status: v0.4.0 feature release.** The repository contains the C17 core,
 > SQLCipher storage layer, Argon2id key derivation, CI categories/types/custom
 > fields, typed relationships, CSV/TSV import, dependency graph builder,
 > `.drawio` export, an embedded diagram editor, persisted nmap discovery with
@@ -19,8 +19,8 @@ Windows.
 | ![Inventory](docs/screenshots/inventory.png) | ![Network discovery](docs/screenshots/discovery.png) |
 | **Diagram editor** | **Dependency map** |
 | ![Diagram editor](docs/screenshots/diagrams.png) | ![Dependency map](docs/screenshots/dependency-map.png) |
-| **CI types and custom fields** | |
-| ![CI types](docs/screenshots/ci-types.png) | |
+| **CI types and custom fields** | **Light theme** |
+| ![CI types](docs/screenshots/ci-types.png) | ![Light theme](docs/screenshots/inventory-light.png) |
 
 The screenshots use sample inventory data.
 
@@ -35,12 +35,12 @@ Release assets:
 
 | Platform | Files |
 |---|---|
-| Debian/Ubuntu | `cmdb-lite_0.3.0_amd64.deb` |
-| Fedora/RHEL | `cmdb-lite-0.3.0-*.rpm` |
-| Portable Linux | `cmdb-lite-0.3.0-linux-x86_64.tar.gz` |
+| Debian/Ubuntu | `cmdb-lite_0.4.0_amd64.deb` |
+| Fedora/RHEL | `cmdb-lite-0.4.0-*.rpm` |
+| Portable Linux | `cmdb-lite-0.4.0-linux-x86_64.tar.gz` |
 | Flatpak (Linux) | `cmdb-lite.flatpak` |
 | Windows portable | `cmdb-lite-windows-x64.zip` |
-| Windows installer | `cmdb-lite-0.3.0-windows-x64.msi` |
+| Windows installer | `cmdb-lite-0.4.0-windows-x64.msi` |
 | Checksums | `SHA256SUMS` |
 
 Verify the download before running it:
@@ -81,7 +81,7 @@ Install the dependencies first, then the package:
 ```bash
 sudo apt update
 sudo apt install -y libgtk-3-0t64 libwebkit2gtk-4.1-0 libssl3t64
-sudo apt install ./cmdb-lite_0.3.0_amd64.deb
+sudo apt install ./cmdb-lite_0.4.0_amd64.deb
 cmdb
 ```
 
@@ -95,7 +95,7 @@ fully self-contained option.
 Install with `dnf` so dependencies are resolved automatically:
 
 ```bash
-sudo dnf install ./cmdb-lite-0.3.0-*.rpm
+sudo dnf install ./cmdb-lite-0.4.0-*.rpm
 cmdb
 ```
 
@@ -117,21 +117,21 @@ libsodium, OpenSSL, expat, and the C/C++ runtime are linked statically.
 **MSI installer**
 
 ```powershell
-msiexec /i .\cmdb-lite-0.3.0-windows-x64.msi
+msiexec /i .\cmdb-lite-0.4.0-windows-x64.msi
 ```
 
 The MSI is per-machine, requires administrator elevation, and creates a Start
 Menu shortcut. Uninstall with:
 
 ```powershell
-msiexec /x .\cmdb-lite-0.3.0-windows-x64.msi
+msiexec /x .\cmdb-lite-0.4.0-windows-x64.msi
 ```
 
 ### Portable Linux tarball
 
 ```bash
-tar -xzf cmdb-lite-0.3.0-linux-x86_64.tar.gz
-./cmdb-lite-0.3.0-linux-x86_64/bin/cmdb
+tar -xzf cmdb-lite-0.4.0-linux-x86_64.tar.gz
+./cmdb-lite-0.4.0-linux-x86_64/bin/cmdb
 ```
 
 The ELF requires GTK3, WebKitGTK 4.1, expat, and the system OpenSSL 3
@@ -179,16 +179,16 @@ Application upgrades replace the executable only. Your database and `.meta`
 sidecar stay where they are. Before upgrading, lock the application and copy
 both files together, or use the in-app **Backup** button.
 
-The v0.3.0 release migrates the schema from version 1 to version 2 (CI
+The v0.4.0 release migrates the schema from version 1 to version 2 (CI
 categories and persisted scan staging). The migration is applied in place when
 the database is opened; back up first.
 
 ```bash
 # Debian/Ubuntu
-sudo apt install ./cmdb-lite_0.3.0_amd64.deb
+sudo apt install ./cmdb-lite_0.4.0_amd64.deb
 
 # Fedora
-sudo dnf upgrade ./cmdb-lite-0.3.0-*.rpm
+sudo dnf upgrade ./cmdb-lite-0.4.0-*.rpm
 ```
 
 On Windows, install the new MSI or replace the portable executable and open the
@@ -223,7 +223,10 @@ password vault instead.
 - Encrypted SQLCipher database at a user-selected path.
 - Master passphrase with Argon2id key derivation (libsodium).
 - Sidecar key-derivation metadata file with an integrity checksum.
-- User-defined CI categories, CI types, and per-type custom fields.
+- Managed CI categories with stable IDs, ordering, colors, and CI type
+  assignment.
+- User-defined CI types and per-type custom fields.
+- Dark, light, and follow-system themes with persisted preference.
 - CI records with the standard CMDB fields listed below.
 - Typed relationships with duplicate and self-reference protection.
 - CSV and TSV import with validation preview and transactional commit.
@@ -248,8 +251,8 @@ password vault instead.
 - Linux `.deb`/RPM/TGZ, a **Flatpak using the GNOME runtime and bundling nmap**,
   and Windows portable ZIP plus WiX-generated MSI.
 - Core test suite, including a live nmap test in Linux/Fedora CI, parser
-  fixtures, asynchronous scan-manager cancellation, backup, and migration
-  checks.
+  fixtures, asynchronous scan-manager cancellation, backup, category, theme,
+  and migration checks.
 - MIT license.
 
 ### Distribution model
@@ -303,9 +306,9 @@ promote them to configurable lookup lists.
 
 ### CI types
 
-CI types are user-defined and can be grouped into categories such as Compute,
-Network, Applications, Services, or any category you create in the type editor.
-The application seeds editable examples:
+CI types are user-defined and grouped into managed categories such as Compute,
+Network, Applications, Services, or categories you create in the **Categories**
+dialog. The application seeds editable examples:
 
 - Linux Server, Windows Server, Virtual Machine
 - Router, Switch, Firewall, Network
@@ -802,7 +805,7 @@ It installs the static vcpkg dependencies, builds, tests, and creates:
 
 ```text
 dist\cmdb-lite-windows-x64.zip
-dist\cmdb-lite-0.3.0-windows-x64.msi
+dist\cmdb-lite-0.4.0-windows-x64.msi
 dist\cmdb-lite-windows-x64\bin\cmdb.exe
 ```
 
@@ -852,6 +855,8 @@ GitHub Actions Windows runner.
 - [`docs/drawio.md`](docs/drawio.md) — dependency traversal and `.drawio` format.
 - [`docs/diagrams.md`](docs/diagrams.md) — embedded diagram editor and
   relationship-creating connections.
+- [`docs/themes.md`](docs/themes.md) — dark, light, system theme, and preference
+  storage.
 - [`docs/scanning.md`](docs/scanning.md) — implemented nmap discovery, safety
   model, service/OS detection, persisted staging, matching/merge review, and
   troubleshooting.
@@ -964,7 +969,8 @@ Ready-to-use examples are in [`examples/`](examples/):
 - No password/secret storage. Use references to an external vault.
 - Discovery never merges automatically; the operator must choose every action.
 - The embedded diagram editor is a lightweight `.drawio`-compatible canvas, not
-  the official draw.io web application.
+  the official draw.io web application. The official draw.io bundle is not
+  included.
 - `nmap -O` needs root/administrator and is unavailable in the standard Flatpak
   sandbox.
 - No multi-user concurrent access. Do not share the database file between

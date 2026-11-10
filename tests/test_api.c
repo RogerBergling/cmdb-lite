@@ -98,6 +98,7 @@ void test_api(void) {
   cJSON *ok;
   cmdb_ci_type_t type;
   char type_id[37];
+  char category_id[37] = "";
   char ci_id[37] = "";
   char response_id[37] = "";
   cmdb_api_host_t host;
@@ -152,8 +153,100 @@ void test_api(void) {
     cJSON_Delete(response);
   }
 
+  response = api_call(app, "{\"id\":30,\"method\":\"categories.list\",\"params\":{}}");
+  TEST_ASSERT(response != NULL);
+  if (response != NULL) {
+    result = cJSON_GetObjectItemCaseSensitive(response, "result");
+    TEST_ASSERT(cJSON_IsObject(result));
+    TEST_ASSERT(cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(result, "items")) >= 5);
+    cJSON_Delete(response);
+  }
+
+  response = api_call(app, "{\"id\":34,\"method\":\"categories.create\",\"params\":{"
+                            "\"name\":\"API Category\",\"description\":\"Test\","
+                            "\"sort_order\":60}}");
+  TEST_ASSERT(response != NULL);
+  if (response != NULL) {
+    ok = cJSON_GetObjectItemCaseSensitive(response, "ok");
+    TEST_ASSERT(cJSON_IsTrue(ok));
+    result = cJSON_GetObjectItemCaseSensitive(response, "result");
+    if (cJSON_IsObject(result)) {
+      cJSON *id = cJSON_GetObjectItemCaseSensitive(result, "id");
+      TEST_ASSERT(cJSON_IsString(id));
+      if (cJSON_IsString(id)) {
+        (void)cmdb_str_copy(category_id, sizeof(category_id), id->valuestring);
+      }
+    }
+    cJSON_Delete(response);
+  }
+  TEST_ASSERT(category_id[0] != '\0');
+  if (category_id[0] != '\0') {
+    (void)snprintf(request, sizeof(request),
+                   "{\"id\":35,\"method\":\"categories.update\",\"params\":{"
+                   "\"id\":\"%s\",\"name\":\"API Category Updated\"}}",
+                   category_id);
+    response = api_call(app, request);
+    TEST_ASSERT(response != NULL);
+    if (response != NULL) {
+      ok = cJSON_GetObjectItemCaseSensitive(response, "ok");
+      TEST_ASSERT(cJSON_IsTrue(ok));
+      cJSON_Delete(response);
+    }
+    response = api_call(app,
+      "{\"id\":36,\"method\":\"categories.delete\",\"params\":{"
+      "\"id\":\"API Category Updated\"}}");
+    /* Delete requires the ID; verify validation rejects the name. */
+    TEST_ASSERT(response != NULL);
+    if (response != NULL) {
+      ok = cJSON_GetObjectItemCaseSensitive(response, "ok");
+      TEST_ASSERT(cJSON_IsFalse(ok));
+      cJSON_Delete(response);
+    }
+    (void)snprintf(request, sizeof(request),
+                   "{\"id\":37,\"method\":\"categories.delete\",\"params\":{"
+                   "\"id\":\"%s\"}}", category_id);
+    response = api_call(app, request);
+    TEST_ASSERT(response != NULL);
+    if (response != NULL) {
+      ok = cJSON_GetObjectItemCaseSensitive(response, "ok");
+      TEST_ASSERT(cJSON_IsTrue(ok));
+      cJSON_Delete(response);
+    }
+  }
+
+  response = api_call(app, "{\"id\":31,\"method\":\"prefs.get\",\"params\":{}}");
+  TEST_ASSERT(response != NULL);
+  if (response != NULL) {
+    result = cJSON_GetObjectItemCaseSensitive(response, "result");
+    TEST_ASSERT(cJSON_IsObject(result));
+    cJSON_Delete(response);
+  }
+  response = api_call(app, "{\"id\":32,\"method\":\"prefs.set\",\"params\":{"
+                            "\"theme\":\"light\"}}");
+  TEST_ASSERT(response != NULL);
+  if (response != NULL) {
+    ok = cJSON_GetObjectItemCaseSensitive(response, "ok");
+    TEST_ASSERT(cJSON_IsTrue(ok));
+    cJSON_Delete(response);
+  }
+  response = api_call(app, "{\"id\":33,\"method\":\"prefs.get\",\"params\":{}}");
+  TEST_ASSERT(response != NULL);
+  if (response != NULL) {
+    result = cJSON_GetObjectItemCaseSensitive(response, "result");
+    if (cJSON_IsObject(result)) {
+      cJSON *theme = cJSON_GetObjectItemCaseSensitive(result, "theme");
+      cJSON *persisted = cJSON_GetObjectItemCaseSensitive(result,
+                                                          "persisted");
+      TEST_ASSERT(cJSON_IsString(theme));
+      TEST_ASSERT(theme != NULL && strcmp(theme->valuestring, "light") == 0);
+      TEST_ASSERT(cJSON_IsTrue(persisted));
+    }
+    cJSON_Delete(response);
+  }
+
   TEST_ASSERT(cmdb_types_find_by_name(cmdb_app_db(app), "Linux Server",
                                       &type, &err) == 0);
+  TEST_ASSERT(strcmp(type.category, "Compute") == 0);
   (void)cmdb_str_copy(type_id, sizeof(type_id), type.id);
   (void)snprintf(request, sizeof(request),
                  "{\"id\":4,\"method\":\"cis.create\",\"params\":{"
