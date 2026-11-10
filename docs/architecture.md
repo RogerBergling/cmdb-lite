@@ -14,7 +14,7 @@
 ┌─────────────────────────────────────────────────────────────┐
 │ UI: HTML/CSS/JS (src/web)                                   │
 │ inventory · CI types · relationships · import · discovery    │
-│ dependency map · draw.io export                              │
+│ diagrams · dependency map · draw.io export                   │
 └──────────────────────────┬──────────────────────────────────┘
                            │ JSON bridge (webview)
 ┌──────────────────────────▼──────────────────────────────────┐
@@ -24,7 +24,8 @@
                            │ C API
 ┌──────────────────────────▼──────────────────────────────────┐
 │ Application core (src/core)                                 │
-│ api · domain · import · graph · drawio · scan · audit        │
+│ api · domain · import · graph · drawio · diagram · audit     │
+│ scan parser · scan manager · scan store · backup             │
 │ SQLCipher · Argon2id · bounded CSV/XML parsers · migrations  │
 └──────────────────────────┬──────────────────────────────────┘
                            │
@@ -104,8 +105,56 @@ requests to `cmdb_app_handle`. File dialogs are implemented in:
 | `import.c` | Bounded CSV/TSV parser, preview, transactional import. |
 | `graph.c` | Multi-seed, depth-limited BFS dependency traversal. |
 | `drawio.c` | Uncompressed `.drawio` XML generation and layout. |
+| `diagram.c` | Persisted `.drawio`-XML diagrams in encrypted storage. |
+| `scan.c` | nmap validation, fixed-argv process execution, bounded XML parsing. |
+| `scan_manager.c` | Background scan thread, cancellation, status handoff. |
+| `scan_store.c` | Scan job/asset persistence and exact-match suggestions. |
 | `audit.c` | Append-only hash-chained audit log. |
 | `util.c` | Strings, paths, files, UTF-8, UUIDs, time, string builder. |
+
+### Scan architecture
+
+```text
+scan.start ──► scan_jobs row (running)
+   │
+   ▼
+scan_manager worker thread ──► nmap process group
+   │                              │
+   │                       -sT [-sV] [-O]
+   │                              │
+   │                       XML temp file
+   │                              ▼
+   │                       libexpat parser
+   ▼
+scan.status poll ──► scan_store: assets + match queries ──► UI review
+   │
+   ▼
+scan.import ──► create / merge / ignore ──► CIs + relationships + audit
+```
+
+Cancellation sets an atomic flag polled by the worker; the worker kills the
+nmap process group. A job left running at shutdown is marked `interrupted` on
+the next database open.
+
+### Diagram architecture
+
+The embedded editor stores `.drawio` XML in the `diagrams` table. Connections
+call the normal relationship API, so the diagram is a view over real CMDB
+relationships rather than a separate graph. Diagram XML is untrusted for
+external files but is only rendered structurally in the UI; it is not executed.
+
+### Backup architecture
+
+`cmdb_db_backup` opens a destination SQLCipher database with the in-memory key,
+uses `sqlite3_backup` to copy pages, and writes the matching `.meta` sidecar. The
+source database remains open and consistent.
+
+### Flatpak
+
+`packaging/flatpak/io.github.rogerbergling.CmdbLite.yml` builds a self-contained
+bundle from the GNOME runtime. SQLCipher, libsodium, libpcap, nmap, and the
+webview source are pinned and built inside the sandbox. See
+[`flatpak.md`](flatpak.md).
 
 ## Data flow: opening a database
 
@@ -173,10 +222,13 @@ is rolled back.
 
 ## Threading and concurrency
 
-The vertical slice is single-threaded and single-user:
+The application is single-user with one UI thread and one scan worker:
 
 - The webview runs on the UI thread.
 - Bridge callbacks run on the UI thread and call the core synchronously.
+- The scan manager runs nmap on a dedicated worker thread and communicates
+  through a mutex-protected status/result handoff. SQLite is not accessed from
+  that thread.
 - SQLite is opened in the default threading mode; no connection is shared
   across threads.
 - `BEGIN IMMEDIATE` is used for imports; row-level operations use savepoints.

@@ -24,12 +24,22 @@ cmdb_app_t *cmdb_app_new(const cmdb_api_host_t *host, cmdb_error_t *err) {
   if (host != NULL) {
     app->host = *host;
   }
+  app->scan_manager = cmdb_scan_manager_new();
+  if (app->scan_manager == NULL) {
+    free(app);
+    cmdb_error_set(err, CMDB_ERR_INTERNAL, "Cannot create scan manager");
+    return NULL;
+  }
   return app;
 }
 
 void cmdb_app_free(cmdb_app_t *app) {
   if (app == NULL) {
     return;
+  }
+  if (app->scan_manager != NULL) {
+    cmdb_scan_manager_free(app->scan_manager);
+    app->scan_manager = NULL;
   }
   if (app->db != NULL) {
     cmdb_db_close(app->db);

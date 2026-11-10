@@ -77,8 +77,15 @@ and does not replace the license text shipped with each dependency.
 
 - License: Nmap Public Source License (NPSL) for the current release.
 - Purpose: optional network discovery; invoked as an external executable.
-- nmap is **not** bundled or redistributed by cmdb-lite. Users install it
-  separately. Review the NPSL before redistributing nmap with a package.
+- nmap is **not** bundled by the `.deb`/RPM/ZIP packages. The Flatpak bundles
+  nmap; review the NPSL before redistributing it. Users install it separately
+  for other packages.
+
+### libpcap (Flatpak)
+
+- License: BSD-3-Clause
+- Purpose: packet capture library required by the bundled nmap.
+- Bundled only in the self-contained Flatpak.
 
 ## Build and test tools
 

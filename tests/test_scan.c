@@ -2,13 +2,20 @@
 #include "test_util.h"
 
 #include "cmdb/scan.h"
+#include "cmdb/scan_manager.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #ifndef _WIN32
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <fcntl.h>
+#include <pthread.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 #endif
 
@@ -165,6 +172,18 @@ static void test_scan_xml(void) {
 
   cmdb_error_clear(&err);
   {
+    const char doctype[] =
+      "<?xml version=\"1.0\"?><!DOCTYPE nmaprun>"
+      "<nmaprun><host><status state=\"up\"/>"
+      "<address addr=\"10.0.0.8\" addrtype=\"ipv4\"/></host></nmaprun>";
+    TEST_ASSERT(cmdb_scan_parse_xml(doctype, sizeof(doctype) - 1,
+                                    &result, &err) == 0);
+    TEST_ASSERT(result.host_count == 1);
+    cmdb_scan_result_free(&result);
+  }
+
+  cmdb_error_clear(&err);
+  {
     const char dtd[] =
       "<!DOCTYPE nmaprun [<!ENTITY x \"y\">]><nmaprun>&x;</nmaprun>";
     TEST_ASSERT(cmdb_scan_parse_xml(dtd, sizeof(dtd) - 1, &result, &err) != 0);
@@ -269,6 +288,206 @@ static void test_scan_nmap_runner(void) {
   (void)rmdir(dir);
   free(dir);
 }
+
+static void test_scan_manager(void) {
+  static const char slow_script[] =
+    "#!/bin/sh\n"
+    "sleep 10\n";
+  char *dir = test_temp_dir();
+  char script[4096];
+  FILE *file;
+  cmdb_scan_manager_t *manager;
+  cmdb_error_t err;
+  char job_id[37];
+  char status[16];
+  cmdb_scan_result_t result;
+  int has_result = 0;
+  int attempt;
+  const char *previous;
+  char *saved = NULL;
+  struct timespec pause;
+
+  TEST_ASSERT(dir != NULL);
+  if (dir == NULL) {
+    return;
+  }
+  previous = getenv("CMDB_NMAP");
+  if (previous != NULL) {
+    saved = strdup(previous);
+  }
+  manager = cmdb_scan_manager_new();
+  TEST_ASSERT(manager != NULL);
+  if (manager == NULL) {
+    free(saved);
+    free(dir);
+    return;
+  }
+
+  test_path(script, sizeof(script), dir, "missing-nmap");
+  cmdb_error_clear(&err);
+  TEST_ASSERT(setenv("CMDB_NMAP", script, 1) == 0);
+  TEST_ASSERT(cmdb_random_uuid(job_id) == 0);
+  TEST_ASSERT(cmdb_scan_manager_start(manager, job_id, "10.20.0.0/24",
+                                      "22,443", 10, 0, 0, &err) == 0);
+  pause.tv_sec = 0;
+  pause.tv_nsec = 50000000L;
+  for (attempt = 0; attempt < 60; attempt++) {
+    (void)nanosleep(&pause, NULL);
+    (void)cmdb_scan_manager_status(manager, job_id, status, &result,
+                                   &has_result, &err);
+    cmdb_scan_result_free(&result);
+    if (strcmp(status, "failed") == 0 || strcmp(status, "cancelled") == 0) {
+      break;
+    }
+  }
+  TEST_ASSERT(strcmp(status, "failed") == 0);
+  cmdb_scan_manager_free(manager);
+
+  test_path(script, sizeof(script), dir, "slow-nmap");
+  file = fopen(script, "wb");
+  TEST_ASSERT(file != NULL);
+  if (file != NULL) {
+    TEST_ASSERT(fwrite(slow_script, 1, sizeof(slow_script) - 1, file) ==
+                sizeof(slow_script) - 1);
+    (void)fclose(file);
+    TEST_ASSERT(chmod(script, 0700) == 0);
+  }
+  TEST_ASSERT(setenv("CMDB_NMAP", script, 1) == 0);
+  manager = cmdb_scan_manager_new();
+  TEST_ASSERT(manager != NULL);
+  if (manager != NULL) {
+    TEST_ASSERT(cmdb_random_uuid(job_id) == 0);
+    TEST_ASSERT(cmdb_scan_manager_start(manager, job_id, "10.20.0.0/24",
+                                        "22", 10, 0, 0, &err) == 0);
+    (void)nanosleep(&pause, NULL);
+    TEST_ASSERT(cmdb_scan_manager_cancel(manager, job_id, &err) == 0);
+    for (attempt = 0; attempt < 100; attempt++) {
+      (void)nanosleep(&pause, NULL);
+      (void)cmdb_scan_manager_status(manager, job_id, status, &result,
+                                     &has_result, &err);
+      cmdb_scan_result_free(&result);
+      if (strcmp(status, "cancelled") == 0) {
+        break;
+      }
+    }
+    TEST_ASSERT(strcmp(status, "cancelled") == 0);
+    cmdb_scan_manager_free(manager);
+  }
+
+  if (saved != NULL) {
+    TEST_ASSERT(setenv("CMDB_NMAP", saved, 1) == 0);
+    free(saved);
+  } else {
+    TEST_ASSERT(unsetenv("CMDB_NMAP") == 0);
+  }
+  (void)remove(script);
+  (void)rmdir(dir);
+  free(dir);
+}
+
+typedef struct {
+  int fd;
+  volatile int stop;
+} live_server_t;
+
+static void *live_http_server(void *argument) {
+  live_server_t *server = (live_server_t *)argument;
+
+  while (!server->stop) {
+    int client = accept(server->fd, NULL, NULL);
+    if (client < 0) {
+      struct timespec pause;
+      pause.tv_sec = 0;
+      pause.tv_nsec = 10000000L;
+      (void)nanosleep(&pause, NULL);
+      continue;
+    }
+    {
+      static const char response[] =
+        "HTTP/1.0 200 OK\r\n"
+        "Server: cmdb-test/1.0\r\n"
+        "Content-Length: 0\r\n"
+        "Connection: close\r\n\r\n";
+      (void)send(client, response, sizeof(response) - 1, 0);
+      (void)close(client);
+    }
+  }
+  return NULL;
+}
+
+static void test_scan_os_privilege(void) {
+  cmdb_scan_result_t result;
+  cmdb_error_t err;
+
+  if (geteuid() == 0) {
+    return;
+  }
+  cmdb_error_clear(&err);
+  TEST_ASSERT(cmdb_scan_nmap_run_ex("127.0.0.1/32", "22", 10, 0, 1,
+                                    NULL, &result, &err) != 0);
+  TEST_ASSERT(err.code == CMDB_ERR_VALIDATION);
+  TEST_ASSERT(strstr(err.message, "OS detection") != NULL);
+}
+
+static void test_scan_live_nmap(void) {
+  const char *enabled = getenv("CMDB_TEST_LIVE_NMAP");
+  int listener;
+  struct sockaddr_in address;
+  socklen_t length = sizeof(address);
+  char ports[16];
+  cmdb_scan_result_t result;
+  cmdb_error_t err;
+  size_t i;
+  live_server_t server;
+  pthread_t thread;
+  int thread_started = 0;
+
+  if (enabled == NULL || strcmp(enabled, "1") != 0) {
+    return;
+  }
+  listener = socket(AF_INET, SOCK_STREAM, 0);
+  TEST_ASSERT(listener >= 0);
+  if (listener < 0) {
+    return;
+  }
+  memset(&address, 0, sizeof(address));
+  address.sin_family = AF_INET;
+  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  address.sin_port = 0;
+  TEST_ASSERT(bind(listener, (struct sockaddr *)&address, sizeof(address)) == 0);
+  TEST_ASSERT(listen(listener, 16) == 0);
+  TEST_ASSERT(getsockname(listener, (struct sockaddr *)&address, &length) == 0);
+  {
+    int flags = fcntl(listener, F_GETFL, 0);
+    if (flags >= 0) {
+      (void)fcntl(listener, F_SETFL, flags | O_NONBLOCK);
+    }
+  }
+  (void)snprintf(ports, sizeof(ports), "%u",
+                 (unsigned int)ntohs(address.sin_port));
+  server.fd = listener;
+  server.stop = 0;
+  if (pthread_create(&thread, NULL, live_http_server, &server) == 0) {
+    thread_started = 1;
+  }
+  cmdb_error_clear(&err);
+  TEST_ASSERT(cmdb_scan_nmap_run_ex("127.0.0.1/32", ports, 90, 1, 0,
+                                    NULL, &result, &err) == 0);
+  TEST_ASSERT(result.host_count >= 1);
+  for (i = 0; i < result.host_count; i++) {
+    if (strcmp(result.hosts[i].ip_address, "127.0.0.1") == 0) {
+      char expected[32];
+      (void)snprintf(expected, sizeof(expected), "%s/tcp", ports);
+      TEST_ASSERT(strstr(result.hosts[i].open_ports, expected) != NULL);
+    }
+  }
+  cmdb_scan_result_free(&result);
+  server.stop = 1;
+  if (thread_started) {
+    (void)pthread_join(thread, NULL);
+  }
+  (void)close(listener);
+}
 #endif
 
 void test_scan(void) {
@@ -277,5 +496,8 @@ void test_scan(void) {
   test_scan_xml();
 #ifndef _WIN32
   test_scan_nmap_runner();
+  test_scan_manager();
+  test_scan_os_privilege();
+  test_scan_live_nmap();
 #endif
 }

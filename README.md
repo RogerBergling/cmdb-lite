@@ -3,25 +3,24 @@
 A local-first, encrypted Configuration Management Database (CMDB) for Linux and
 Windows.
 
-> **Status: network discovery implemented; Linux and Windows CI validated.** The
-> repository contains the C17 core, SQLCipher storage layer, Argon2id key
-> derivation, CI/type/relationship model, CSV/TSV import engine, dependency
-> graph builder, `.drawio` export, nmap-based discovery with review/import, and
-> the desktop webview shell. The Linux system build passes the test suite and a
-> real GTK3/WebKitGTK smoke test, including loading the embedded UI and creating
-> an encrypted database through the JS bridge. The Windows CI job builds with
-> MSVC and the static vcpkg triplet, passes the tests, and produces the portable
-> `cmdb-lite-windows-x64.zip` plus a WiX MSI. A clean-Windows-VM GUI/WebView2 and
-> MSI install/uninstall check is still required. The embedded draw.io editor is
-> the next milestone.
+> **Status: v0.3.0 feature release.** The repository contains the C17 core,
+> SQLCipher storage layer, Argon2id key derivation, CI categories/types/custom
+> fields, typed relationships, CSV/TSV import, dependency graph builder,
+> `.drawio` export, an embedded diagram editor, persisted nmap discovery with
+> matching/merge review, encrypted database backup, and the desktop webview
+> shell. Linux, Fedora, Windows, and Flatpak CI builds are defined; the Windows
+> job runs a real WebView2 smoke test and produces the portable ZIP and MSI.
+> A clean-Windows-VM install/uninstall check is still recommended.
 
 ## Screenshots
 
 | Inventory | Network discovery |
 |---|---|
 | ![Inventory](docs/screenshots/inventory.png) | ![Network discovery](docs/screenshots/discovery.png) |
-| **Dependency map** | **CI types and custom fields** |
-| ![Dependency map](docs/screenshots/dependency-map.png) | ![CI types](docs/screenshots/ci-types.png) |
+| **Diagram editor** | **Dependency map** |
+| ![Diagram editor](docs/screenshots/diagrams.png) | ![Dependency map](docs/screenshots/dependency-map.png) |
+| **CI types and custom fields** | |
+| ![CI types](docs/screenshots/ci-types.png) | |
 
 The screenshots use sample inventory data.
 
@@ -36,11 +35,12 @@ Release assets:
 
 | Platform | Files |
 |---|---|
-| Debian/Ubuntu | `cmdb-lite_0.2.0_amd64.deb` |
-| Fedora/RHEL | `cmdb-lite-0.2.0-*.rpm` |
-| Portable Linux | `cmdb-lite-0.2.0-linux-x86_64.tar.gz` |
+| Debian/Ubuntu | `cmdb-lite_0.3.0_amd64.deb` |
+| Fedora/RHEL | `cmdb-lite-0.3.0-*.rpm` |
+| Portable Linux | `cmdb-lite-0.3.0-linux-x86_64.tar.gz` |
+| Flatpak (Linux) | `cmdb-lite.flatpak` |
 | Windows portable | `cmdb-lite-windows-x64.zip` |
-| Windows installer | `cmdb-lite-0.2.0-windows-x64.msi` |
+| Windows installer | `cmdb-lite-0.3.0-windows-x64.msi` |
 | Checksums | `SHA256SUMS` |
 
 Verify the download before running it:
@@ -57,6 +57,22 @@ Get-FileHash .\cmdb-lite-windows-x64.zip -Algorithm SHA256
 
 Compare the output with the matching line in `SHA256SUMS`.
 
+### Flatpak (recommended for a self-contained Linux install)
+
+The Flatpak bundles GTK3, WebKitGTK, SQLCipher, libsodium, nmap, and the
+application. It runs on Fedora, Debian, Ubuntu, and other Flatpak hosts without
+installing development packages.
+
+```bash
+flatpak install --user ./cmdb-lite.flatpak
+flatpak run io.github.rogerbergling.CmdbLite
+```
+
+The sandbox permits network access for authorised scans and home-directory
+access so you can choose a database file. OS detection (`nmap -O`) still needs
+root privileges and is unavailable in the standard Flatpak sandbox; service
+detection (`-sV`) works normally. See [`docs/flatpak.md`](docs/flatpak.md).
+
 ### Debian / Ubuntu
 
 Install the dependencies first, then the package:
@@ -64,21 +80,21 @@ Install the dependencies first, then the package:
 ```bash
 sudo apt update
 sudo apt install -y libgtk-3-0t64 libwebkit2gtk-4.1-0 libssl3t64
-sudo apt install ./cmdb-lite_0.2.0_amd64.deb
+sudo apt install ./cmdb-lite_0.3.0_amd64.deb
 cmdb
 ```
 
 The `.deb` declares its runtime dependencies. SQLCipher and libsodium are
 linked statically when the build environment provides their `.a` archives;
-expat, GTK3, WebKitGTK, and OpenSSL remain system libraries. A future Flatpak
-will bundle GTK/WebKit.
+expat, GTK3, WebKitGTK, and OpenSSL remain system libraries. The Flatpak is the
+fully self-contained option.
 
 ### Fedora / RHEL
 
 Install with `dnf` so dependencies are resolved automatically:
 
 ```bash
-sudo dnf install ./cmdb-lite-0.2.0-*.rpm
+sudo dnf install ./cmdb-lite-0.3.0-*.rpm
 cmdb
 ```
 
@@ -100,21 +116,21 @@ libsodium, OpenSSL, expat, and the C/C++ runtime are linked statically.
 **MSI installer**
 
 ```powershell
-msiexec /i .\cmdb-lite-0.2.0-windows-x64.msi
+msiexec /i .\cmdb-lite-0.3.0-windows-x64.msi
 ```
 
 The MSI is per-machine, requires administrator elevation, and creates a Start
 Menu shortcut. Uninstall with:
 
 ```powershell
-msiexec /x .\cmdb-lite-0.2.0-windows-x64.msi
+msiexec /x .\cmdb-lite-0.3.0-windows-x64.msi
 ```
 
 ### Portable Linux tarball
 
 ```bash
-tar -xzf cmdb-lite-0.2.0-linux-x86_64.tar.gz
-./cmdb-lite-0.2.0-linux-x86_64/bin/cmdb
+tar -xzf cmdb-lite-0.3.0-linux-x86_64.tar.gz
+./cmdb-lite-0.3.0-linux-x86_64/bin/cmdb
 ```
 
 The ELF requires GTK3, WebKitGTK 4.1, expat, and the system OpenSSL 3
@@ -127,9 +143,12 @@ environment provides their `.a` archives.
 2. Select a path for the encrypted `.cmdb` file. A `.cmdb.meta` sidecar is
    created next to it.
 3. Enter a master passphrase of at least 12 characters.
-4. Back up both files together. The passphrase cannot be recovered.
+4. Use **Backup** in the top bar to create a consistent encrypted copy. The
+   `.cmdb` and `.cmdb.meta` files must be kept together. The passphrase cannot be
+   recovered.
 
 The application never uploads data. The database remains at the path you chose.
+See [`docs/backup.md`](docs/backup.md) for backup and restore details.
 
 ### Network discovery prerequisite
 
@@ -145,26 +164,34 @@ sudo dnf install nmap
 
 On Windows, install nmap from <https://nmap.org/download.html> and put
 `nmap.exe` on `PATH`. If it is installed elsewhere, set `CMDB_NMAP` to the full
-path before starting the application. See
+path before starting the application. The Flatpak bundles nmap.
+
+`-sV` service/version detection works unprivileged. `-O` OS detection requires
+root on Linux or an elevated process on Windows, and is unavailable in the
+standard Flatpak sandbox. See
 [`docs/scanning.md`](docs/scanning.md) for the safety model, exact command,
-review flow, and troubleshooting.
+persisted staging, matching/merge review, cancellation, and troubleshooting.
 
 ### Upgrading
 
 Application upgrades replace the executable only. Your database and `.meta`
 sidecar stay where they are. Before upgrading, lock the application and copy
-both files together. The short version:
+both files together, or use the in-app **Backup** button.
+
+The v0.3.0 release migrates the schema from version 1 to version 2 (CI
+categories and persisted scan staging). The migration is applied in place when
+the database is opened; back up first.
 
 ```bash
 # Debian/Ubuntu
-sudo apt install ./cmdb-lite_0.2.0_amd64.deb
+sudo apt install ./cmdb-lite_0.3.0_amd64.deb
 
 # Fedora
-sudo dnf upgrade ./cmdb-lite-0.2.0-*.rpm
+sudo dnf upgrade ./cmdb-lite-0.3.0-*.rpm
 ```
 
 On Windows, install the new MSI or replace the portable executable and open the
-same database. The scanner release does not change the database schema.
+same database.
 
 Full backup, rollback, and post-upgrade checks:
 [`docs/upgrading.md`](docs/upgrading.md).
@@ -187,16 +214,15 @@ password vault instead.
 
 ## Features
 
-### Implemented in the vertical slice
+### Implemented
 
 - Desktop webview shell for Linux (GTK3 + WebKitGTK 4.1) and Windows
   (WebView2), with one shared C17 core and one shared HTML/CSS/JS user
-  interface. Source complete; the Linux GUI build requires the system packages
-  below, and the Windows GUI build is configured for vcpkg/CI.
+  interface.
 - Encrypted SQLCipher database at a user-selected path.
 - Master passphrase with Argon2id key derivation (libsodium).
 - Sidecar key-derivation metadata file with an integrity checksum.
-- User-defined CI types and per-type custom fields.
+- User-defined CI categories, CI types, and per-type custom fields.
 - CI records with the standard CMDB fields listed below.
 - Typed relationships with duplicate and self-reference protection.
 - CSV and TSV import with validation preview and transactional commit.
@@ -204,14 +230,26 @@ password vault instead.
 - Multi-seed dependency traversal with direction and depth controls.
 - Dependency map rendered in the UI.
 - `.drawio` export generated from the dependency graph.
+- **Embedded diagram editor** with draggable CIs, persistent diagrams stored as
+  `.drawio` XML inside the encrypted database, and connections that create real
+  typed relationships.
 - **nmap-based network discovery** with an authorisation gate, `/24` scope limit,
-  fixed argv, private XML output, staged review, and selective CI import.
+  fixed argv, private XML output, optional `-sV` service detection, optional
+  `-O` OS detection (privileged), cancellation, and an overall timeout.
+- **Persisted scan staging** with exact-match suggestions against existing CIs
+  by IP, MAC, hostname, and CI name. The operator chooses create, merge (fill
+  empty fields or overwrite scan fields), or ignore for each host.
+- **Encrypted database backup** from the application; the backup is consistent
+  while the database is open and includes the matching `.meta` sidecar.
 - Append-only audit log with a hash chain.
 - **Single-file executables**: a Linux ELF and a Windows EXE with the HTML/CSS/JS
   UI embedded; no separate `web/` folder is needed.
-- Linux `.deb`/RPM/TGZ and Windows portable ZIP plus WiX-generated MSI,
-  including an application icon and version resource.
-- Core test suite (unit and encryption-at-rest checks).
+- Linux `.deb`/RPM/TGZ, a **Flatpak with bundled GTK/WebKit/nmap**, and Windows
+  portable ZIP plus WiX-generated MSI.
+- Core test suite, including a live nmap test in Linux/Fedora CI, parser
+  fixtures, asynchronous scan-manager cancellation, backup, and migration
+  checks.
+- MIT license.
 
 ### Distribution model
 
@@ -219,8 +257,9 @@ The application ships as one executable per OS, with no `web/` asset folder:
 
 | Platform | Artifact | Runtime requirements |
 |---|---|---|
-| Windows | `cmdb.exe` | WebView2 runtime (present on current Windows 10/11; Evergreen bootstrapper for older systems). SQLCipher, libsodium, OpenSSL, and the C/C++ runtime are linked statically. |
-| Linux | `cmdb` ELF | GTK3, WebKitGTK 4.1, expat, and the system OpenSSL `libcrypto.so.3`. SQLCipher and libsodium are linked statically when the development packages provide their `.a` archives (the default). The `.deb`/RPM declare the remaining dependencies. A future Flatpak can bundle GTK/WebKit. |
+| Windows | `cmdb.exe` | WebView2 runtime (present on current Windows 10/11). SQLCipher, libsodium, OpenSSL, expat, and the C/C++ runtime are linked statically. |
+| Linux (.deb/RPM/TGZ) | `cmdb` ELF | GTK3, WebKitGTK 4.1, expat, and system OpenSSL. SQLCipher and libsodium are linked statically when `.a` archives are available. |
+| Linux (Flatpak) | `cmdb-lite.flatpak` | Bundles GTK3, WebKitGTK, SQLCipher, libsodium, expat, and nmap with the GNOME runtime. No system development packages required. |
 
 The encrypted database and its `.meta` sidecar are intentionally separate files
 chosen by the user. During development, `CMDB_WEB_DIR=src/web` can load the
@@ -229,10 +268,10 @@ to link SQLCipher/libsodium dynamically on Linux.
 
 ### Next milestones
 
-- Embedded draw.io editor with diagrams stored in the encrypted database.
-- Encrypted backup/restore and passphrase rotation.
-- Linux Flatpak packaging and Windows code signing.
-- Signed release artifacts and SBOM publication.
+- Passphrase rotation and automatic encrypted backups.
+- Windows code signing and signed release artifacts/SBOM publication.
+- Optional official draw.io web editor bundle (the current editor uses
+  `.drawio`-compatible XML and the built-in canvas).
 
 ## CI record fields
 
@@ -263,7 +302,9 @@ promote them to configurable lookup lists.
 
 ### CI types
 
-CI types are user-defined. The application seeds editable examples:
+CI types are user-defined and can be grouped into categories such as Compute,
+Network, Applications, Services, or any category you create in the type editor.
+The application seeds editable examples:
 
 - Linux Server, Windows Server, Virtual Machine
 - Router, Switch, Firewall, Network
@@ -398,29 +439,40 @@ skipped according to the duplicate policy.
 
 ### Network discovery import
 
-The **Discovery** tab runs nmap and stages the results before anything enters the
-inventory:
+The **Discovery** tab runs nmap and stores the results in the encrypted database
+before anything enters the inventory:
 
 ```text
-target CIDR -> nmap TCP connect scan -> staged hosts -> review/select -> import
+target CIDR -> nmap scan (optional -sV / -O) -> persisted staging
+            -> match against existing CIs -> create / merge / ignore
 ```
 
 A staged host contains:
 
 ```text
-ip_address, hostname, mac_address, vendor, os_guess, open_ports
+ip_address, hostname, mac_address, vendor, os_guess, services, open_ports
 ```
 
-On import, the application creates one CI per selected host with the chosen CI
-type and these custom attributes: `ip_address`, `hostname`, `mac_address`,
-`vendor`, `os_guess`, `open_ports`, `discovery_method=nmap`, and
-`discovery_target`. The hostname is used as the CI name when available,
-otherwise the IP address.
+Scans are asynchronous: **Cancel scan** stops nmap, and the staged job remains
+available after restarting the application. Jobs that were running when the
+application closed are marked `interrupted`.
 
-Scan results are never merged automatically. Every host must be selected and
-imported explicitly. Duplicate-name and validation failures are reported per
-host; successful imports are removed from the staged list. See
-[`docs/scanning.md`](docs/scanning.md).
+For every pending host, the application suggests existing CIs by exact `IP
+address`, `management_ip`, `mac_address`, CI name, or `hostname` attribute. The
+match and the reason are shown, but nothing is selected automatically. The
+operator chooses one action per host:
+
+- **Create new CI** with the selected CI type.
+- **Merge into an existing CI**. By default only empty scan-derived fields are
+  filled; select **Overwrite scan fields when merging** to replace IP, hostname,
+  MAC, vendor, OS, services, or open ports. Standard CI fields are preserved.
+- **Ignore**.
+
+Imported CIs receive `ip_address`, `hostname`, `mac_address`, `vendor`,
+`os_guess`, `services`, `open_ports`, `discovery_method=nmap`, and
+`discovery_target` attributes. The hostname is used as the CI name when
+available, otherwise the IP address. Per-host failures are reported and the
+staged host remains pending. See [`docs/scanning.md`](docs/scanning.md).
 
 ### CSV injection
 
@@ -428,19 +480,27 @@ Exports must neutralise cells that begin with `=`, `+`, `-`, or `@` because
 spreadsheet applications may interpret them as formulas. Imports treat all cell
 content as literal data; they never evaluate formulas or commands.
 
-## Dependency maps and draw.io
+## Diagrams, dependency maps, and draw.io
 
-The map screen accepts one or more CI selections, a direction (`outgoing`,
-`incoming`, `both`), a depth (1–5), and optional relationship-type filters. The
-backend performs a breadth-first traversal in C and returns nodes and edges.
+The **Dependency Map** tab accepts one or more CI selections, a direction
+(`outgoing`, `incoming`, `both`), a depth (1–5), and optional relationship-type
+filters. The backend performs a breadth-first traversal in C and returns nodes
+and edges.
 
-The map is rendered in the application as an SVG diagram. **Export .drawio**
-opens a native save dialog and writes an uncompressed `.drawio` XML file that
-opens in diagrams.net, draw.io Desktop, and VS Code draw.io integrations.
+The **Diagrams** tab is an embedded offline editor:
 
-The next milestone embeds a pinned, offline copy of the draw.io editor in the
-webview. Diagrams will be stored as `.drawio` XML inside the encrypted database,
-so diagram content is protected at rest like the rest of the CMDB.
+- Add CIs from the encrypted inventory.
+- Drag nodes to arrange the diagram.
+- Select two nodes and a relationship type, then connect them. The connection
+  creates a real typed relationship, so the Dependency Map and graph traversal
+  update immediately.
+- Save diagrams as `.drawio` XML inside the encrypted database.
+- Open the same XML in diagrams.net or draw.io Desktop if needed.
+
+**Export .drawio** in the Dependency Map tab writes an uncompressed `.drawio`
+file through a native save dialog. The embedded editor is a lightweight
+`.drawio`-compatible canvas, not the official draw.io web application. See
+[`docs/diagrams.md`](docs/diagrams.md).
 
 ## Security model
 
@@ -494,20 +554,37 @@ recovered. Back up both the database and its `.meta` sidecar together.
 
 The scanner is implemented with nmap and is deliberately constrained:
 
-- Unprivileged TCP connect scans (`-sT`) of common ports.
+- Unprivileged TCP connect scans (`-sT`) by default.
+- Optional `-sV` service/version detection and optional `-O` OS detection. `-O`
+  requires root/administrator privileges and is rejected with a clear error when
+  the application is not elevated. The standard Flatpak sandbox does not grant
+  that privilege.
 - A fixed argv vector; the application never invokes a shell.
 - Strict IPv4/CIDR validation, a `/24` maximum scope, a 256-port cap, rate
   limits, retries, per-host timeouts, and an overall process timeout.
 - nmap XML parsed by libexpat with DTD/entity rejection and bounded host, port,
-  and nesting limits.
+  and nesting limits. The standard `<!DOCTYPE nmaprun>` prolog is accepted;
+  internal subsets and external identifiers are rejected.
 - Private temporary XML output (`0600` on POSIX) removed after parsing.
 - Explicit authorisation confirmation before the API starts a scan; the target,
   command, timestamps, and host count are audited.
-- Results are staged in the UI and imported only after selection. Nothing is
-  auto-merged.
+- Asynchronous execution with a **Cancel scan** action. Cancellation kills the
+  nmap process group, and job state is persisted across restarts.
+- Results are matched against existing CIs but never merged automatically. The
+  operator chooses create, merge, or ignore per host.
 
 Scanning networks without authorisation may be illegal. Use the scanner only on
 networks you own or are explicitly permitted to test.
+
+### Database backups
+
+The in-app backup uses SQLite's online backup API to create a consistent
+encrypted copy while the database is open. It writes the matching `.meta`
+sidecar alongside the backup. The derived SQLCipher key is retained in process
+memory while the database is open so backup can run without asking for the
+passphrase again; it is zeroized on close and never written to disk. Backups
+remain encrypted and require the same passphrase. See
+[`docs/backup.md`](docs/backup.md).
 
 ### Application security
 
@@ -540,7 +617,8 @@ attacker who knows the key can rewrite the chain.
 ```text
 ┌────────────────────────────────────────────────────────────┐
 │  HTML/CSS/JS UI (src/web)                                  │
-│  inventory · types · relationships · import · discovery · map│
+│  inventory · types · relationships · import · discovery      │
+│  diagrams · dependency map                                   │
 └──────────────────────────┬─────────────────────────────────┘
                            │ JSON binding (webview)
 ┌──────────────────────────▼─────────────────────────────────┐
@@ -580,15 +658,16 @@ dependencies.
 
 ```text
 include/cmdb/        Public C headers for the core
-src/core/            Crypto, database, domain, import, graph, API
+src/core/            Crypto, database, domain, import, graph, scan, diagrams, API
 src/ui/              Native webview shell and native file dialogs
 src/web/             Offline HTML/CSS/JS UI source
 src/web_bundle.c     Generated embedded UI (do not edit)
 tests/               C unit and integration tests
-docs/                Data model, import, security, architecture, scanning
+docs/                Data model, import, security, architecture, scanning, backup
+docs/screenshots/    README screenshots
 third_party/         Vendored cJSON (MIT)
-packaging/           Icons, embed script, Windows resources, installers
-.github/workflows/   Linux and Windows CI builds
+packaging/           Icons, embed script, Windows resources, Flatpak, installers
+.github/workflows/   Linux, Fedora, Flatpak, and Windows CI builds
 ```
 
 ## Building on Linux
@@ -603,6 +682,7 @@ sudo apt install -y build-essential cmake ninja-build pkg-config \
   fakeroot dpkg-dev \
   libsqlcipher-dev libsodium-dev libexpat1-dev \
   libgtk-3-dev libwebkit2gtk-4.1-dev \
+  nmap \
   clang lld valgrind cppcheck
 ```
 
@@ -620,7 +700,7 @@ sudo dnf install -y \
   rpm-build findutils \
   sqlcipher-devel libsodium-devel libsodium-static \
   openssl-devel zlib-devel expat-devel \
-  gtk3-devel webkit2gtk4.1-devel
+  gtk3-devel webkit2gtk4.1-devel nmap
 
 cmake -S . -B build -G Ninja \
   -DCMAKE_BUILD_TYPE=Debug \
@@ -638,7 +718,9 @@ until the project license is selected.
 
 The Windows and Linux GUI builds use the `webview/webview` library, which is
 fetched by CMake at configure time from a pinned 0.12.0 release tarball with a
-SHA-256 hash. The first configure therefore needs network access.
+SHA-256 hash. The first configure therefore needs network access. For offline or
+Flatpak builds, pass
+`-DCMDB_FETCH_WEBVIEW=OFF -DCMDB_WEBVIEW_SOURCE_DIR=/path/to/webview-src`.
 
 ### Configure, build, test
 
@@ -671,6 +753,18 @@ cpack --config CPackConfig.cmake -G TGZ
 
 The DEB/RPM install the single `cmdb` ELF under `/usr/bin`, the desktop entry,
 and the icon. The UI assets are embedded in the executable.
+
+Build the self-contained Flatpak:
+
+```bash
+flatpak-builder --user --force-clean --repo=repo build-flatpak \
+  packaging/flatpak/io.github.rogerbergling.CmdbLite.yml
+flatpak build-bundle repo cmdb-lite.flatpak \
+  io.github.rogerbergling.CmdbLite
+```
+
+See [`docs/flatpak.md`](docs/flatpak.md) for runtime installation and
+limitations.
 
 ### AddressSanitizer / UndefinedBehaviorSanitizer
 
@@ -707,7 +801,7 @@ It installs the static vcpkg dependencies, builds, tests, and creates:
 
 ```text
 dist\cmdb-lite-windows-x64.zip
-dist\cmdb-lite-0.2.0-windows-x64.msi
+dist\cmdb-lite-0.3.0-windows-x64.msi
 dist\cmdb-lite-windows-x64\bin\cmdb.exe
 ```
 
@@ -755,8 +849,14 @@ GitHub Actions Windows runner.
 - [`docs/architecture.md`](docs/architecture.md) — layers, bridge, data flows,
   and dependency choices.
 - [`docs/drawio.md`](docs/drawio.md) — dependency traversal and `.drawio` format.
+- [`docs/diagrams.md`](docs/diagrams.md) — embedded diagram editor and
+  relationship-creating connections.
 - [`docs/scanning.md`](docs/scanning.md) — implemented nmap discovery, safety
-  model, exact command, review/import workflow, and troubleshooting.
+  model, service/OS detection, persisted staging, matching/merge review, and
+  troubleshooting.
+- [`docs/backup.md`](docs/backup.md) — in-app encrypted backup and restore.
+- [`docs/flatpak.md`](docs/flatpak.md) — Flatpak build, install, sandbox, and
+  nmap limitations.
 - [`docs/upgrading.md`](docs/upgrading.md) — backups, database compatibility,
   package upgrades, rollback, and post-upgrade checks.
 - [`docs/windows.md`](docs/windows.md) — Windows build, WebView2 behaviour,
@@ -825,9 +925,12 @@ screenshots in this README were rendered from the real embedded UI under
 WebKitGTK with a stubbed bridge and sample data.
 
 The scanner tests cover IPv4/CIDR and port validation, nmap XML parsing
-(including DTD rejection and malformed input), and a POSIX fake-nmap process run
-that exercises the fixed argv, private temporary output, and result parsing.
-A live nmap installation is not required for the test suite.
+(including service detection, DTD rejection, and malformed input), synchronous
+and asynchronous fake-nmap process runs, cancellation, and a persisted
+staging/matching/import test. Linux and Fedora CI install nmap and run a live
+scan against a localhost listener (`CMDB_TEST_LIVE_NMAP=1`). The backup and
+diagram tests create a real encrypted database, copy it with the online backup
+API, reopen it, and verify data and `.meta` handling.
 
 A real system WebKitGTK smoke run (headless Broadway backend) also loaded the
 embedded UI, executed `app.js`, answered `app.info` through the C JSON bridge,
@@ -835,8 +938,9 @@ and created an encrypted SQLCipher database through the bridge. The GTK3/WebKitG
 the development host.
 
 The Debian/Ubuntu CI job builds the `.deb` and TGZ packages. A Fedora container
-job builds and tests the RPM and TGZ packages. The Windows CI job (Visual
-Studio 2022, `x64-windows-static`) builds, tests, and packages
+job builds and tests the RPM and TGZ packages. A Flatpak job builds a
+self-contained Linux bundle with the GNOME runtime and nmap. The Windows CI job
+(Visual Studio 2022, `x64-windows-static`) builds, tests, and packages
 `cmdb-lite-windows-x64.zip` and a WiX MSI successfully. The package contains a
 single `bin/cmdb.exe` with no unexpected DLLs (verified by CI). GUI launch, MSI
 install/uninstall, and WebView2 behaviour must still be validated on a clean
@@ -857,14 +961,18 @@ Ready-to-use examples are in [`examples/`](examples/):
   designed to allow a future server/RBAC version, but v1 has no authentication
   beyond the database passphrase.
 - No password/secret storage. Use references to an external vault.
-- No auto-merge from network discovery.
+- Discovery never merges automatically; the operator must choose every action.
+- The embedded diagram editor is a lightweight `.drawio`-compatible canvas, not
+  the official draw.io web application.
+- `nmap -O` needs root/administrator and is unavailable in the standard Flatpak
+  sandbox.
 - No multi-user concurrent access. Do not share the database file between
   machines while it is open.
 - The passphrase cannot be recovered. Back up the database and `.meta` sidecar
-  together.
+  together, or use the in-app backup.
 - The UI is webview-based; JavaScript/webview memory cannot be fully zeroized.
 
 ## License
 
-License to be selected by the project owner. Third-party components retain their
-own licenses; see [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+MIT — free for everyone. See [`LICENSE`](LICENSE). Third-party components
+retain their own licenses; see [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

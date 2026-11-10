@@ -28,6 +28,7 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
   fakeroot dpkg-dev \
   libsqlcipher-dev libsodium-dev libexpat1-dev \
   libgtk-3-dev libwebkit2gtk-4.1-dev \
+  nmap \
   clang lld valgrind cppcheck
 
 echo

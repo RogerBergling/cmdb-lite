@@ -2,6 +2,9 @@
 #include "test_util.h"
 
 #include "cmdb/api.h"
+#include "cmdb/ci.h"
+#include "cmdb/diagram.h"
+#include "cmdb/scan.h"
 #include "cmdb/types.h"
 #include "cmdb/util.h"
 
@@ -99,6 +102,7 @@ void test_api(void) {
   char response_id[37] = "";
   cmdb_api_host_t host;
   char drawio_path[4096];
+  char backup_path[4096];
 
   TEST_ASSERT(dir != NULL);
   if (dir == NULL) {
@@ -106,6 +110,7 @@ void test_api(void) {
   }
   test_path(path, sizeof(path), dir, "api.cmdb");
   test_path(drawio_path, sizeof(drawio_path), dir, "map.drawio");
+  test_path(backup_path, sizeof(backup_path), dir, "backup.cmdb");
   memset(&host, 0, sizeof(host));
   host.choose_file = choose_file_stub;
   cmdb_error_clear(&err);
@@ -154,6 +159,7 @@ void test_api(void) {
                  "{\"id\":4,\"method\":\"cis.create\",\"params\":{"
                  "\"name\":\"api-app\",\"type_id\":\"%s\","
                  "\"description\":\"Created via API\","
+                 "\"business_service\":\"Existing Service\","
                  "\"attributes\":{\"ip_address\":\"10.0.0.99\"}}}",
                  type_id);
   response = api_call(app, request);
@@ -204,7 +210,7 @@ void test_api(void) {
     cJSON_Delete(response);
   }
 
-  response = api_call(app, "{\"id\":20,\"method\":\"scan.nmap\",\"params\":{"
+  response = api_call(app, "{\"id\":20,\"method\":\"scan.start\",\"params\":{"
                             "\"target\":\"10.20.0.0/24\"}}");
   TEST_ASSERT(response != NULL);
   if (response != NULL) {
@@ -213,33 +219,109 @@ void test_api(void) {
     cJSON_Delete(response);
   }
 
+  {
+    cmdb_scan_result_t scan;
+    char job_id[37];
+    char asset_id[37];
+    char matched_asset_id[37];
+    memset(&scan, 0, sizeof(scan));
+    memset(&err, 0, sizeof(err));
+    err.code = CMDB_OK;
+    TEST_ASSERT(cmdb_scan_store_begin(cmdb_app_db(app), "10.20.0.0/24",
+                                      "22,443", 1, 0, job_id, &err) == 0);
+    (void)cmdb_str_copy(scan.job_id, sizeof(scan.job_id), job_id);
+    (void)cmdb_str_copy(scan.target, sizeof(scan.target), "10.20.0.0/24");
+    (void)cmdb_str_copy(scan.ports, sizeof(scan.ports), "22,443");
+    (void)cmdb_str_copy(scan.method, sizeof(scan.method), "nmap");
+    scan.service_detection = 1;
+    (void)cmdb_iso8601_now(scan.started_at);
+    scan.hosts = cmdb_calloc(2, sizeof(*scan.hosts));
+    scan.host_count = 2;
+    (void)cmdb_str_copy(scan.hosts[0].ip_address,
+                        sizeof(scan.hosts[0].ip_address), "10.20.0.77");
+    (void)cmdb_str_copy(scan.hosts[0].hostname,
+                        sizeof(scan.hosts[0].hostname), "imported-app");
+    (void)cmdb_str_copy(scan.hosts[0].mac_address,
+                        sizeof(scan.hosts[0].mac_address),
+                        "aa:bb:cc:dd:ee:77");
+    (void)cmdb_str_copy(scan.hosts[0].os_guess,
+                        sizeof(scan.hosts[0].os_guess), "Linux 6.8");
+    (void)cmdb_str_copy(scan.hosts[0].open_ports,
+                        sizeof(scan.hosts[0].open_ports), "22/tcp,443/tcp");
+    scan.hosts[0].port_count = 2;
+    (void)cmdb_str_copy(scan.hosts[1].ip_address,
+                        sizeof(scan.hosts[1].ip_address), "10.0.0.99");
+    (void)cmdb_str_copy(scan.hosts[1].hostname,
+                        sizeof(scan.hosts[1].hostname), "api-app");
+    (void)cmdb_str_copy(scan.hosts[1].open_ports,
+                        sizeof(scan.hosts[1].open_ports), "443/tcp");
+    scan.hosts[1].port_count = 1;
+    TEST_ASSERT(cmdb_scan_store_finish(cmdb_app_db(app), &scan,
+                                       "completed", NULL, &err) == 0);
+    TEST_ASSERT(scan.hosts[1].match_count > 0);
+    (void)cmdb_str_copy(asset_id, sizeof(asset_id),
+                        scan.hosts[0].asset_id);
+    (void)cmdb_str_copy(matched_asset_id, sizeof(matched_asset_id),
+                        scan.hosts[1].asset_id);
+    cmdb_scan_result_free(&scan);
+
+    response = api_call(app, "{\"id\":21,\"method\":\"scan.jobs\",\"params\":{}}");
+    TEST_ASSERT(response != NULL);
+    if (response != NULL) {
+      result = cJSON_GetObjectItemCaseSensitive(response, "result");
+      TEST_ASSERT(cJSON_IsObject(result));
+      if (cJSON_IsObject(result)) {
+        cJSON *items = cJSON_GetObjectItemCaseSensitive(result, "items");
+        TEST_ASSERT(cJSON_GetArraySize(items) >= 1);
+      }
+      cJSON_Delete(response);
+    }
+
+    (void)snprintf(request, sizeof(request),
+                   "{\"id\":22,\"method\":\"scan.import\",\"params\":{"
+                   "\"job_id\":\"%s\",\"type_id\":\"%s\","
+                   "\"decisions\":[{\"asset_id\":\"%s\","
+                   "\"action\":\"create\"},{\"asset_id\":\"%s\","
+                   "\"action\":\"merge\",\"ci_id\":\"%s\"}]}}",
+                   job_id, type_id, asset_id, matched_asset_id, ci_id);
+    response = api_call(app, request);
+    TEST_ASSERT(response != NULL);
+    if (response != NULL) {
+      ok = cJSON_GetObjectItemCaseSensitive(response, "ok");
+      TEST_ASSERT(cJSON_IsTrue(ok));
+      result = cJSON_GetObjectItemCaseSensitive(response, "result");
+      TEST_ASSERT(cJSON_IsObject(result));
+      if (cJSON_IsObject(result)) {
+        cJSON *created = cJSON_GetObjectItemCaseSensitive(result, "created");
+        cJSON *merged = cJSON_GetObjectItemCaseSensitive(result, "merged");
+        TEST_ASSERT(cJSON_IsNumber(created));
+        TEST_ASSERT(created != NULL && created->valueint == 1);
+        TEST_ASSERT(cJSON_IsNumber(merged));
+        TEST_ASSERT(merged != NULL && merged->valueint == 1);
+      }
+      cJSON_Delete(response);
+    }
+  }
+
   (void)snprintf(request, sizeof(request),
-                 "{\"id\":21,\"method\":\"scan.import\",\"params\":{"
-                 "\"target\":\"10.20.0.0/24\",\"type_id\":\"%s\","
-                 "\"name_prefix\":\"scan-\",\"hosts\":[{"
-                 "\"ip_address\":\"10.20.0.77\","
-                 "\"hostname\":\"imported-app\","
-                 "\"mac_address\":\"aa:bb:cc:dd:ee:77\","
-                 "\"os_guess\":\"Linux 6.8\","
-                 "\"open_ports\":[\"22/tcp\",\"443/tcp\"]}]}}",
-                 type_id);
+                 "{\"id\":24,\"method\":\"cis.get\",\"params\":{\"id\":\"%s\"}}",
+                 ci_id);
   response = api_call(app, request);
   TEST_ASSERT(response != NULL);
   if (response != NULL) {
-    ok = cJSON_GetObjectItemCaseSensitive(response, "ok");
-    TEST_ASSERT(cJSON_IsTrue(ok));
     result = cJSON_GetObjectItemCaseSensitive(response, "result");
-    TEST_ASSERT(cJSON_IsObject(result));
     if (cJSON_IsObject(result)) {
-      cJSON *created = cJSON_GetObjectItemCaseSensitive(result, "created");
-      TEST_ASSERT(cJSON_IsNumber(created));
-      TEST_ASSERT(created != NULL && created->valueint == 1);
+      cJSON *service = cJSON_GetObjectItemCaseSensitive(result,
+                                                        "business_service");
+      TEST_ASSERT(cJSON_IsString(service));
+      TEST_ASSERT(service != NULL &&
+                  strcmp(service->valuestring, "Existing Service") == 0);
     }
     cJSON_Delete(response);
   }
 
-  response = api_call(app, "{\"id\":22,\"method\":\"cis.list\",\"params\":{"
-                            "\"query\":\"scan-imported-app\"}}");
+  response = api_call(app, "{\"id\":23,\"method\":\"cis.list\",\"params\":{"
+                            "\"query\":\"imported-app\"}}");
   TEST_ASSERT(response != NULL);
   if (response != NULL) {
     result = cJSON_GetObjectItemCaseSensitive(response, "result");
@@ -304,6 +386,43 @@ void test_api(void) {
     TEST_ASSERT(cJSON_IsFalse(ok));
     cJSON_Delete(response);
   }
+
+  {
+    char diagram_id[37];
+    cmdb_diagram_t diagram;
+    cmdb_diagram_t *list = NULL;
+    size_t list_count = 0;
+    cmdb_error_clear(&err);
+    TEST_ASSERT(cmdb_diagram_save(cmdb_app_db(app), NULL, "Test diagram",
+                                  "<mxfile><diagram><mxGraphModel><root>"
+                                  "<mxCell id=\"0\"/><mxCell id=\"1\" parent=\"0\"/>"
+                                  "</root></mxGraphModel></diagram></mxfile>",
+                                  diagram_id, &err) == 0);
+    TEST_ASSERT(cmdb_diagram_get(cmdb_app_db(app), diagram_id, &diagram,
+                                 &err) == 0);
+    TEST_ASSERT(strcmp(diagram.name, "Test diagram") == 0);
+    cmdb_diagram_free(&diagram);
+    TEST_ASSERT(cmdb_diagram_list(cmdb_app_db(app), &list, &list_count, 0,
+                                  &err) == 0);
+    TEST_ASSERT(list_count == 1);
+    cmdb_diagram_free_list(list, list_count);
+    TEST_ASSERT(cmdb_diagram_delete(cmdb_app_db(app), diagram_id, &err) == 0);
+  }
+
+  {
+    cmdb_db_t *backup_db = NULL;
+    size_t count = 0;
+    cmdb_error_clear(&err);
+    TEST_ASSERT(cmdb_db_backup(cmdb_app_db(app), backup_path, &err) == 0);
+    TEST_ASSERT(cmdb_db_open(backup_path, TEST_PASSPHRASE, &backup_db,
+                             &err) == 0);
+    if (backup_db != NULL) {
+      TEST_ASSERT(cmdb_ci_count(backup_db, &count, &err) == 0);
+      TEST_ASSERT(count == 2);
+      cmdb_db_close(backup_db);
+    }
+  }
+  test_cleanup_db(dir, "backup.cmdb");
 
   response = api_call(app, "{\"id\":8,\"method\":\"db.lock\",\"params\":{}}");
   TEST_ASSERT(response != NULL);

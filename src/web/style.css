@@ -676,11 +676,86 @@ tbody tr:last-child td { border-bottom: 0; }
 .scan-import-bar label { margin-top: 0; }
 .scan-import-bar .button-row { margin-bottom: 0.1rem; }
 
+.scan-job-bar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.9rem;
+}
+
+.scan-job-bar label { margin-top: 0; }
+.scan-job-bar > div { flex: 1; min-width: 12rem; }
+.scan-overwrite { margin-top: 0; padding-bottom: 0.55rem; }
+.scan-overwrite input { margin-top: 0.15rem; }
+
 .checkbox-col { width: 2.6rem; }
 .checkbox-col input { width: auto; accent-color: var(--accent); }
 .scan-table-empty { text-align: center; color: var(--muted); }
 .scan-port-list { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.8rem; }
+.scan-service-list { color: var(--muted); font-size: 0.78rem; }
 .scan-import-error { margin-top: 0.6rem; }
+.scan-action { min-width: 13rem; width: 13rem; }
+.scan-action-col { width: 13.5rem; }
+.scan-host-name { font-weight: 600; }
+.scan-host-sub { color: var(--muted); font-size: 0.78rem; }
+
+/* Diagrams */
+
+.diagram-layout {
+  display: grid;
+  grid-template-columns: minmax(18rem, 23rem) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.diagram-controls { padding: 1rem; }
+.diagram-canvas-card { min-height: 34rem; padding: 0.8rem; }
+.diagram-canvas {
+  display: block;
+  width: 100%;
+  min-height: 33rem;
+  border-radius: 8px;
+  background:
+    linear-gradient(rgba(45, 212, 191, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(45, 212, 191, 0.045) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.diagram-divider {
+  margin: 1rem 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+.editor-node { cursor: grab; }
+.editor-node text { pointer-events: none; fill: var(--text); font-size: 12px; }
+.editor-node text.sub { fill: var(--muted); font-size: 10px; }
+.editor-node rect {
+  fill: #1d3a4c;
+  stroke: #3f6d85;
+  stroke-width: 1.2;
+}
+.editor-node.selected rect {
+  stroke: var(--accent);
+  stroke-width: 2.2;
+  fill: #17483f;
+}
+.editor-edge {
+  fill: none;
+  stroke: #54758a;
+  stroke-width: 1.6;
+}
+.editor-edge-label { fill: #9bb4c5; font-size: 10px; }
+.editor-node:active { cursor: grabbing; }
+
+.type-category-heading {
+  margin: 0.55rem 0.35rem 0.15rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
 
 /* Map */
 
@@ -832,6 +907,7 @@ tbody tr:last-child td { border-bottom: 0; }
   .split,
   .import-layout,
   .discovery-layout,
+  .diagram-layout,
   .map-layout {
     grid-template-columns: 1fr;
   }

@@ -104,3 +104,7 @@ CMakeUserPresets.json
 *.so
 *.dylib
 *.exe
+
+# Flatpak build output
+*.flatpak
+repo/

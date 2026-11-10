@@ -10,10 +10,11 @@
 extern "C" {
 #endif
 
-#define CMDB_SCHEMA_VERSION 1
+#define CMDB_SCHEMA_VERSION 2
 
 int cmdb_schema_create(cmdb_db_t *db, cmdb_error_t *err);
 int cmdb_schema_seed(cmdb_db_t *db, cmdb_error_t *err);
+int cmdb_schema_migrate(cmdb_db_t *db, cmdb_error_t *err);
 int cmdb_schema_validate(cmdb_db_t *db, cmdb_error_t *err);
 int cmdb_schema_meta_get(cmdb_db_t *db, const char *key,
                          char *out, size_t out_size, cmdb_error_t *err);

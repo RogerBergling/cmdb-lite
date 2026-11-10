@@ -57,6 +57,7 @@
         <span>cmdb-lite</span>
       </div>
       <div class="db-chip" id="db-path-label" title="Open database"></div>
+      <button id="backup-db" type="button" class="secondary small">Backup</button>
       <button id="lock-button" type="button" class="secondary small">Lock</button>
     </header>
 
@@ -66,6 +67,7 @@
       <button class="tab" type="button" data-tab="relationships">Relationships</button>
       <button class="tab" type="button" data-tab="import">Import</button>
       <button class="tab" type="button" data-tab="discovery">Discovery</button>
+      <button class="tab" type="button" data-tab="diagrams">Diagrams</button>
       <button class="tab" type="button" data-tab="map">Dependency Map</button>
     </nav>
 
@@ -281,7 +283,7 @@
         <div class="panel-heading">
           <div>
             <h2>Network Discovery</h2>
-            <p class="muted">Run an authorised nmap TCP connect scan, review the staged hosts, then import only the ones you select.</p>
+            <p class="muted">Run an authorised nmap scan, review matches against existing CIs, and decide what to create, merge, or ignore.</p>
           </div>
         </div>
         <div class="discovery-layout">
@@ -293,34 +295,57 @@
 
               <label for="scan-ports">TCP ports</label>
               <input id="scan-ports" type="text" spellcheck="false" value="22,80,443,445,3389,8080" required>
-              <p class="hint">Numeric ports or ranges, for example <code>22,80,443,8000-8100</code>. Up to 256 distinct ports.</p>
+              <p class="hint">Numeric ports or ranges; up to 256 distinct ports.</p>
 
               <label for="scan-timeout">Process timeout (seconds)</label>
               <input id="scan-timeout" type="number" min="10" max="600" value="180">
+
+              <div class="checkbox-line">
+                <input id="scan-service-detection" type="checkbox">
+                <label for="scan-service-detection">Service/version detection (-sV)</label>
+              </div>
+              <div class="checkbox-line">
+                <input id="scan-os-detection" type="checkbox">
+                <label for="scan-os-detection">OS detection (-O; requires root/administrator)</label>
+              </div>
 
               <div class="checkbox-line scan-auth">
                 <input id="scan-authorized" type="checkbox">
                 <label for="scan-authorized">I confirm that I own this network or have explicit written authorisation to scan it.</label>
               </div>
-              <p class="warning">Scanning networks without authorisation may be illegal. This performs unprivileged TCP connect discovery only; it does not attempt exploitation, brute force, or credential guessing.</p>
+              <p class="warning">Scanning networks without authorisation may be illegal. Discovery does not attempt exploitation, brute force, or credential guessing.</p>
 
-              <button id="scan-run" type="submit" class="primary wide">Run nmap scan</button>
+              <div class="button-row">
+                <button id="scan-run" type="submit" class="primary">Run nmap scan</button>
+                <button id="scan-cancel" type="button" class="danger hidden">Cancel scan</button>
+              </div>
+              <p id="scan-status" class="hint" role="status"></p>
               <p id="scan-error" class="error" role="alert"></p>
-              <p class="hint">Requires <code>nmap</code> on PATH (or <code>CMDB_NMAP</code> set to its full path). A host is listed only when at least one selected port is open. Staged results stay in this window until you import them.</p>
+              <p class="hint">Requires <code>nmap</code> on PATH (or <code>CMDB_NMAP</code>). Results are stored in the encrypted database until discarded.</p>
             </form>
           </aside>
           <div class="card scan-results-card">
-            <div id="scan-empty" class="empty">No scan results yet.</div>
+            <div class="scan-job-bar">
+              <div>
+                <label for="scan-job-select">Staged scan</label>
+                <select id="scan-job-select"></select>
+              </div>
+              <button id="scan-discard" type="button" class="secondary">Discard scan</button>
+            </div>
+            <div id="scan-empty" class="empty">No staged scans yet.</div>
             <div id="scan-results" class="hidden">
               <div id="scan-summary" class="scan-summary"></div>
               <div class="scan-import-bar">
                 <div>
-                  <label for="scan-type">Import selected hosts as</label>
-                  <select id="scan-type" required></select>
+                  <label for="scan-type">Create new CIs as</label>
+                  <select id="scan-type"></select>
+                </div>
+                <div class="checkbox-line scan-overwrite">
+                  <input id="scan-overwrite" type="checkbox">
+                  <label for="scan-overwrite">Overwrite scan fields when merging</label>
                 </div>
                 <div class="button-row">
-                  <button id="scan-clear" type="button" class="secondary">Clear results</button>
-                  <button id="scan-import" type="button" class="primary">Import selected</button>
+                  <button id="scan-import" type="button" class="primary">Apply selected actions</button>
                 </div>
               </div>
               <div class="table-wrap">
@@ -328,17 +353,58 @@
                   <thead>
                     <tr>
                       <th class="checkbox-col"><input id="scan-select-all" type="checkbox" aria-label="Select all discovered hosts"></th>
-                      <th>IP address</th>
-                      <th>Hostname</th>
-                      <th>MAC address</th>
-                      <th>Open ports</th>
-                      <th>OS guess</th>
+                      <th>Host</th>
+                      <th>Open ports / services</th>
+                      <th>Existing CI match</th>
+                      <th class="scan-action-col">Action</th>
                     </tr>
                   </thead>
                   <tbody id="scan-table"></tbody>
                 </table>
               </div>
               <p id="scan-import-error" class="error" role="alert"></p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="panel-diagrams" class="panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Diagrams</h2>
+            <p class="muted">Drag CIs, connect two nodes to create a typed relationship, and save the diagram in the encrypted database.</p>
+          </div>
+        </div>
+        <div class="diagram-layout">
+          <aside class="card diagram-controls">
+            <label for="diagram-select">Saved diagrams</label>
+            <select id="diagram-select"></select>
+            <div class="button-row">
+              <button id="diagram-new" type="button" class="secondary">New</button>
+              <button id="diagram-delete" type="button" class="danger">Delete</button>
+            </div>
+
+            <label for="diagram-name">Diagram name</label>
+            <input id="diagram-name" type="text" maxlength="255">
+            <button id="diagram-save" type="button" class="primary wide">Save diagram</button>
+
+            <div class="diagram-divider"></div>
+
+            <label for="diagram-ci-select">Add a CI</label>
+            <select id="diagram-ci-select"></select>
+            <button id="diagram-add-ci" type="button" class="secondary wide">Add selected CI</button>
+
+            <label for="diagram-rel-type">Relationship type</label>
+            <select id="diagram-rel-type"></select>
+            <button id="diagram-connect" type="button" class="primary wide">Connect selected nodes</button>
+            <button id="diagram-remove-node" type="button" class="secondary wide">Remove selected node</button>
+            <p class="hint">Click the source node, then the target, choose a relationship type, and connect. Connections create real CMDB relationships and appear in the Dependency Map.</p>
+            <p id="diagram-error" class="error" role="alert"></p>
+          </aside>
+          <div class="card diagram-canvas-card">
+            <div id="diagram-empty" class="empty">Create a diagram and add configuration items.</div>
+            <div id="diagram-canvas-wrap" class="hidden">
+              <svg id="diagram-canvas" class="diagram-canvas" viewBox="0 0 1000 700" role="img" aria-label="Diagram editor"></svg>
             </div>
           </div>
         </div>
@@ -504,6 +570,11 @@
           <div class="wide-field">
             <label for="type-description">Description</label>
             <textarea id="type-description" rows="2" maxlength="4095"></textarea>
+          </div>
+          <div class="wide-field">
+            <label for="type-category">Category</label>
+            <input id="type-category" type="text" maxlength="63" list="type-category-list" placeholder="Compute, Network, Applications...">
+            <datalist id="type-category-list"></datalist>
           </div>
           <div>
             <label for="type-icon">Icon key</label>

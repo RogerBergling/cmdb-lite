@@ -17,6 +17,7 @@ struct cmdb_db {
   sqlite3 *handle;
   char *path;
   cmdb_meta_t meta;
+  char key_hex[65];
 };
 
 static void db_wipe(cmdb_db_t *db) {
@@ -29,7 +30,11 @@ static void db_wipe(cmdb_db_t *db) {
   }
   free(db->path);
   db->path = NULL;
-  cmdb_crypto_wipe(&db->meta, sizeof(db->meta));
+  cmdb_crypto_wipe(db->meta.salt, sizeof(db->meta.salt));
+  cmdb_crypto_wipe(db->key_hex, sizeof(db->key_hex));
+  db->meta.opslimit = 0;
+  db->meta.memlimit = 0;
+  db->meta.version = 0;
 }
 
 static void db_chmod_aux_files(const char *path) {
@@ -133,6 +138,9 @@ static int db_set_key(cmdb_db_t *db, const char *passphrase,
   cmdb_crypto_wipe(key, sizeof(key));
 
   rc = sqlite3_key(db->handle, key_hex, (int)strlen(key_hex));
+  if (rc == SQLITE_OK) {
+    (void)cmdb_str_copy(db->key_hex, sizeof(db->key_hex), key_hex);
+  }
   cmdb_crypto_wipe(key_hex, sizeof(key_hex));
   if (rc != SQLITE_OK) {
     cmdb_error_set(err, CMDB_ERR_AUTH, "Cannot apply database key");
@@ -336,6 +344,11 @@ int cmdb_db_open(const char *path, const char *passphrase,
     free(db);
     return -1;
   }
+  if (cmdb_schema_migrate(db, err) != 0) {
+    db_wipe(db);
+    free(db);
+    return -1;
+  }
   if (cmdb_schema_validate(db, err) != 0) {
     db_wipe(db);
     free(db);
@@ -364,6 +377,141 @@ void cmdb_db_close(cmdb_db_t *db) {
     free(path);
   }
   free(db);
+}
+
+int cmdb_db_backup(cmdb_db_t *db, const char *path, cmdb_error_t *err) {
+  sqlite3 *dest = NULL;
+  sqlite3_backup *backup = NULL;
+  int rc;
+  int rc_finish;
+  int ok = 0;
+  char *meta_path;
+
+  if (db == NULL || db->handle == NULL || path == NULL || path[0] == '\0' ||
+      strlen(path) >= CMDB_MAX_PATH) {
+    cmdb_error_set(err, CMDB_ERR_INVALID_ARGUMENT, "Invalid backup path");
+    return -1;
+  }
+  if (db->path != NULL && strcmp(path, db->path) == 0) {
+    cmdb_error_set(err, CMDB_ERR_CONFLICT,
+                   "The backup must use a different path");
+    return -1;
+  }
+  meta_path = cmdb_path_meta(db->path);
+  if (meta_path != NULL && strcmp(path, meta_path) == 0) {
+    free(meta_path);
+    cmdb_error_set(err, CMDB_ERR_CONFLICT,
+                   "The backup must not overwrite the metadata file");
+    return -1;
+  }
+  free(meta_path);
+  if (cmdb_path_exists(path)) {
+    cmdb_error_set(err, CMDB_ERR_CONFLICT,
+                   "The backup file already exists");
+    cmdb_error_set_detail(err, "%s", path);
+    return -1;
+  }
+  meta_path = cmdb_path_meta(path);
+  if (meta_path == NULL) {
+    cmdb_error_set(err, CMDB_ERR_INTERNAL, "Cannot build the metadata path");
+    return -1;
+  }
+  if (cmdb_path_exists(meta_path)) {
+    cmdb_error_set(err, CMDB_ERR_CONFLICT,
+                   "The backup metadata file already exists");
+    cmdb_error_set_detail(err, "%s", meta_path);
+    free(meta_path);
+    return -1;
+  }
+  free(meta_path);
+
+  rc = sqlite3_open_v2(path, &dest,
+                       SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE |
+                         SQLITE_OPEN_NOMUTEX,
+                       NULL);
+  if (rc != SQLITE_OK) {
+    cmdb_error_set(err, CMDB_ERR_IO, "Cannot create the backup file");
+    cmdb_error_set_detail(err, "%s",
+                          dest != NULL ? sqlite3_errmsg(dest) : "open failed");
+    if (dest != NULL) {
+      sqlite3_close(dest);
+    }
+    return -1;
+  }
+  rc = sqlite3_key(dest, db->key_hex, (int)strlen(db->key_hex));
+  if (rc == SQLITE_OK) {
+    rc = sqlite3_exec(dest,
+                      "PRAGMA cipher_memory_security = ON;"
+                      "PRAGMA foreign_keys = ON;",
+                      NULL, NULL, NULL);
+  }
+  if (rc != SQLITE_OK) {
+    cmdb_error_set(err, CMDB_ERR_DATABASE, "Cannot key the backup database");
+    cmdb_error_set_detail(err, "%s", sqlite3_errmsg(dest));
+    goto cleanup;
+  }
+  backup = sqlite3_backup_init(dest, "main", db->handle, "main");
+  if (backup == NULL) {
+    cmdb_error_set(err, CMDB_ERR_DATABASE, "Cannot start the database backup");
+    cmdb_error_set_detail(err, "%s", sqlite3_errmsg(dest));
+    goto cleanup;
+  }
+  for (;;) {
+    rc = sqlite3_backup_step(backup, 64);
+    if (rc == SQLITE_DONE || rc == SQLITE_OK) {
+      if (rc == SQLITE_DONE) {
+        break;
+      }
+      if (sqlite3_backup_remaining(backup) == 0) {
+        break;
+      }
+      continue;
+    }
+    if (rc == SQLITE_BUSY || rc == SQLITE_LOCKED) {
+      sqlite3_sleep(50);
+      continue;
+    }
+    cmdb_error_set(err, CMDB_ERR_DATABASE, "Database backup failed");
+    cmdb_error_set_detail(err, "%s", sqlite3_errmsg(dest));
+    goto cleanup;
+  }
+  rc_finish = sqlite3_backup_finish(backup);
+  backup = NULL;
+  if (rc_finish != SQLITE_OK) {
+    cmdb_error_set(err, CMDB_ERR_DATABASE, "Cannot finish the database backup");
+    cmdb_error_set_detail(err, "%s", sqlite3_errmsg(dest));
+    goto cleanup;
+  }
+  if (sqlite3_close(dest) != SQLITE_OK) {
+    dest = NULL;
+    cmdb_error_set(err, CMDB_ERR_DATABASE,
+                   "Cannot close the backup database");
+    goto cleanup;
+  }
+  dest = NULL;
+  if (cmdb_meta_create(path, &db->meta, err) != 0) {
+    goto cleanup;
+  }
+  (void)cmdb_file_chmod_0600(path);
+  meta_path = cmdb_path_meta(path);
+  if (meta_path != NULL) {
+    (void)cmdb_file_chmod_0600(meta_path);
+    free(meta_path);
+  }
+  ok = 1;
+
+cleanup:
+  if (backup != NULL) {
+    (void)sqlite3_backup_finish(backup);
+  }
+  if (dest != NULL) {
+    sqlite3_close(dest);
+  }
+  if (!ok) {
+    (void)cmdb_file_remove(path);
+    (void)cmdb_meta_delete(path);
+  }
+  return ok ? 0 : -1;
 }
 
 sqlite3 *cmdb_db_sqlite(cmdb_db_t *db) {

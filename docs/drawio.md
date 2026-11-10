@@ -2,11 +2,14 @@
 
 ## Current implementation
 
-The vertical slice provides:
+The application provides:
 
 1. Multi-seed dependency traversal in `src/core/graph.c`.
 2. An SVG map rendered in the UI.
 3. An **Export .drawio** action that writes an uncompressed `.drawio` file.
+4. A **Diagrams** editor that stores `.drawio` XML in the encrypted database and
+   creates real relationships when two nodes are connected. See
+   [`diagrams.md`](diagrams.md).
 
 The export is plaintext. Treat it with the same care as a CSV export: it is a
 snapshot of part of the CMDB outside the encrypted database.
@@ -78,18 +81,19 @@ Design choices:
 The file opens in diagrams.net, draw.io Desktop, and editor integrations that
 support `.drawio` XML.
 
-## Embedded editor (next milestone)
+## Embedded editor
 
-The planned embedded editor uses a pinned, offline copy of the draw.io web
-application inside the webview:
+The embedded editor uses the built-in `.drawio`-compatible canvas:
 
 - No remote assets or telemetry.
-- A strict CSP for the draw.io frame.
-- Draw.io XML is stored in the encrypted `diagrams` table.
+- A strict CSP covers the application document.
+- Diagram XML is stored in the encrypted `diagrams` table.
 - The C core validates the XML size and wraps the save operation in a
   transaction.
-- The editor receives a generated diagram from `drawio.c` and returns edited XML
-  through the JS bridge.
+- Connecting two nodes creates a typed relationship through the normal
+  relationship API; the Dependency Map reflects it.
+- The editor is not the official draw.io web application, but its saved XML can
+  be opened in diagrams.net and draw.io Desktop.
 - Export to a plaintext `.drawio` file remains explicit and user-initiated.
 
 Embedding a full draw.io distribution increases the application size and the

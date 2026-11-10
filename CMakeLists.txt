@@ -5,7 +5,7 @@ if(POLICY CMP0135)
 endif()
 
 project(cmdb-lite
-  VERSION 0.2.0
+  VERSION 0.3.0
   DESCRIPTION "Local-first encrypted Configuration Management Database"
   LANGUAGES C)
 
@@ -31,6 +31,8 @@ option(CMDB_BUILD_TESTS "Build the test suite" ${BUILD_TESTING})
 option(CMDB_ENABLE_ASAN "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 option(CMDB_WERROR "Treat compiler warnings as errors" OFF)
 option(CMDB_FETCH_WEBVIEW "Fetch the pinned webview dependency" ON)
+set(CMDB_WEBVIEW_SOURCE_DIR "" CACHE PATH
+  "Use a local webview source tree instead of downloading it")
 option(CMDB_BUILD_FUZZERS "Build libFuzzer targets (Clang only)" OFF)
 option(CMDB_STATIC_CRYPTO
   "Link SQLCipher and libsodium statically on Unix when available" ON)
@@ -161,6 +163,7 @@ add_library(cmdb_core STATIC
   src/core/ci.c
   src/core/crypto.c
   src/core/db.c
+  src/core/diagram.c
   src/core/drawio.c
   src/core/error.c
   src/core/graph.c
@@ -169,6 +172,8 @@ add_library(cmdb_core STATIC
   src/core/meta.c
   src/core/relationships.c
   src/core/scan.c
+  src/core/scan_manager.c
+  src/core/scan_store.c
   src/core/schema.c
   src/core/types.c
   src/core/util.c
@@ -206,6 +211,9 @@ target_link_libraries(cmdb_core PUBLIC
   ${CMDB_CRYPTO_LIBS}
   ${CMDB_EXPAT_LIBS}
   cjson)
+if(NOT WIN32)
+  target_link_libraries(cmdb_core PUBLIC Threads::Threads)
+endif()
 
 if(NOT WIN32)
   target_compile_definitions(cmdb_core PRIVATE _POSIX_C_SOURCE=200809L)
@@ -216,8 +224,7 @@ if(CMDB_BUILD_UI)
   if(WIN32)
     enable_language(RC)
   endif()
-  if(CMDB_FETCH_WEBVIEW)
-    include(FetchContent)
+  if(CMDB_WEBVIEW_SOURCE_DIR OR CMDB_FETCH_WEBVIEW)
     set(WEBVIEW_BUILD ON CACHE BOOL "" FORCE)
     set(WEBVIEW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
     set(WEBVIEW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -233,11 +240,17 @@ if(CMDB_BUILD_UI)
     if(WIN32 AND CMAKE_MSVC_RUNTIME_LIBRARY MATCHES "MultiThreaded")
       set(WEBVIEW_USE_STATIC_MSVC_RUNTIME ON CACHE BOOL "" FORCE)
     endif()
-    # Pinned to the 0.12.0 release commit; update deliberately.
-    FetchContent_Declare(webview
-      URL https://github.com/webview/webview/archive/3ab4b5d722438fc8a13e6ca830c5e2372d19a01d.tar.gz
-      URL_HASH SHA256=3668dca249ce182803fe886c9c9e8e27d2c278a52a647198b947ed9d415019d5)
-    FetchContent_MakeAvailable(webview)
+    if(CMDB_WEBVIEW_SOURCE_DIR)
+      add_subdirectory("${CMDB_WEBVIEW_SOURCE_DIR}"
+        "${CMAKE_CURRENT_BINARY_DIR}/webview")
+    else()
+      include(FetchContent)
+      # Pinned to the 0.12.0 release commit; update deliberately.
+      FetchContent_Declare(webview
+        URL https://github.com/webview/webview/archive/3ab4b5d722438fc8a13e6ca830c5e2372d19a01d.tar.gz
+        URL_HASH SHA256=3668dca249ce182803fe886c9c9e8e27d2c278a52a647198b947ed9d415019d5)
+      FetchContent_MakeAvailable(webview)
+    endif()
   elseif(NOT TARGET webview::core_static)
     message(FATAL_ERROR
       "CMDB_FETCH_WEBVIEW=OFF requires an existing webview::core_static target")
@@ -299,7 +312,7 @@ if(CMDB_BUILD_UI)
       DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/256x256/apps
       RENAME cmdb-lite.png)
   endif()
-  install(FILES README.md THIRD_PARTY_NOTICES.md
+  install(FILES README.md LICENSE THIRD_PARTY_NOTICES.md
     DESTINATION ${CMAKE_INSTALL_DOCDIR})
 endif()
 
@@ -380,7 +393,7 @@ if(CMDB_BUILD_UI)
 
     # RPM packaging for Fedora/RHEL. Update the license when the project
     # license is selected.
-    set(CPACK_RPM_PACKAGE_LICENSE "Proprietary")
+    set(CPACK_RPM_PACKAGE_LICENSE "MIT")
     set(CPACK_RPM_PACKAGE_GROUP "Applications/System")
     set(CPACK_RPM_PACKAGE_DESCRIPTION
       "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}")

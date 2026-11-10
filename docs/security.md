@@ -50,8 +50,7 @@ sidecar without its database is useless.
 - Use a unique passphrase of at least 12 characters; a long random phrase is
   better.
 - A passphrase manager is recommended.
-- There is no recovery mechanism in the vertical slice. Losing the passphrase
-  means losing the data.
+- There is no recovery mechanism. Losing the passphrase means losing the data.
 - Do not reuse the passphrase for other systems.
 - The UI clears the passphrase fields after a successful open/create. It never
   logs the passphrase.
@@ -157,18 +156,21 @@ The scanner is a separate, permissioned workflow:
 2. The target is restricted to an IPv4 address or a CIDR from `/24` to `/32`,
    with at most 256 addresses. At most 256 distinct ports may be scanned.
 3. The scan uses unprivileged nmap TCP connect discovery (`-sT`) and a fixed set
-   of numeric ports. No NSE scripts, brute force, credential guessing, or
-   exploitation.
+   of numeric ports. Optional `-sV` service detection is available; `-O` OS
+   detection requires root/administrator and is rejected when not elevated. No
+   NSE scripts, brute force, credential guessing, or exploitation.
 4. nmap runs with a fixed argv vector, no shell, and XML output parsed by
-   libexpat. DTDs and entity declarations are rejected; nesting, host, port, and
-   input sizes are bounded.
+   libexpat. DOCTYPE internal subsets, external identifiers, and entity declarations are
+   rejected; the standard `<!DOCTYPE nmaprun>` prolog is accepted. Nesting,
+   host, port, and input sizes are bounded.
 5. Rate limits (`--max-rate 500`), one retry, a per-host timeout, and an overall
-   process timeout are enforced.
-6. Results are staged in the Discovery tab. Nothing is written to the CMDB until
-   the operator selects hosts and explicitly imports them. There is no automatic
-   merge.
+   process timeout are enforced. Cancellation kills the nmap process group.
+6. Results are persisted in encrypted staging tables. Nothing is written to the
+   inventory until the operator chooses create, merge, or ignore for each host.
+   Matches are suggestions only; there is no automatic merge. Merge defaults to
+   filling empty scan-derived fields, with an explicit overwrite option.
 7. Scan metadata (target, ports, command, start/end time, host count, status) is
-   audited. Each imported CI is audited separately.
+   audited. Each created CI, merge, and import is audited separately.
 
 Scanning networks without authorisation may be illegal. The application is not a
 penetration-testing tool.
@@ -177,10 +179,14 @@ penetration-testing tool.
 
 - Back up the database and the `.meta` sidecar together.
 - Backups remain encrypted; protect the passphrase separately.
+- The in-app **Backup** action uses the SQLite online backup API and writes the
+  matching `.meta` sidecar. It is consistent while the database is open.
 - Test restore procedures before relying on them.
-- A future release will provide an encrypted backup command and integrity check.
-- Do not copy a live database while it is open unless you use a SQLite/SQLCipher
-  backup API or stop the application first.
+- The derived SQLCipher key is retained in process memory while the database is
+  open so backup can run without re-entering the passphrase. It is zeroized on
+  close and never written to disk.
+- Do not copy a live database by hand while it is open; use **Backup** or stop
+  the application first.
 
 ## Hardening checklist for operators
 
@@ -210,8 +216,11 @@ Contact the repository owner privately with:
 - Single-user local application; no RBAC or server-side authentication.
 - Webview memory cannot be fully zeroized.
 - The audit chain is local and key-holder-rewritable.
-- The embedded draw.io editor is not yet implemented; current exports are
-  plaintext files chosen by the user.
+- The embedded diagram editor is a lightweight `.drawio`-compatible canvas, not
+  the official draw.io web application. Dependency-map exports are plaintext
+  files chosen by the user.
 - The nmap XML parser is tested with fixtures and the process runner, but is not
   yet part of continuous fuzzing.
+- `nmap -O` is unavailable without elevation and in the standard Flatpak
+  sandbox.
 - Windows and Linux packaging/signing workflows are not yet complete.

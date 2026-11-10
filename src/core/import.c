@@ -589,7 +589,7 @@ static int resolve_ci_type(cmdb_db_t *db, const char *name,
 
   {
     char id[37];
-    if (cmdb_types_create(db, name, "Imported CI type", "", "",
+    if (cmdb_types_create(db, name, "Imported CI type", "", "", "",
                           id, err) != 0) {
       return -1;
     }

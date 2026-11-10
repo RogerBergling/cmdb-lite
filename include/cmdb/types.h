@@ -17,6 +17,7 @@ typedef struct {
   char description[CMDB_MAX_DESCRIPTION];
   char icon[64];
   char color[16];
+  char category[64];
   char created_at[21];
   char updated_at[21];
 } cmdb_ci_type_t;
@@ -52,10 +53,12 @@ int cmdb_types_find_by_name(cmdb_db_t *db, const char *name,
 
 int cmdb_types_create(cmdb_db_t *db, const char *name, const char *description,
                       const char *icon, const char *color,
-                      char out_id[37], cmdb_error_t *err);
+                      const char *category, char out_id[37],
+                      cmdb_error_t *err);
 int cmdb_types_update(cmdb_db_t *db, const char *id, const char *name,
                       const char *description, const char *icon,
-                      const char *color, cmdb_error_t *err);
+                      const char *color, const char *category,
+                      cmdb_error_t *err);
 int cmdb_types_delete(cmdb_db_t *db, const char *id, cmdb_error_t *err);
 
 int cmdb_type_fields_list(cmdb_db_t *db, const char *type_id,

@@ -25,6 +25,7 @@ typedef enum {
   CMDB_ERR_VALIDATION,
   CMDB_ERR_AUTH,
   CMDB_ERR_LIMIT,
+  CMDB_ERR_CANCELLED,
   CMDB_ERR_INTERNAL
 } cmdb_status_t;
 

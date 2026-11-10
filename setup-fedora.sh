@@ -26,7 +26,7 @@ sudo dnf install -y \
   rpm-build \
   sqlcipher-devel libsodium-devel libsodium-static \
   openssl-devel zlib-devel expat-devel \
-  gtk3-devel webkit2gtk4.1-devel
+  gtk3-devel webkit2gtk4.1-devel nmap
 
 echo
 echo "== Configuring cmdb-lite =="

@@ -22,6 +22,7 @@ static const char schema_sql[] =
   "  description TEXT NOT NULL DEFAULT '',\n"
   "  icon TEXT NOT NULL DEFAULT '',\n"
   "  color TEXT NOT NULL DEFAULT '',\n"
+  "  category TEXT NOT NULL DEFAULT '',\n"
   "  created_at TEXT NOT NULL,\n"
   "  updated_at TEXT NOT NULL\n"
   ");\n"
@@ -106,12 +107,54 @@ static const char schema_sql[] =
   ");\n"
   "CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts);\n";
 
+static const char scan_schema_sql[] =
+  "CREATE TABLE IF NOT EXISTS scan_jobs (\n"
+  "  id TEXT PRIMARY KEY NOT NULL,\n"
+  "  target TEXT NOT NULL,\n"
+  "  ports TEXT NOT NULL,\n"
+  "  method TEXT NOT NULL DEFAULT 'nmap',\n"
+  "  command TEXT NOT NULL DEFAULT '',\n"
+  "  service_detection INTEGER NOT NULL DEFAULT 0,\n"
+  "  os_detection INTEGER NOT NULL DEFAULT 0,\n"
+  "  status TEXT NOT NULL DEFAULT 'running',\n"
+  "  started_at TEXT NOT NULL,\n"
+  "  finished_at TEXT NOT NULL DEFAULT '',\n"
+  "  host_count INTEGER NOT NULL DEFAULT 0,\n"
+  "  truncated INTEGER NOT NULL DEFAULT 0,\n"
+  "  error TEXT NOT NULL DEFAULT '',\n"
+  "  created_at TEXT NOT NULL\n"
+  ");\n"
+  "CREATE INDEX IF NOT EXISTS idx_scan_jobs_created ON scan_jobs(created_at);\n"
+  "CREATE TABLE IF NOT EXISTS discovered_assets (\n"
+  "  id TEXT PRIMARY KEY NOT NULL,\n"
+  "  scan_job_id TEXT NOT NULL REFERENCES scan_jobs(id) ON DELETE CASCADE,\n"
+  "  ip_address TEXT NOT NULL,\n"
+  "  hostname TEXT NOT NULL DEFAULT '',\n"
+  "  mac_address TEXT NOT NULL DEFAULT '',\n"
+  "  vendor TEXT NOT NULL DEFAULT '',\n"
+  "  os_guess TEXT NOT NULL DEFAULT '',\n"
+  "  services TEXT NOT NULL DEFAULT '',\n"
+  "  status TEXT NOT NULL DEFAULT '',\n"
+  "  open_ports TEXT NOT NULL DEFAULT '',\n"
+  "  port_count INTEGER NOT NULL DEFAULT 0,\n"
+  "  ports_truncated INTEGER NOT NULL DEFAULT 0,\n"
+  "  review_status TEXT NOT NULL DEFAULT 'pending',\n"
+  "  matched_ci_id TEXT NOT NULL DEFAULT '',\n"
+  "  created_at TEXT NOT NULL,\n"
+  "  UNIQUE(scan_job_id, ip_address)\n"
+  ");\n"
+  "CREATE INDEX IF NOT EXISTS idx_discovered_job\n"
+  "  ON discovered_assets(scan_job_id);\n"
+  "CREATE INDEX IF NOT EXISTS idx_discovered_status\n"
+  "  ON discovered_assets(review_status);\n";
+
 typedef struct {
   const char *id;
   const char *name;
   const char *description;
   const char *icon;
   const char *color;
+  const char *category;
 } seed_type_t;
 
 typedef struct {
@@ -133,29 +176,29 @@ typedef struct {
 
 static const seed_type_t seed_types[] = {
   {"11111111-1111-4111-8111-111111111111", "Linux Server",
-   "Linux host or virtual machine", "server", "#dae8fc"},
+   "Linux host or virtual machine", "server", "#dae8fc", "Compute"},
   {"22222222-2222-4222-8222-222222222222", "Windows Server",
-   "Windows host or virtual machine", "server", "#dae8fc"},
+   "Windows host or virtual machine", "server", "#dae8fc", "Compute"},
   {"33333333-3333-4333-8333-333333333333", "Virtual Machine",
-   "Virtualised compute instance", "vm", "#e1d5e7"},
+   "Virtualised compute instance", "vm", "#e1d5e7", "Compute"},
   {"44444444-4444-4444-8444-444444444444", "Router",
-   "Network router", "router", "#d5e8d4"},
+   "Network router", "router", "#d5e8d4", "Network"},
   {"55555555-5555-4555-8555-555555555555", "Switch",
-   "Network switch", "switch", "#d5e8d4"},
+   "Network switch", "switch", "#d5e8d4", "Network"},
   {"66666666-6666-4666-8666-666666666666", "Firewall",
-   "Network firewall", "firewall", "#f8cecc"},
+   "Network firewall", "firewall", "#f8cecc", "Network"},
   {"77777777-7777-4777-8777-777777777777", "Web Application",
-   "Software application or service", "app", "#fff2cc"},
+   "Software application or service", "app", "#fff2cc", "Applications"},
   {"88888888-8888-4888-8888-888888888888", "Database",
-   "Database service or instance", "database", "#ffe6cc"},
+   "Database service or instance", "database", "#ffe6cc", "Applications"},
   {"99999999-9999-4999-8999-999999999999", "Business Service",
-   "Business-facing service", "service", "#e6d0de"},
+   "Business-facing service", "service", "#e6d0de", "Services"},
   {"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "Cloud Service",
-   "Cloud platform or managed service", "cloud", "#b0e3e6"},
+   "Cloud platform or managed service", "cloud", "#b0e3e6", "Services"},
   {"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "Network",
-   "Network segment or network service", "network", "#d5e8d4"},
+   "Network segment or network service", "network", "#d5e8d4", "Network"},
   {"cccccccc-cccc-4ccc-8ccc-cccccccccccc", "Other",
-   "Any other configuration item", "other", "#f5f5f5"}
+   "Any other configuration item", "other", "#f5f5f5", "Other"}
 };
 
 static const seed_field_t seed_fields[] = {
@@ -233,7 +276,10 @@ static const seed_rel_type_t seed_rel_types[] = {
 };
 
 int cmdb_schema_create(cmdb_db_t *db, cmdb_error_t *err) {
-  return cmdb_db_exec(db, schema_sql, err);
+  if (cmdb_db_exec(db, schema_sql, err) != 0) {
+    return -1;
+  }
+  return cmdb_db_exec(db, scan_schema_sql, err);
 }
 
 int cmdb_schema_meta_set(cmdb_db_t *db, const char *key, const char *value,
@@ -311,6 +357,76 @@ int cmdb_schema_meta_get(cmdb_db_t *db, const char *key,
   return -1;
 }
 
+int cmdb_schema_migrate(cmdb_db_t *db, cmdb_error_t *err) {
+  char value[64];
+  int version = 0;
+  size_t i;
+
+  if (cmdb_schema_meta_get(db, "schema_version", value, sizeof(value),
+                           err) != 0) {
+    return -1;
+  }
+  if (cmdb_parse_int(value, 0, 1000000, &version) != 0) {
+    cmdb_error_set(err, CMDB_ERR_VALIDATION, "Invalid schema version");
+    return -1;
+  }
+  if (version == CMDB_SCHEMA_VERSION) {
+    return 0;
+  }
+  if (version > CMDB_SCHEMA_VERSION || version < 1) {
+    cmdb_error_set(err, CMDB_ERR_VALIDATION,
+                   "Unsupported database schema version");
+    cmdb_error_set_detail(err, "found %d, expected %d",
+                          version, CMDB_SCHEMA_VERSION);
+    return -1;
+  }
+  if (cmdb_db_begin(db, err) != 0) {
+    return -1;
+  }
+  if (version < 2) {
+    if (cmdb_db_exec(db,
+                     "ALTER TABLE ci_types ADD COLUMN "
+                     "category TEXT NOT NULL DEFAULT '';",
+                     err) != 0 ||
+        cmdb_db_exec(db, scan_schema_sql, err) != 0) {
+      (void)cmdb_db_rollback(db, NULL);
+      return -1;
+    }
+    for (i = 0; i < sizeof(seed_types) / sizeof(seed_types[0]); i++) {
+      sqlite3_stmt *stmt = NULL;
+      if (sqlite3_prepare_v2(cmdb_db_sqlite(db),
+                             "UPDATE ci_types SET category = ? "
+                             "WHERE id = ? AND category = '';",
+                             -1, &stmt, NULL) != SQLITE_OK) {
+        cmdb_error_set(err, CMDB_ERR_DATABASE,
+                       "Cannot migrate CI type categories");
+        (void)cmdb_db_rollback(db, NULL);
+        return -1;
+      }
+      sqlite3_bind_text(stmt, 1, seed_types[i].category, -1,
+                        SQLITE_TRANSIENT);
+      sqlite3_bind_text(stmt, 2, seed_types[i].id, -1, SQLITE_TRANSIENT);
+      if (sqlite3_step(stmt) != SQLITE_DONE) {
+        sqlite3_finalize(stmt);
+        cmdb_error_set(err, CMDB_ERR_DATABASE,
+                       "Cannot migrate CI type categories");
+        (void)cmdb_db_rollback(db, NULL);
+        return -1;
+      }
+      sqlite3_finalize(stmt);
+    }
+  }
+  {
+    char next[32];
+    (void)snprintf(next, sizeof(next), "%d", CMDB_SCHEMA_VERSION);
+    if (cmdb_schema_meta_set(db, "schema_version", next, err) != 0) {
+      (void)cmdb_db_rollback(db, NULL);
+      return -1;
+    }
+  }
+  return cmdb_db_commit(db, err);
+}
+
 int cmdb_schema_validate(cmdb_db_t *db, cmdb_error_t *err) {
   char value[64];
   int version = 0;
@@ -354,8 +470,9 @@ int cmdb_schema_seed(cmdb_db_t *db, cmdb_error_t *err) {
 
   if (sqlite3_prepare_v2(handle,
                          "INSERT OR IGNORE INTO ci_types"
-                         "(id, name, description, icon, color, created_at, updated_at) "
-                         "VALUES(?, ?, ?, ?, ?, ?, ?);",
+                         "(id, name, description, icon, color, category, "
+                         "created_at, updated_at) "
+                         "VALUES(?, ?, ?, ?, ?, ?, ?, ?);",
                          -1, &type_stmt, NULL) != SQLITE_OK) {
     cmdb_error_set(err, CMDB_ERR_DATABASE, "Cannot prepare type seed");
     cmdb_error_set_detail(err, "%s", sqlite3_errmsg(handle));
@@ -370,8 +487,10 @@ int cmdb_schema_seed(cmdb_db_t *db, cmdb_error_t *err) {
     sqlite3_bind_text(type_stmt, 3, seed_types[i].description, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(type_stmt, 4, seed_types[i].icon, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(type_stmt, 5, seed_types[i].color, -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(type_stmt, 6, now, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(type_stmt, 6, seed_types[i].category, -1,
+                      SQLITE_TRANSIENT);
     sqlite3_bind_text(type_stmt, 7, now, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(type_stmt, 8, now, -1, SQLITE_TRANSIENT);
     if (sqlite3_step(type_stmt) != SQLITE_DONE) {
       cmdb_error_set(err, CMDB_ERR_DATABASE, "Cannot seed CI types");
       cmdb_error_set_detail(err, "%s", sqlite3_errmsg(handle));

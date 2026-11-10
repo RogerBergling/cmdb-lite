@@ -20,7 +20,7 @@ jobs:
             build-essential cmake ninja-build pkg-config \
             fakeroot dpkg-dev \
             libsqlcipher-dev libsodium-dev libexpat1-dev \
-            libgtk-3-dev libwebkit2gtk-4.1-dev
+            libgtk-3-dev libwebkit2gtk-4.1-dev nmap
 
       - name: Check embedded web UI
         run: python3 packaging/embed_web.py --check
@@ -37,7 +37,7 @@ jobs:
         run: cmake --build build
 
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: CMDB_TEST_LIVE_NMAP=1 ctest --test-dir build --output-on-failure
 
       - name: Build Linux packages
         run: |
@@ -71,7 +71,7 @@ jobs:
             findutils rpm-build \
             sqlcipher-devel libsodium-devel libsodium-static \
             openssl-devel zlib-devel expat-devel \
-            gtk3-devel webkit2gtk4.1-devel
+            gtk3-devel webkit2gtk4.1-devel nmap
 
       - name: Check embedded web UI
         run: python3 packaging/embed_web.py --check
@@ -88,7 +88,7 @@ jobs:
         run: cmake --build build
 
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: CMDB_TEST_LIVE_NMAP=1 ctest --test-dir build --output-on-failure
 
       - name: Build Fedora packages
         run: |
@@ -103,6 +103,38 @@ jobs:
           path: |
             dist/*.rpm
             dist/*.tar.gz
+          if-no-files-found: error
+
+  flatpak:
+    name: Flatpak (self-contained Linux)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Flatpak tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          flatpak remote-add --user --if-not-exists flathub \
+            https://flathub.org/repo/flathub.flatpakrepo
+
+      - name: Install GNOME runtime and SDK
+        run: |
+          flatpak install --user -y flathub \
+            org.gnome.Platform//48 org.gnome.Sdk//48
+
+      - name: Build Flatpak
+        run: |
+          flatpak-builder --user --force-clean --repo=repo build-flatpak \
+            packaging/flatpak/io.github.rogerbergling.CmdbLite.yml
+          flatpak build-bundle repo cmdb-lite.flatpak \
+            io.github.rogerbergling.CmdbLite
+
+      - name: Upload Flatpak
+        uses: actions/upload-artifact@v4
+        with:
+          name: cmdb-lite-flatpak-x86_64
+          path: cmdb-lite.flatpak
           if-no-files-found: error
 
   windows:

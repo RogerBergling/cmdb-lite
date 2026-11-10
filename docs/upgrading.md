@@ -44,9 +44,14 @@ wrong.
 
 ## Database compatibility
 
-The scanner release does not change the database schema. Existing v0.1.0
-databases open directly; no migration step is required. Scan jobs are not stored
-as separate tables — reviewed results become ordinary CIs and audit entries.
+v0.3.0 migrates the database schema from version 1 to version 2. It adds the
+`ci_types.category` column and the persisted scan staging tables (`scan_jobs`,
+`discovered_assets`). The migration runs automatically when the database is
+opened and is transactional. Back up the `.cmdb` and `.meta` pair before opening
+a v0.1.0/v0.2.0 database with v0.3.0.
+
+After migration, do not open the same file with an older application. Restore
+the pre-upgrade backup if you need to roll back.
 
 For future releases:
 
@@ -62,7 +67,7 @@ For future releases:
 
 ```bash
 # Stop any running instance, then install the new package over the old one.
-sudo apt install ./cmdb-lite_0.2.0_amd64.deb
+sudo apt install ./cmdb-lite_0.3.0_amd64.deb
 ```
 
 `apt` replaces `/usr/bin/cmdb` and leaves your database untouched. Your database
@@ -84,7 +89,7 @@ dpkg -s cmdb-lite | grep '^Version:'
 ## Fedora / RHEL (`.rpm`)
 
 ```bash
-sudo dnf upgrade ./cmdb-lite-0.2.0-1.x86_64.rpm
+sudo dnf upgrade ./cmdb-lite-0.3.0-1.x86_64.rpm
 ```
 
 or, if the RPM is in a repository:
@@ -106,12 +111,21 @@ The portable archive contains a single `cmdb` ELF. Keep the old binary until the
 new one starts successfully:
 
 ```bash
-tar -xzf cmdb-lite-0.2.0-linux-x86_64.tar.gz
-./cmdb-lite-0.2.0-linux-x86_64/bin/cmdb
+tar -xzf cmdb-lite-0.3.0-linux-x86_64.tar.gz
+./cmdb-lite-0.3.0-linux-x86_64/bin/cmdb
 ```
 
 The database is opened from the path you choose in the application. File paths
 are absolute, so moving the executable does not move the database.
+
+## Flatpak
+
+```bash
+flatpak install --user ./cmdb-lite.flatpak
+```
+
+Reinstalling a newer bundle upgrades the application. The database remains in
+your home directory and is not modified. See [`flatpak.md`](flatpak.md).
 
 ## Windows ZIP (portable)
 
@@ -125,7 +139,7 @@ executable does not store the database next to itself.
 ## Windows MSI
 
 ```powershell
-msiexec /i .\cmdb-lite-0.2.0-windows-x64.msi
+msiexec /i .\cmdb-lite-0.3.0-windows-x64.msi
 ```
 
 The per-machine MSI upgrades the installed executable and Start Menu shortcut.
@@ -135,7 +149,7 @@ required.
 To uninstall:
 
 ```powershell
-msiexec /x .\cmdb-lite-0.2.0-windows-x64.msi
+msiexec /x .\cmdb-lite-0.3.0-windows-x64.msi
 ```
 
 Uninstalling removes the application only. Back up your database first if you

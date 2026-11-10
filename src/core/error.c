@@ -16,6 +16,7 @@ const char *cmdb_status_name(cmdb_status_t status) {
     case CMDB_ERR_VALIDATION: return "validation";
     case CMDB_ERR_AUTH: return "auth";
     case CMDB_ERR_LIMIT: return "limit";
+    case CMDB_ERR_CANCELLED: return "cancelled";
     case CMDB_ERR_INTERNAL: return "internal";
     default: return "internal";
   }

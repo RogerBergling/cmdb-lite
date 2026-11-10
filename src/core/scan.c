@@ -343,10 +343,12 @@ typedef struct {
   size_t capacity;
   int in_host;
   int in_port;
+  int current_port_open;
   int depth;
   int failed;
   char current_port[16];
   char current_protocol[16];
+  char current_service[256];
   char error[256];
 } scan_parser_t;
 
@@ -394,6 +396,26 @@ static void scan_append_port(scan_parser_t *parser, const char *port,
   }
   (void)memcpy(parser->current.open_ports + used, token, token_len + 1);
   parser->current.port_count++;
+}
+
+static void scan_append_service(scan_parser_t *parser) {
+  char token[320];
+  size_t used;
+
+  if (!parser->current_port_open || parser->current_service[0] == '\0') {
+    return;
+  }
+  (void)snprintf(token, sizeof(token), "%s/%s=%s",
+                 parser->current_port, parser->current_protocol,
+                 parser->current_service);
+  used = strlen(parser->current.services);
+  if (used + strlen(token) + 2 >= sizeof(parser->current.services)) {
+    return;
+  }
+  if (used > 0) {
+    parser->current.services[used++] = ';';
+  }
+  (void)memcpy(parser->current.services + used, token, strlen(token) + 1);
 }
 
 static void XMLCALL scan_start_element(void *userData,
@@ -460,13 +482,52 @@ static void XMLCALL scan_start_element(void *userData,
                         sizeof(parser->current_port), port);
     (void)cmdb_str_copy(parser->current_protocol,
                         sizeof(parser->current_protocol), protocol);
+    parser->current_service[0] = '\0';
+    parser->current_port_open = 0;
     parser->in_port = 1;
   } else if (strcmp(name, "state") == 0 && parser->in_port) {
     const char *state = scan_xml_attr(atts, "state");
     if (state != NULL && strcmp(state, "open") == 0) {
+      parser->current_port_open = 1;
       scan_append_port(parser, parser->current_port,
                        parser->current_protocol);
     }
+  } else if (strcmp(name, "service") == 0 && parser->in_port) {
+    const char *service = scan_xml_attr(atts, "name");
+    const char *product = scan_xml_attr(atts, "product");
+    const char *version = scan_xml_attr(atts, "version");
+    const char *extra = scan_xml_attr(atts, "extrainfo");
+    cmdb_strbuf_t label;
+    if (!parser->current_port_open) {
+      return;
+    }
+    cmdb_strbuf_init(&label);
+    if (service != NULL) {
+      cmdb_strbuf_append(&label, service);
+    }
+    if (product != NULL) {
+      if (label.len > 0) {
+        cmdb_strbuf_append(&label, " ");
+      }
+      cmdb_strbuf_append(&label, product);
+    }
+    if (version != NULL) {
+      if (label.len > 0) {
+        cmdb_strbuf_append(&label, " ");
+      }
+      cmdb_strbuf_append(&label, version);
+    }
+    if (extra != NULL) {
+      if (label.len > 0) {
+        cmdb_strbuf_append(&label, " ");
+      }
+      cmdb_strbuf_append(&label, extra);
+    }
+    if (label.data != NULL) {
+      (void)cmdb_str_copy(parser->current_service,
+                          sizeof(parser->current_service), label.data);
+    }
+    cmdb_strbuf_free(&label);
   } else if (strcmp(name, "osmatch") == 0 && parser->in_host) {
     const char *os_name = scan_xml_attr(atts, "name");
     if (os_name != NULL && parser->current.os_guess[0] == '\0') {
@@ -516,7 +577,10 @@ static void XMLCALL scan_end_element(void *userData, const XML_Char *name) {
     return;
   }
   if (strcmp(name, "port") == 0) {
+    scan_append_service(parser);
     parser->in_port = 0;
+    parser->current_port_open = 0;
+    parser->current_service[0] = '\0';
     parser->current_port[0] = '\0';
     parser->current_protocol[0] = '\0';
   } else if (strcmp(name, "host") == 0) {
@@ -532,11 +596,13 @@ static void XMLCALL scan_doctype(void *userData, const XML_Char *doctypeName,
                                  const XML_Char *publicId,
                                  int hasInternalSubset) {
   scan_parser_t *parser = (scan_parser_t *)userData;
-  (void)doctypeName;
+  if (doctypeName == NULL || strcmp(doctypeName, "nmaprun") != 0 ||
+      hasInternalSubset || systemId != NULL || publicId != NULL) {
+    scan_parser_fail(parser, "Scan XML contains an unsupported document type");
+  }
   (void)systemId;
   (void)publicId;
   (void)hasInternalSubset;
-  scan_parser_fail(parser, "Scan XML must not contain a document type");
 }
 
 static void XMLCALL scan_entity_decl(
@@ -616,12 +682,49 @@ int cmdb_scan_parse_xml(const char *xml, size_t len,
 }
 
 void cmdb_scan_result_free(cmdb_scan_result_t *result) {
+  size_t i;
+
   if (result == NULL) {
     return;
+  }
+  for (i = 0; i < result->host_count; i++) {
+    free(result->hosts[i].matches);
   }
   free(result->hosts);
   memset(result, 0, sizeof(*result));
 }
+
+static int scan_cancel_requested(volatile int *flag) {
+  if (flag == NULL) {
+    return 0;
+  }
+#ifdef _WIN32
+  return InterlockedCompareExchange((volatile LONG *)flag, 0, 0) != 0;
+#else
+  return __atomic_load_n(flag, __ATOMIC_ACQUIRE) != 0;
+#endif
+}
+
+#ifdef _WIN32
+static int scan_is_elevated(void) {
+  HANDLE token = NULL;
+  TOKEN_ELEVATION elevation;
+  DWORD size = sizeof(elevation);
+  int elevated = 0;
+
+  if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
+    if (GetTokenInformation(token, TokenElevation, &elevation, size, &size)) {
+      elevated = elevation.TokenIsElevated != 0;
+    }
+    (void)CloseHandle(token);
+  }
+  return elevated;
+}
+#else
+static int scan_is_elevated(void) {
+  return geteuid() == 0;
+}
+#endif
 
 #ifndef _WIN32
 
@@ -698,14 +801,32 @@ static int scan_temp_file(char path[4096], cmdb_error_t *err) {
 }
 
 static int scan_run_process(const char *executable, char *const argv[],
-                            int timeout_seconds, cmdb_error_t *err) {
+                            int timeout_seconds, volatile int *cancel_flag,
+                            cmdb_error_t *err) {
   pid_t pid;
   int status = 0;
   long waited_ms = 0;
   struct timespec interval;
+  posix_spawnattr_t attributes;
   int rc;
 
-  rc = posix_spawn(&pid, executable, NULL, NULL, argv, environ);
+  if (scan_cancel_requested(cancel_flag)) {
+    cmdb_error_set(err, CMDB_ERR_CANCELLED, "The scan was cancelled");
+    return -1;
+  }
+  rc = posix_spawnattr_init(&attributes);
+  if (rc == 0) {
+    rc = posix_spawnattr_setpgroup(&attributes, 0);
+  }
+  if (rc == 0) {
+    rc = posix_spawnattr_setflags(&attributes, POSIX_SPAWN_SETPGROUP);
+  }
+  if (rc == 0) {
+    rc = posix_spawn(&pid, executable, NULL, &attributes, argv, environ);
+    (void)posix_spawnattr_destroy(&attributes);
+  } else {
+    (void)posix_spawnattr_destroy(&attributes);
+  }
   if (rc != 0) {
     cmdb_error_set(err, CMDB_ERR_IO, "Cannot start nmap");
     cmdb_error_set_detail(err, "%s", strerror(rc));
@@ -723,8 +844,14 @@ static int scan_run_process(const char *executable, char *const argv[],
       cmdb_error_set_detail(err, "%s", strerror(errno));
       return -1;
     }
+    if (scan_cancel_requested(cancel_flag)) {
+      (void)kill(-pid, SIGKILL);
+      (void)waitpid(pid, &status, 0);
+      cmdb_error_set(err, CMDB_ERR_CANCELLED, "The scan was cancelled");
+      return -1;
+    }
     if (waited_ms >= (long)timeout_seconds * 1000L) {
-      (void)kill(pid, SIGKILL);
+      (void)kill(-pid, SIGKILL);
       (void)waitpid(pid, &status, 0);
       cmdb_error_set(err, CMDB_ERR_LIMIT,
                      "The nmap scan timed out");
@@ -842,15 +969,21 @@ static void scan_append_windows_arg(cmdb_strbuf_t *buffer, const char *arg) {
 }
 
 static int scan_run_process(const char *executable, char *const argv[],
-                            int timeout_seconds, cmdb_error_t *err) {
+                            int timeout_seconds, volatile int *cancel_flag,
+                            cmdb_error_t *err) {
   cmdb_strbuf_t command;
   STARTUPINFOA startup;
   PROCESS_INFORMATION process;
   DWORD wait_result;
   DWORD exit_code = 0;
+  ULONGLONG started_at;
   size_t i;
   BOOL created;
 
+  if (scan_cancel_requested(cancel_flag)) {
+    cmdb_error_set(err, CMDB_ERR_CANCELLED, "The scan was cancelled");
+    return -1;
+  }
   cmdb_strbuf_init(&command);
   cmdb_strbuf_append(&command, executable);
   for (i = 1; argv[i] != NULL; i++) {
@@ -869,18 +1002,35 @@ static int scan_run_process(const char *executable, char *const argv[],
     return -1;
   }
   (void)CloseHandle(process.hThread);
-  wait_result = WaitForSingleObject(process.hProcess,
-                                    (DWORD)timeout_seconds * 1000u);
-  if (wait_result == WAIT_TIMEOUT) {
-    (void)TerminateProcess(process.hProcess, 1);
-    (void)WaitForSingleObject(process.hProcess, 5000);
-    (void)CloseHandle(process.hProcess);
-    cmdb_error_set(err, CMDB_ERR_LIMIT, "The nmap scan timed out");
-    cmdb_error_set_detail(err, "timeout: %d seconds", timeout_seconds);
-    return -1;
+  started_at = GetTickCount64();
+  for (;;) {
+    wait_result = WaitForSingleObject(process.hProcess, 100);
+    if (wait_result == WAIT_OBJECT_0) {
+      break;
+    }
+    if (wait_result != WAIT_TIMEOUT) {
+      (void)CloseHandle(process.hProcess);
+      cmdb_error_set(err, CMDB_ERR_IO, "Cannot wait for nmap");
+      return -1;
+    }
+    if (scan_cancel_requested(cancel_flag)) {
+      (void)TerminateProcess(process.hProcess, 1);
+      (void)WaitForSingleObject(process.hProcess, 5000);
+      (void)CloseHandle(process.hProcess);
+      cmdb_error_set(err, CMDB_ERR_CANCELLED, "The scan was cancelled");
+      return -1;
+    }
+    if (GetTickCount64() - started_at >=
+        (ULONGLONG)timeout_seconds * 1000u) {
+      (void)TerminateProcess(process.hProcess, 1);
+      (void)WaitForSingleObject(process.hProcess, 5000);
+      (void)CloseHandle(process.hProcess);
+      cmdb_error_set(err, CMDB_ERR_LIMIT, "The nmap scan timed out");
+      cmdb_error_set_detail(err, "timeout: %d seconds", timeout_seconds);
+      return -1;
+    }
   }
-  if (wait_result != WAIT_OBJECT_0 ||
-      !GetExitCodeProcess(process.hProcess, &exit_code)) {
+  if (!GetExitCodeProcess(process.hProcess, &exit_code)) {
     (void)CloseHandle(process.hProcess);
     cmdb_error_set(err, CMDB_ERR_IO, "Cannot wait for nmap");
     return -1;
@@ -896,9 +1046,10 @@ static int scan_run_process(const char *executable, char *const argv[],
 
 #endif
 
-int cmdb_scan_nmap_run(const char *target, const char *ports,
-                       int timeout_seconds, cmdb_scan_result_t *result,
-                       cmdb_error_t *err) {
+int cmdb_scan_nmap_run_ex(const char *target, const char *ports,
+                          int timeout_seconds, int service_detection,
+                          int os_detection, volatile int *cancel_flag,
+                          cmdb_scan_result_t *result, cmdb_error_t *err) {
   char normalized_target[64];
   char normalized_ports[1024];
   char *nmap;
@@ -906,8 +1057,11 @@ int cmdb_scan_nmap_run(const char *target, const char *ports,
   char *xml = NULL;
   size_t xml_len = 0;
   int rc = -1;
-  char *argv[20];
+  int argc = 0;
+  char *argv[24];
   char arg_connect[] = "-sT";
+  char arg_service[] = "-sV";
+  char arg_os[] = "-O";
   char arg_no_ping[] = "-Pn";
   char arg_no_dns[] = "-n";
   char arg_open[] = "--open";
@@ -919,6 +1073,7 @@ int cmdb_scan_nmap_run(const char *target, const char *ports,
   char arg_host_timeout_value[] = "30s";
   char arg_ports[] = "-p";
   char arg_output[] = "-oX";
+  cmdb_strbuf_t command;
 
   if (result == NULL) {
     cmdb_error_set(err, CMDB_ERR_INVALID_ARGUMENT,
@@ -936,6 +1091,24 @@ int cmdb_scan_nmap_run(const char *target, const char *ports,
                    "Scan timeout must be between 10 and 600 seconds");
     return -1;
   }
+  if (os_detection && getenv("FLATPAK_ID") != NULL) {
+    cmdb_error_set(err, CMDB_ERR_VALIDATION,
+                   "OS detection (-O) is not available in the Flatpak sandbox");
+    cmdb_error_set_detail(err,
+                          "Use -sV or run the distribution package elevated");
+    return -1;
+  }
+  if (os_detection && !scan_is_elevated()) {
+    cmdb_error_set(err, CMDB_ERR_VALIDATION,
+                   "OS detection (-O) requires root/administrator privileges");
+    cmdb_error_set_detail(err,
+                          "Run cmdb-lite elevated or disable OS detection");
+    return -1;
+  }
+  if (scan_cancel_requested(cancel_flag)) {
+    cmdb_error_set(err, CMDB_ERR_CANCELLED, "The scan was cancelled");
+    return -1;
+  }
   nmap = scan_find_nmap();
   if (nmap == NULL) {
     cmdb_error_set(err, CMDB_ERR_NOT_FOUND,
@@ -948,33 +1121,54 @@ int cmdb_scan_nmap_run(const char *target, const char *ports,
     free(nmap);
     return -1;
   }
-  argv[0] = nmap;
-  argv[1] = arg_connect;
-  argv[2] = arg_no_ping;
-  argv[3] = arg_no_dns;
-  argv[4] = arg_open;
-  argv[5] = arg_rate;
-  argv[6] = arg_rate_value;
-  argv[7] = arg_retries;
-  argv[8] = arg_retries_value;
-  argv[9] = arg_host_timeout;
-  argv[10] = arg_host_timeout_value;
-  argv[11] = arg_ports;
-  argv[12] = normalized_ports;
-  argv[13] = arg_output;
-  argv[14] = xml_path;
-  argv[15] = normalized_target;
-  argv[16] = NULL;
+  argv[argc++] = nmap;
+  argv[argc++] = arg_connect;
+  if (service_detection) {
+    argv[argc++] = arg_service;
+  }
+  if (os_detection) {
+    argv[argc++] = arg_os;
+  }
+  argv[argc++] = arg_no_ping;
+  argv[argc++] = arg_no_dns;
+  argv[argc++] = arg_open;
+  argv[argc++] = arg_rate;
+  argv[argc++] = arg_rate_value;
+  argv[argc++] = arg_retries;
+  argv[argc++] = arg_retries_value;
+  argv[argc++] = arg_host_timeout;
+  argv[argc++] = arg_host_timeout_value;
+  argv[argc++] = arg_ports;
+  argv[argc++] = normalized_ports;
+  argv[argc++] = arg_output;
+  argv[argc++] = xml_path;
+  argv[argc++] = normalized_target;
+  argv[argc] = NULL;
 
   (void)cmdb_str_copy(result->target, sizeof(result->target),
                       normalized_target);
+  (void)cmdb_str_copy(result->ports, sizeof(result->ports),
+                      normalized_ports);
   (void)cmdb_str_copy(result->method, sizeof(result->method), "nmap");
-  (void)snprintf(result->command, sizeof(result->command),
-                 "nmap -sT -Pn -n --open --max-rate 500 --max-retries 1 "
-                 "--host-timeout 30s -p %s -oX %s %s",
-                 normalized_ports, xml_path, normalized_target);
+  result->service_detection = service_detection;
+  result->os_detection = os_detection;
+  cmdb_strbuf_init(&command);
+  cmdb_strbuf_append(&command, "nmap -sT");
+  if (service_detection) {
+    cmdb_strbuf_append(&command, " -sV");
+  }
+  if (os_detection) {
+    cmdb_strbuf_append(&command, " -O");
+  }
+  cmdb_strbuf_appendf(&command,
+                      " -Pn -n --open --max-rate 500 --max-retries 1 "
+                      "--host-timeout 30s -p %s -oX %s %s",
+                      normalized_ports, xml_path, normalized_target);
+  (void)cmdb_str_copy(result->command, sizeof(result->command),
+                      command.data != NULL ? command.data : "nmap");
+  cmdb_strbuf_free(&command);
   cmdb_iso8601_now(result->started_at);
-  if (scan_run_process(nmap, argv, timeout_seconds, err) != 0) {
+  if (scan_run_process(nmap, argv, timeout_seconds, cancel_flag, err) != 0) {
     goto cleanup;
   }
   cmdb_iso8601_now(result->finished_at);
@@ -992,6 +1186,7 @@ int cmdb_scan_nmap_run(const char *target, const char *ports,
     result->host_count = parsed.host_count;
     result->truncated = parsed.truncated;
     parsed.hosts = NULL;
+    parsed.host_count = 0;
     cmdb_scan_result_free(&parsed);
   }
   cmdb_iso8601_now(result->finished_at);
@@ -1005,4 +1200,11 @@ cleanup:
     cmdb_scan_result_free(result);
   }
   return rc;
+}
+
+int cmdb_scan_nmap_run(const char *target, const char *ports,
+                       int timeout_seconds, cmdb_scan_result_t *result,
+                       cmdb_error_t *err) {
+  return cmdb_scan_nmap_run_ex(target, ports, timeout_seconds, 0, 0, NULL,
+                               result, err);
 }

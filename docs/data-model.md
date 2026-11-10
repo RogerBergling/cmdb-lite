@@ -1,7 +1,7 @@
 # Data model
 
 The database is a single SQLCipher file. All tables live in the same encrypted
-file. Schema version 1 is created by `src/core/schema.c`.
+file. Schema version 2 is created and migrated by `src/core/schema.c`.
 
 ## `app_meta`
 
@@ -9,7 +9,7 @@ Key/value application metadata stored inside the encrypted database.
 
 | Key | Meaning |
 |---|---|
-| `schema_version` | Integer schema version; currently `1`. |
+| `schema_version` | Integer schema version; currently `2`. |
 | `created_at` | Database creation timestamp (UTC). |
 | `app_version` | Application version that created/updated the schema. |
 
@@ -18,7 +18,7 @@ table. They are not secret, but the database cannot be opened without them.
 
 ## `ci_types`
 
-User-defined categories.
+User-defined CI types grouped by a free-text category.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -27,6 +27,7 @@ User-defined categories.
 | `description` | TEXT | Free text. |
 | `icon` | TEXT | Optional icon key for the UI. |
 | `color` | TEXT | Optional display colour. |
+| `category` | TEXT | Category label such as Compute, Network, or Applications. Empty means uncategorised. |
 | `created_at`, `updated_at` | TEXT | ISO 8601 UTC. |
 
 The application seeds editable examples: Linux Server, Windows Server, Virtual
@@ -121,18 +122,52 @@ Constraints:
 
 Indexes on source and target for graph traversal.
 
-## `diagrams` (reserved)
+## `diagrams`
 
-The embedded draw.io editor will store diagrams here:
+Persisted `.drawio`-compatible diagrams.
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | TEXT | UUID primary key. |
 | `name` | TEXT | Diagram name. |
-| `drawio_xml` | TEXT | `.drawio` XML. |
+| `drawio_xml` | TEXT | `.drawio` XML (`mxfile` / `mxGraphModel` / `mxCell`). |
 | `created_at`, `updated_at` | TEXT | ISO 8601 UTC. |
 
-The vertical slice exports `.drawio` files but does not yet persist diagrams.
+The embedded editor stores diagrams here. Edges in the diagram point at CIs by
+UUID and may carry a relationship type; connecting nodes creates a real row in
+`relationships`.
+
+## `scan_jobs` and `discovered_assets`
+
+Persisted network-discovery staging.
+
+| `scan_jobs` column | Notes |
+|---|---|
+| `id` | UUID primary key. |
+| `target`, `ports` | Validated scan scope. |
+| `method` | `nmap`. |
+| `command` | Exact command line shown to the operator. |
+| `service_detection`, `os_detection` | Requested flags. |
+| `status` | `running`, `completed`, `failed`, `cancelled`, `interrupted`. |
+| `started_at`, `finished_at` | ISO 8601 UTC. |
+| `host_count`, `truncated` | Result bounds. |
+| `error` | Failure detail. |
+| `created_at` | Job creation timestamp. |
+
+| `discovered_assets` column | Notes |
+|---|---|
+| `id` | UUID primary key. |
+| `scan_job_id` | FK to `scan_jobs.id`, cascade delete. |
+| `ip_address`, `hostname`, `mac_address`, `vendor` | Discovered identity. |
+| `os_guess`, `services` | nmap-derived details. |
+| `open_ports`, `port_count`, `ports_truncated` | Open-port summary. |
+| `review_status` | `pending`, `created`, `merged`, or `ignored`. |
+| `matched_ci_id` | CI chosen for a merge/create result, or empty. |
+| `created_at` | Staging timestamp. |
+
+Matching suggestions are computed at read time from `ci_attributes` and
+`cis.name`; they are not persisted, so they always reflect the current
+inventory.
 
 ## `audit_log`
 
@@ -158,7 +193,8 @@ ci_types 1 ─── n ci_type_fields
 ci_types 1 ─── n cis
 cis     1 ─── n ci_attributes
 cis     n ─── n cis            (through relationships)
-cis     1 ─── n diagrams       (future)
+cis     1 ─── n diagrams       (editor nodes/edges reference CIs)
+scan_jobs 1 ─── n discovered_assets
 ```
 
 ## Future multi-user path

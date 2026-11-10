@@ -42,9 +42,15 @@ void test_types(void) {
   TEST_ASSERT(strcmp(linux_type.name, "Linux Server") == 0);
 
   TEST_ASSERT(cmdb_types_create(db, "Test Type", "A test type", "test", "#123456",
-                                type_id, &err) == 0);
+                                "Test", type_id, &err) == 0);
   TEST_ASSERT(cmdb_types_get(db, type_id, &new_type, &err) == 0);
   TEST_ASSERT(strcmp(new_type.name, "Test Type") == 0);
+  TEST_ASSERT(strcmp(new_type.category, "Test") == 0);
+  TEST_ASSERT(cmdb_types_update(db, type_id, "Test Type", "A test type",
+                                "test", "#123456", "Test Updated",
+                                &err) == 0);
+  TEST_ASSERT(cmdb_types_get(db, type_id, &new_type, &err) == 0);
+  TEST_ASSERT(strcmp(new_type.category, "Test Updated") == 0);
 
   memset(&input, 0, sizeof(input));
   input.key = "ip_address";

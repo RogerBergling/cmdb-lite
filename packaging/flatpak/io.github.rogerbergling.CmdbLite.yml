@@ -1,0 +1,129 @@
+app-id: io.github.rogerbergling.CmdbLite
+runtime: org.gnome.Platform
+runtime-version: '48'
+sdk: org.gnome.Sdk
+command: cmdb
+rename-desktop-file: cmdb-lite.desktop
+rename-icon: cmdb-lite
+finish-args:
+  - --share=ipc
+  - --share=network
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --filesystem=home
+  - --filesystem=xdg-documents
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /lib/cmake
+  - /share/man
+  - /share/doc
+  - /share/cmdb-lite/webview-src
+  - '*.a'
+  - '*.la'
+
+modules:
+  - name: libpcap
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DBUILD_SHARED_LIBS=ON
+      - -DDISABLE_LINUX_USBMON=ON
+      - -DDISABLE_DAG=ON
+      - -DDISABLE_SEPTEL=ON
+      - -DDISABLE_SNF=ON
+      - -DDISABLE_DBUS=ON
+      - -DDISABLE_BLUETOOTH=ON
+      - -DDISABLE_RDMA=ON
+      - -DDISABLE_TC=ON
+      - -DDISABLE_NETMAP=ON
+      - -DDISABLE_DPDK=ON
+      - -DBUILD_WITH_LIBNL=OFF
+      - -DENABLE_REMOTE=OFF
+    sources:
+      - type: archive
+        url: https://www.tcpdump.org/release/libpcap-1.10.5.tar.gz
+        sha256: 37ced90a19a302a7f32e458224a00c365c117905c2cd35ac544b6880a81488f0
+
+  - name: libsodium
+    buildsystem: autotools
+    config-opts:
+      - --disable-static
+      - --disable-dependency-tracking
+    sources:
+      - type: archive
+        url: https://github.com/jedisct1/libsodium/releases/download/1.0.20-RELEASE/libsodium-1.0.20.tar.gz
+        sha256: ebb65ef6ca439333c2bb41a0c1990587288da07f6c7fd07cb3a18cc18d30ce19
+
+  - name: sqlcipher
+    buildsystem: autotools
+    build-options:
+      env:
+        CFLAGS: -DSQLITE_HAS_CODEC
+        LDFLAGS: -lcrypto
+    config-opts:
+      - --disable-tcl
+      - --enable-tempstore=yes
+      - --with-crypto-lib=openssl
+      - --disable-dependency-tracking
+    sources:
+      - type: archive
+        url: https://github.com/sqlcipher/sqlcipher/archive/refs/tags/v4.6.1.tar.gz
+        sha256: d8f9afcbc2f4b55e316ca4ada4425daf3d0b4aab25f45e11a802ae422b9f53a3
+
+  - name: nmap
+    buildsystem: autotools
+    build-options:
+      env:
+        PKG_CONFIG_PATH: /app/lib/pkgconfig:/app/lib64/pkgconfig
+    config-opts:
+      - --without-zenmap
+      - --without-ncat
+      - --without-nping
+      - --without-ndiff
+      - --without-liblua
+      - --with-libpcap=/app
+    sources:
+      - type: archive
+        url: https://nmap.org/dist/nmap-7.95.tar.bz2
+        sha256: e14ab530e47b5afd88f1c8a2bac7f89cd8fe6b478e22d255c5b9bddb7a1c5778
+
+  - name: webview-src
+    buildsystem: simple
+    build-commands:
+      - mkdir -p /app/share/cmdb-lite
+      - cp -r . /app/share/cmdb-lite/webview-src
+    sources:
+      - type: archive
+        url: https://github.com/webview/webview/archive/3ab4b5d722438fc8a13e6ca830c5e2372d19a01d.tar.gz
+        sha256: 3668dca249ce182803fe886c9c9e8e27d2c278a52a647198b947ed9d415019d5
+
+  - name: cmdb-lite
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DCMDB_BUILD_UI=ON
+      - -DCMDB_BUILD_TESTS=OFF
+      - -DCMDB_FETCH_WEBVIEW=OFF
+      - -DCMDB_WEBVIEW_SOURCE_DIR=/app/share/cmdb-lite/webview-src
+      - -DCMDB_STATIC_CRYPTO=OFF
+      - -DCMAKE_INSTALL_PREFIX=/app
+    sources:
+      - type: dir
+        path: ../..
+        skip:
+          - .git
+          - build
+          - build-static
+          - build-core
+          - build-asan
+          - build-flatpak
+          - repo
+          - dist
+          - '*.deb'
+          - '*.rpm'
+          - '*.tar.gz'
+          - '*.zip'
+          - '*.msi'
