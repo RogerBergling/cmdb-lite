@@ -59,9 +59,10 @@ Compare the output with the matching line in `SHA256SUMS`.
 
 ### Flatpak (recommended for a self-contained Linux install)
 
-The Flatpak bundles GTK3, WebKitGTK, SQLCipher, libsodium, nmap, and the
-application. It runs on Fedora, Debian, Ubuntu, and other Flatpak hosts without
-installing development packages.
+The Flatpak uses the GNOME runtime for GTK3/WebKitGTK and bundles SQLCipher,
+libsodium, nmap, and the application. It runs on Fedora, Debian, Ubuntu, and
+other Flatpak hosts without installing development packages. The GNOME runtime
+must be installed (Flatpak fetches it from Flathub if needed).
 
 ```bash
 flatpak install --user ./cmdb-lite.flatpak
@@ -244,8 +245,8 @@ password vault instead.
 - Append-only audit log with a hash chain.
 - **Single-file executables**: a Linux ELF and a Windows EXE with the HTML/CSS/JS
   UI embedded; no separate `web/` folder is needed.
-- Linux `.deb`/RPM/TGZ, a **Flatpak with bundled GTK/WebKit/nmap**, and Windows
-  portable ZIP plus WiX-generated MSI.
+- Linux `.deb`/RPM/TGZ, a **Flatpak using the GNOME runtime and bundling nmap**,
+  and Windows portable ZIP plus WiX-generated MSI.
 - Core test suite, including a live nmap test in Linux/Fedora CI, parser
   fixtures, asynchronous scan-manager cancellation, backup, and migration
   checks.
@@ -259,7 +260,7 @@ The application ships as one executable per OS, with no `web/` asset folder:
 |---|---|---|
 | Windows | `cmdb.exe` | WebView2 runtime (present on current Windows 10/11). SQLCipher, libsodium, OpenSSL, expat, and the C/C++ runtime are linked statically. |
 | Linux (.deb/RPM/TGZ) | `cmdb` ELF | GTK3, WebKitGTK 4.1, expat, and system OpenSSL. SQLCipher and libsodium are linked statically when `.a` archives are available. |
-| Linux (Flatpak) | `cmdb-lite.flatpak` | Bundles GTK3, WebKitGTK, SQLCipher, libsodium, expat, and nmap with the GNOME runtime. No system development packages required. |
+| Linux (Flatpak) | `cmdb-lite.flatpak` | Uses the GNOME runtime for GTK3/WebKitGTK and bundles SQLCipher, libsodium, and nmap. The GNOME runtime is installed separately by Flatpak. |
 
 The encrypted database and its `.meta` sidecar are intentionally separate files
 chosen by the user. During development, `CMDB_WEB_DIR=src/web` can load the

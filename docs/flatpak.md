@@ -1,8 +1,9 @@
 # Flatpak (self-contained Linux build)
 
-The Flatpak bundles the application, GTK3, WebKitGTK, SQLCipher, libsodium,
-expat, and nmap with the GNOME runtime. It is the recommended Linux artifact
-when you do not want to install distribution development packages.
+The Flatpak packages the application together with SQLCipher, libsodium, and
+nmap. GTK3, WebKitGTK, expat, and the base libraries come from the GNOME runtime,
+which Flatpak installs alongside the application. It is the recommended Linux
+artifact when you do not want to install distribution development packages.
 
 ## Install a released bundle
 
