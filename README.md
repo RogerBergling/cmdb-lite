@@ -33,8 +33,8 @@ Windows.
   owns the database and adds multiple accounts, username/password login, TOTP,
   recovery codes, and per-user audit actors. It is a single-node server: one
   process, one database, no clustering/HA. Passkeys are out of scope for this
-  phase. The separate HIBP server provides the privileged patch-management role;
-  HIBP server support starts with Debian and Fedora.
+  phase. HIBP integration is out of scope for this rollout; the separate HIBP
+  server, if used later, remains a separate security boundary.
 - **Platforms built by CI:** Linux x86_64 (desktop+server `.deb`, RPM, portable
   tarball, server-only `.deb`/RPM/tarball, Flatpak) and Windows x86_64 (portable
   ZIP, MSI). The Windows package is a desktop client only.
@@ -52,6 +52,27 @@ Windows.
   no telemetry, cloud sync, or update check.
 - **License:** MIT; third-party notices are in
   [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
+### Reference deployment profile (this rollout)
+
+This repository is being prepared for one specific deployment:
+
+| Decision | Choice |
+|---|---|
+| Modes | Desktop-local **and** one Linux server. |
+| Accounts | **One user / one administrator**; additional accounts are possible but not planned. |
+| Network | Server reachable only on a local private network; do not expose it directly to the internet. |
+| Operating systems | Current Ubuntu and current Fedora for the server; Windows remains desktop-only. Validate the built package on the exact target image. |
+| Backup / RPO | 24-hour RPO; a daily maintenance window may stop the service for a consistent stop/copy backup. |
+| Authentication | Mandatory TOTP plus at least one unused recovery code; temporary passwords must be changed at first use. |
+| One-admin recovery | Tested `cmdb-server --reset-auth` break-glass procedure; keep recovery codes and the database passphrase separately. |
+| RBAC / SSO | Out of scope for this rollout; all accounts share inventory privileges. |
+| HIBP | Out of scope for this rollout; the export code remains available but no HIBP integration will be deployed. |
+| Release artifacts | Local verified packages; release tagging, signing, and SBOM generation are skipped by decision. |
+
+The detailed runbook is in [`docs/server.md`](docs/server.md). The decisions
+above are the reference profile; if the deployment changes, update this table
+and the checklist before go-live.
 
 ## Screenshots
 
@@ -577,21 +598,25 @@ five levels deep, and can be filtered by relationship type. Cycles are handled
 safely. Selecting multiple CIs produces the union of their dependency
 neighbourhoods.
 
-### HIBP integration
+### HIBP integration (not part of this rollout)
+
+HIBP integration is **out of scope for this deployment**. The export remains in
+the application for future use, but no HIBP server or importer will be deployed
+for this rollout. The notes below document the existing export only.
 
 `cmdb-lite` can export Linux CIs as a HIBP-compatible CSV feed with a stable
-`cmdb_ci_id`, OS data, tags, and no secrets. HIBP is the separate privileged
-patch-management server for the rollout. It provides single-user login with a
-password plus TOTP and/or passkeys, owns its own encrypted database and SSH
+`cmdb_ci_id`, OS data, tags, and no secrets. In a future rollout, HIBP would be
+the separate privileged patch-management server. It provides account login with
+a password plus TOTP and/or passkeys, owns its own encrypted database and SSH
 credentials, and starts with Debian and Fedora server support.
 
 `cmdb-lite` can be used desktop-local or with its optional authenticated server
 mode; HIBP remains a separate security boundary with its own accounts, database,
-passphrase, and SSH credentials. The intended flow is one-way inventory
+passphrase, and SSH credentials. The future flow would be one-way inventory
 onboarding: add the host once in `cmdb-lite`, export the HIBP CSV, import it into
-HIBP, then complete SSH/host-key setup once in HIBP. HIBP patch facts can be
+HIBP, then complete SSH/host-key setup once in HIBP. HIBP patch facts could be
 written back later. Do not share the encrypted databases or passphrases between
-the two applications. See
+the two applications if that integration is enabled later. See
 [`docs/hibp.md`](docs/hibp.md) for current importer limitations and the
 onboarding flow.
 
@@ -1680,13 +1705,12 @@ is still needed before a public or enterprise production rollout.
       other secrets.
 - [ ] Decide whether services (DNS, SMTP, NTP, vCenter, etc.) are modeled as
       `Service` CIs with `provided_by` relationships.
-- [x] HIBP integration is in scope for the rollout. HIBP is the separate
-      single-user server with password + TOTP/passkey login; cmdb-lite remains
-      the inventory source (desktop-local or optional server mode). Do not share
-      databases or passphrases.
-- [ ] Harden the HIBP importer to match by `cmdb_ci_id`, preserve SSH settings
-      and patch facts, and support a one-time “needs setup” state. Current
-      limitations are documented in [`docs/hibp.md`](docs/hibp.md).
+- [x] HIBP integration is **out of scope** for this rollout. The export code
+      remains available for future use; do not deploy or connect an HIBP server
+      for this deployment.
+- [ ] (Future rollout only) Harden the HIBP importer to match by
+      `cmdb_ci_id`, preserve SSH settings and patch facts, and support a one-time
+      “needs setup” state. Not required for this deployment.
 - [ ] Confirm the expected inventory size and import sizes; the UI list is
       paginated, but very large estates need performance testing.
 

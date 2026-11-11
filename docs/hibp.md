@@ -1,8 +1,11 @@
 # HIBP Linux host export
 
-HIBP integration is in scope for the planned production rollout. The
-**HIBP Linux hosts — CSV** export feeds Linux inventory from `cmdb-lite` into
-[HIBP](https://github.com/RogerBergling/HIBP) without sharing databases,
+> **Status: not part of this rollout.** The current deployment does not deploy
+> or connect to HIBP. The export remains in the application for a future
+> rollout; the notes below describe the existing file contract only.
+
+The **HIBP Linux hosts — CSV** export can feed Linux inventory from `cmdb-lite`
+into [HIBP](https://github.com/RogerBergling/HIBP) without sharing databases,
 passphrases, or credentials.
 
 ## Deployment roles
@@ -92,9 +95,9 @@ idempotent matching by `cmdb_ci_id`, inventory-only updates that preserve SSH
 configuration and patch facts, and a one-time "needs setup" state for imported
 hosts that do not have credentials yet.
 
-## Go-live prerequisites for the integrated deployment
+## Future go-live prerequisites for an integrated deployment
 
-Before going live with both applications:
+These are future requirements, not part of this rollout:
 
 - [ ] Create the HIBP administrator account and enroll TOTP and/or a passkey.
 - [ ] Confirm HIBP server support on the target Debian or Fedora release.
