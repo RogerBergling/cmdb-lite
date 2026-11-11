@@ -81,6 +81,11 @@ the same passphrase.
 
 For future releases:
 
+- The planned v0.7 server mode adds schema version 5 authentication tables to the
+  same encrypted database. The existing passphrase remains the database
+  encryption passphrase; the first admin account is separate and is created
+  through a one-time setup token. See
+  [`authentication.md`](authentication.md).
 - Schema changes are forward migrations. A newer application can open an older
   database and upgrades it in place.
 - Backward compatibility is not guaranteed. After a newer application has

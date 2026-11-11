@@ -158,6 +158,14 @@ The embedded editor stores diagrams here. Edges in the diagram point at CIs by
 UUID and may carry a relationship type; connecting nodes creates a real row in
 `relationships`.
 
+## Planned authentication schema
+
+Schema v5 is planned to add `users`, `sessions`, `user_recovery_codes`, and
+`webauthn_credentials` to the same encrypted database. The planned DDL, session
+model, TOTP/recovery rules, admin flow, and migration from v4 are documented in
+[`authentication.md`](authentication.md). These tables are **not present in
+v0.6.0**.
+
 ## `scan_jobs` and `discovered_assets`
 
 Persisted network-discovery staging.

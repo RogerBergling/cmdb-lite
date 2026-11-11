@@ -18,12 +18,16 @@ Windows.
 
 ## At a glance
 
-- **Deployment:** single-user desktop application, not a server or multi-user
-  service. The separate HIBP server provides the privileged patch-management
-  role with password + TOTP/passkey authentication; HIBP server support starts
-  with Debian and Fedora.
+- **Deployment:** currently a single-user desktop application. The planned v0.7
+  architecture adds server mode with multiple accounts, username/password login,
+  TOTP, recovery codes, and later passkeys. The separate HIBP server provides the
+  privileged patch-management role; HIBP server support starts with Debian and
+  Fedora.
 - **Platforms built by CI:** Linux x86_64 (`.deb`, RPM, portable tarball,
   Flatpak) and Windows x86_64 (portable ZIP, MSI).
+- **Current limitation:** v0.6.0 has no application-level login. The login and
+  server-mode design is in [`docs/authentication.md`](docs/authentication.md) and
+  is not implemented yet.
 - **Not currently built:** macOS, ARM64, 32-bit, or a headless/server mode.
 - **Storage:** one user-selected SQLCipher database plus a required `.meta`
   sidecar.
@@ -371,6 +375,8 @@ environments you intend to support.
 
 ### Next milestones
 
+- Server mode with multiple accounts, username/password login, TOTP, recovery
+  codes, and later passkeys. Linux first; Windows later.
 - Passphrase rotation/rekey and automatic or scheduled encrypted backups with
   retention.
 - Auto-lock/idle timeout and a single-instance database guard.
@@ -485,6 +491,24 @@ setup once in HIBP. HIBP patch facts can be written back later. Do not share the
 encrypted databases or passphrases between the two applications. See
 [`docs/hibp.md`](docs/hibp.md) for current importer limitations and the
 onboarding flow.
+
+### Authentication and server mode (planned)
+
+v0.6.0 has no application-level login. The planned v0.7 architecture adds:
+
+- a `cmdb-server` process that owns the database;
+- a thin desktop `cmdb` client and browser access through HAProxy/VPN;
+- multiple accounts with the same inventory privileges;
+- username/password login, TOTP first, passkeys later;
+- ten one-time recovery codes per user and admin reset;
+- configurable 12-hour absolute / 30-minute idle sessions by default;
+- audit events for login, logout, MFA, recovery, user management, and host
+  changes;
+- first-run admin creation protected by a one-time setup token.
+
+The full threat model, schema, API, and phased plan are in
+[`docs/authentication.md`](docs/authentication.md). This is design-only until the
+server implementation lands.
 
 ## Import file formats
 
@@ -1019,6 +1043,8 @@ GitHub Actions Windows runner.
   hardening, and limitations.
 - [`docs/architecture.md`](docs/architecture.md) — layers, bridge, data flows,
   and dependency choices.
+- [`docs/authentication.md`](docs/authentication.md) — planned v0.7 server mode,
+  accounts, sessions, TOTP, recovery codes, passkeys, schema, and API.
 - [`docs/dependencies.md`](docs/dependencies.md) — impact classes, vCenter and
   DNS examples, service modeling, and redundancy.
 - [`docs/drawio.md`](docs/drawio.md) — dependency traversal and `.drawio` format.
@@ -1162,6 +1188,9 @@ Ready-to-use examples are in [`examples/`](examples/):
 - Single-user local application. The schema, audit log, and API boundary are
   designed to allow a future server/RBAC version, but v1 has no authentication
   beyond the database passphrase.
+- No application-level accounts, login page, TOTP, passkeys, recovery codes, or
+  server mode in v0.6.0. These are designed in
+  [`docs/authentication.md`](docs/authentication.md) and planned for v0.7.
 - No password/secret storage. Use references to an external vault.
 - No passphrase rotation/rekey. A compromised passphrase requires creating a new
   database and re-importing/rebuilding it.
@@ -1240,6 +1269,8 @@ is still needed before a public or enterprise production rollout.
 
 ### Security and operations
 
+- [ ] Implement the planned server-mode authentication: login, sessions, TOTP,
+      recovery codes, audit actor, and passkeys in the later phase.
 - [x] Enable GitHub private vulnerability reporting and publish `SECURITY.md`
       with a monitored contact.
 - [ ] Define a supported-version and security-update policy.

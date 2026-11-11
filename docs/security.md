@@ -133,6 +133,25 @@ append-only system.
   vector, validated target/port arguments, a private XML output file, and a hard
   timeout.
 
+## Planned server authentication
+
+v0.6.0 has no application-level login beyond the database passphrase. The planned
+v0.7 server mode moves the database behind a Go server with:
+
+- username/password accounts and Argon2id password hashes;
+- session tokens stored only as hashes;
+- TOTP first, then WebAuthn/passkeys;
+- ten one-time recovery-code hashes per user;
+- admin user management and MFA reset;
+- per-request audit actor;
+- configurable session/idle expiry;
+- HAProxy/VPN ingress only, with the service bound to loopback or a private
+  address.
+
+The database passphrase is known only to the server; users authenticate to the
+server and never receive the database key. The complete threat model, schema, and
+API are in [`authentication.md`](authentication.md).
+
 ## Memory-safety posture
 
 The core is C17, which is memory-unsafe. The project compensates with:

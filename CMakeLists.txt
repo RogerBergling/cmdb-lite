@@ -320,6 +320,9 @@ if(CMDB_BUILD_UI)
   endif()
   install(FILES README.md LICENSE SECURITY.md THIRD_PARTY_NOTICES.md
     DESTINATION ${CMAKE_INSTALL_DOCDIR})
+  install(DIRECTORY docs/
+    DESTINATION ${CMAKE_INSTALL_DOCDIR}/docs
+    FILES_MATCHING PATTERN "*.md")
   # Keep license notices outside share/doc: the Flatpak cleanup removes
   # share/doc, but redistributed binaries still need their notices.
   install(FILES LICENSE THIRD_PARTY_NOTICES.md

@@ -270,6 +270,31 @@ authentication, RBAC, connection pooling, and an audit actor model.
 | cJSON | Small, permissively licensed JSON parser/serializer for the local bridge. |
 | webview/webview | Thin C API over WebKitGTK and WebView2; avoids maintaining two browser shells. |
 
+## Planned authenticated server mode
+
+The next architecture is a Go server with the C core linked through CGO:
+
+```text
+cmdb desktop client / browser
+        │
+        ▼
+cmdb-server (Go)
+  accounts · sessions · TOTP · recovery · passkeys · audit actor
+        │
+        ▼
+C core (inventory · graph · import · audit · SQLCipher)
+```
+
+- The server owns the database; the desktop client never opens it directly.
+- Multiple accounts share inventory privileges; the first account is an admin
+  for user management.
+- TOTP comes first; passkeys follow in a later phase.
+- HAProxy terminates TLS; the service binds loopback or a private address.
+- The database passphrase is known only to the server, not to users.
+
+The full design, schema, API, and security tests are in
+[`authentication.md`](authentication.md).
+
 ## Future: multi-user
 
 The intended evolution is a small server that reuses the domain/API layer:
