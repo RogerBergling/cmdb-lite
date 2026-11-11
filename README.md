@@ -257,13 +257,13 @@ desktop mode bypasses application logins. See
 | Recent-database settings (desktop-local) | Linux: `$XDG_CONFIG_HOME/cmdb-lite/config.json` (normally `~/.config/cmdb-lite/config.json`). Windows: `%APPDATA%\cmdb-lite\config.json` | Database paths only; no passphrase or key. |
 | Server database | Operator path, typically `/var/lib/cmdb-lite/inventory.cmdb` | Encrypted inventory, audit log, and `auth.state` (accounts, Argon2id hashes, TOTP secrets, recovery-code hashes). |
 | Server web assets | `/usr/share/cmdb-lite/web/` | `index.html`, `app.js`, `style.css`; must match the server version. |
-| Server passphrase file | Operator-managed, typically `/etc/cmdb-lite/server.env` | Contains `CMDB_DB_PASSPHRASE`; root-owned and readable only by the service manager/group. |
+| Server passphrase file | Operator-managed, typically `/etc/cmdb-lite/server.env` | Contains `CMDB_DB_PASSPHRASE`; root-owned, mode `0600`, read by systemd. |
 | Server sessions | Server process memory only | Session and CSRF tokens. Lost on restart. |
 | Server logs | systemd journal or process stdout/stderr | Startup, first-run setup token, database-open result, audit write failures. Restrict journal access. |
 | Backups | Desktop: the path you choose in **Backup**. Server: operator copy while stopped. | An encrypted `.cmdb` plus matching `.meta` sidecar. Server backups include `auth.state`. |
 | Exports, `.drawio`, HIBP CSV | The path you choose | Plaintext. Store and delete according to your data-handling policy. |
 | Scan XML | Private temporary file (`0600` on POSIX), deleted after parsing | Discovery results before they enter encrypted staging. |
-| Application logs | None by default | The application does not maintain an inventory or access log outside the encrypted audit table. |
+| Application logs | Desktop: none by default. Server: systemd journal. | Server logs include startup, setup-token, and database-open lines; authentication and inventory events are in the encrypted audit table. |
 
 Do not put the database or its sidecar in a world-writable directory. On
 Windows, use a per-user folder; the POSIX `0600` protection does not apply.
@@ -1694,8 +1694,8 @@ is still needed before a public or enterprise production rollout.
 
 There is no formal long-term support policy yet. The repository is validated on
 the CI platforms listed above, and only the latest release should be considered
-tested. Server mode is built and tested on Linux x86_64; Windows server support
-is not implemented. Before production use, define:
+tested. Server mode is unreleased v0.7.0 code and is built/tested on Linux x86_64;
+Windows server support is not implemented. Before production use, define:
 
 - which versions receive security fixes;
 - how users are notified of a security release;
