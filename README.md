@@ -81,7 +81,7 @@ bar after opening a database or connecting to a server. For example, a local
 Debug build shows:
 
 ```text
-v0.7.0 · build 30 · commit 1435cfe · 2026-11-11T21:05:48Z · Linux/x86_64 · Debug
+v0.7.0 · build 1234 · commit abc123def456 · 2026-11-11T21:05:48Z · Linux/x86_64 · Debug
 ```
 
 The server exposes the same information:
