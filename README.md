@@ -21,8 +21,8 @@ Windows.
 | ![Diagram editor](docs/screenshots/diagrams.png) | ![Dependency map](docs/screenshots/dependency-map.png) |
 | **CI types and custom fields** | **Light theme** |
 | ![CI types](docs/screenshots/ci-types.png) | ![Light theme](docs/screenshots/inventory-light.png) |
-| **Audit log** | **Export** |
-| ![Audit log](docs/screenshots/audit.png) | ![Export](docs/screenshots/export.png) |
+| **Audit log** | **HIBP export** |
+| ![Audit log](docs/screenshots/audit.png) | ![HIBP export](docs/screenshots/export.png) |
 | **Unlock / recent databases** | |
 | ![Unlock](docs/screenshots/unlock.png) | |
 
@@ -255,7 +255,8 @@ password vault instead.
   path shown after opening.
 - **Last database and recent database list**, stored in a per-user config file
   without the passphrase.
-- **CSV/JSON export** for CI inventory, relationships, and a full snapshot.
+- **CSV/JSON export** for CI inventory, relationships, a full snapshot, and a
+  **HIBP Linux host feed** with `cmdb_ci_id` links and no secrets.
 - **Audit log viewer** with hash-chain verification.
 - Append-only audit log with a hash chain.
 - **Single-file executables**: a Linux ELF and a Windows EXE with the HTML/CSS/JS
@@ -874,6 +875,8 @@ GitHub Actions Windows runner.
   troubleshooting.
 - [`docs/backup.md`](docs/backup.md) — in-app encrypted backup and restore.
 - [`docs/export.md`](docs/export.md) — CSV and JSON export formats.
+- [`docs/hibp.md`](docs/hibp.md) — HIBP Linux host export and current importer
+  limitations.
 - [`docs/audit.md`](docs/audit.md) — audit viewer and chain verification.
 - [`docs/settings.md`](docs/settings.md) — last/recent database configuration.
 - [`docs/flatpak.md`](docs/flatpak.md) — Flatpak build, install, sandbox, and

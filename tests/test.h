@@ -13,6 +13,7 @@ void test_relationships(void);
 void test_graph(void);
 void test_drawio(void);
 void test_import(void);
+void test_export(void);
 void test_api(void);
 void test_scan(void);
 

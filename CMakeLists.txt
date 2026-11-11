@@ -327,6 +327,7 @@ if(CMDB_BUILD_TESTS)
     tests/test_crypto.c
     tests/test_csv.c
     tests/test_drawio.c
+    tests/test_export.c
     tests/test_graph.c
     tests/test_import.c
     tests/test_relationships.c

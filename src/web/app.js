@@ -539,20 +539,59 @@ function renderInventory() {
     : summary;
 }
 
+function updateExportFormat() {
+  const hibp = $("export-format").value === "hibp_csv";
+  $("hibp-export-options").classList.toggle("hidden", !hibp);
+  $("export-hint").textContent = hibp
+    ? "Linux CIs are selected by type name or os_family. The CSV contains no passwords or private keys."
+    : "Exports are plaintext files outside the encrypted database. CSV files are import-compatible.";
+}
+
 function openExportModal() {
   $("export-error").textContent = "";
+  updateExportFormat();
   show($("export-modal"));
 }
 
 async function runExport(event) {
   event.preventDefault();
   $("export-error").textContent = "";
+  const kind = $("export-format").value;
+  const payload = { kind };
+  if (kind === "hibp_csv") {
+    const username = $("hibp-username").value.trim();
+    const port = Number($("hibp-port").value || 22);
+    const authType = $("hibp-auth-type").value;
+    const keyPath = $("hibp-key-path").value.trim();
+    if (!username) {
+      $("export-error").textContent = "A default SSH username is required.";
+      return;
+    }
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      $("export-error").textContent = "The SSH port must be between 1 and 65535.";
+      return;
+    }
+    if (authType === "key" && !keyPath) {
+      $("export-error").textContent =
+        "A default key path is required for SSH key authentication.";
+      return;
+    }
+    payload.ssh_username = username;
+    payload.ssh_port = port;
+    payload.ssh_auth_type = authType;
+    payload.ssh_key_path = keyPath;
+  }
   try {
-    const result = await api("export.save", {
-      kind: $("export-format").value
-    });
+    const result = await api("export.save", payload);
     if (result && result.saved) {
-      toast(`Exported to ${result.path}`, "success");
+      let message = `Exported to ${result.path}`;
+      if (kind === "hibp_csv") {
+        message += ` — ${result.exported} host${result.exported === 1 ? "" : "s"}`;
+        if (result.skipped) {
+          message += `, ${result.skipped} skipped`;
+        }
+      }
+      toast(message, "success");
       hide($("export-modal"));
     }
   } catch (error) {
@@ -560,7 +599,8 @@ async function runExport(event) {
   }
 }
 
-async function deleteCi(ci) {  const confirmed = await askConfirm(
+async function deleteCi(ci) {
+  const confirmed = await askConfirm(
     "Delete configuration item",
     `Delete "${ci.name}" and all of its relationships? This cannot be undone.`,
     "Delete"
@@ -2604,6 +2644,7 @@ function bindEvents() {
 
   $("add-ci").addEventListener("click", () => openCiModal());
   $("export-data").addEventListener("click", openExportModal);
+  $("export-format").addEventListener("change", updateExportFormat);
   $("export-form").addEventListener("submit", runExport);
   $("ci-search").addEventListener("input", () => {
     window.clearTimeout(state.searchTimer);

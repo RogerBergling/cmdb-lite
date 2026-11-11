@@ -10,6 +10,7 @@ encrypted database.
 | CI inventory — CSV | All CIs, standard fields, and a `custom.<key>` column for every attribute key in the database. |
 | Relationships — CSV | `source_ci,relationship_type,target_ci,description`. |
 | Full snapshot — JSON | CIs with attributes, plus relationships and timestamps. |
+| HIBP Linux hosts — CSV | Linux CIs in the column layout used by HIBP host import. See [`hibp.md`](hibp.md). |
 
 CSV exports are import-compatible. The CI export includes `ci_id` and
 `ci_type`; re-importing with the `update` duplicate policy can update existing

@@ -111,7 +111,7 @@ requests to `cmdb_app_handle`. File dialogs are implemented in:
 | `scan_manager.c` | Background scan thread, cancellation, status handoff. |
 | `scan_store.c` | Scan job/asset persistence and exact-match suggestions. |
 | `audit.c` | Append-only hash-chained audit log and paged viewer queries. |
-| `export.c` | CSV/JSON inventory and relationship export. |
+| `export.c` | CSV/JSON inventory, relationship, and HIBP Linux host export. |
 | `settings.c` | Per-user last/recent database paths without secrets. |
 | `util.c` | Strings, paths, files, UTF-8, UUIDs, time, string builder. |
 

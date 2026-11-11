@@ -12,6 +12,7 @@ void test_relationships(void);
 void test_graph(void);
 void test_drawio(void);
 void test_import(void);
+void test_export(void);
 void test_api(void);
 void test_scan(void);
 
@@ -25,6 +26,7 @@ int main(void) {
   RUN_TEST(test_graph);
   RUN_TEST(test_drawio);
   RUN_TEST(test_import);
+  RUN_TEST(test_export);
   RUN_TEST(test_api);
   RUN_TEST(test_scan);
 

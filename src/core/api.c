@@ -1748,13 +1748,21 @@ static cJSON *handle_graph_save_drawio(cmdb_app_t *app, cJSON *params,
 static cJSON *handle_export_save(cmdb_app_t *app, cJSON *params,
                                  cmdb_error_t *err) {
   const char *kind_text = NULL;
-  cmdb_export_kind_t kind;
+  cmdb_export_kind_t kind = CMDB_EXPORT_CI_CSV;
+  int is_hibp = 0;
+  const char *ssh_username = NULL;
+  const char *ssh_auth_type = "agent";
+  const char *ssh_key_path = "";
+  int ssh_port = 22;
+  cmdb_hibp_export_options_t hibp_options;
+  cmdb_hibp_export_stats_t hibp_stats;
   const char *filter_name;
   const char *pattern;
   const char *suggested;
   char *path = NULL;
   cJSON *result;
 
+  memset(&hibp_stats, 0, sizeof(hibp_stats));
   if (require_params(params, err) != 0 ||
       get_string(params, "kind", &kind_text, 1, err) != 0) {
     return NULL;
@@ -1774,9 +1782,26 @@ static cJSON *handle_export_save(cmdb_app_t *app, cJSON *params,
     filter_name = "JSON files";
     pattern = "*.json";
     suggested = "inventory.json";
+  } else if (strcmp(kind_text, "hibp_csv") == 0) {
+    is_hibp = 1;
+    filter_name = "CSV files";
+    pattern = "*.csv";
+    suggested = "hibp-linux-hosts.csv";
+    if (get_string(params, "ssh_username", &ssh_username, 1, err) != 0 ||
+        get_int(params, "ssh_port", 22, 1, 65535, &ssh_port, err) != 0 ||
+        get_string(params, "ssh_auth_type", &ssh_auth_type, 0, err) != 0 ||
+        get_string(params, "ssh_key_path", &ssh_key_path, 0, err) != 0) {
+      return NULL;
+    }
+    if (ssh_auth_type == NULL || ssh_auth_type[0] == '\0') {
+      ssh_auth_type = "agent";
+    }
+    if (ssh_key_path == NULL) {
+      ssh_key_path = "";
+    }
   } else {
     cmdb_error_set(err, CMDB_ERR_VALIDATION,
-                   "kind must be ci_csv, rel_csv, or json");
+                   "kind must be ci_csv, rel_csv, json, or hibp_csv");
     return NULL;
   }
   if (app->host.choose_file == NULL) {
@@ -1814,7 +1839,17 @@ static cJSON *handle_export_save(cmdb_app_t *app, cJSON *params,
       return NULL;
     }
   }
-  if (cmdb_export_save(app->db, kind, path, err) != 0) {
+  if (is_hibp) {
+    hibp_options.ssh_username = ssh_username;
+    hibp_options.ssh_port = ssh_port;
+    hibp_options.ssh_auth_type = ssh_auth_type;
+    hibp_options.ssh_key_path = ssh_key_path;
+    if (cmdb_export_hibp_csv(app->db, path, &hibp_options, &hibp_stats,
+                             err) != 0) {
+      free(path);
+      return NULL;
+    }
+  } else if (cmdb_export_save(app->db, kind, path, err) != 0) {
     free(path);
     return NULL;
   }
@@ -1824,6 +1859,12 @@ static cJSON *handle_export_save(cmdb_app_t *app, cJSON *params,
     if (detail != NULL) {
       cJSON_AddStringToObject(detail, "kind", kind_text);
       cJSON_AddStringToObject(detail, "path", path);
+      if (is_hibp) {
+        cJSON_AddNumberToObject(detail, "exported",
+                                (double)hibp_stats.exported);
+        cJSON_AddNumberToObject(detail, "skipped",
+                                (double)hibp_stats.skipped);
+      }
       json = cJSON_PrintUnformatted(detail);
       cJSON_Delete(detail);
     }
@@ -1837,13 +1878,20 @@ static cJSON *handle_export_save(cmdb_app_t *app, cJSON *params,
   if (result != NULL) {
     cJSON_AddBoolToObject(result, "saved", 1);
     cJSON_AddStringToObject(result, "path", path);
+    if (is_hibp) {
+      cJSON_AddNumberToObject(result, "exported",
+                              (double)hibp_stats.exported);
+      cJSON_AddNumberToObject(result, "skipped",
+                              (double)hibp_stats.skipped);
+    }
   }
   free(path);
   return result;
 }
 
 static cJSON *handle_db_backup(cmdb_app_t *app, cJSON *params,
-                               cmdb_error_t *err) {  char *path = NULL;
+                               cmdb_error_t *err) {
+  char *path = NULL;
   cJSON *result;
 
   (void)params;

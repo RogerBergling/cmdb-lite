@@ -629,8 +629,35 @@
           <option value="ci_csv">CI inventory — CSV</option>
           <option value="rel_csv">Relationships — CSV</option>
           <option value="json">Full snapshot — JSON</option>
+          <option value="hibp_csv">HIBP Linux hosts — CSV</option>
         </select>
-        <p class="hint">Exports are plaintext files outside the encrypted database. CSV files are import-compatible.</p>
+        <div id="hibp-export-options" class="hibp-export-options hidden">
+          <p class="hint">Includes Linux CIs whose type contains “Linux” or whose <code>os_family</code> attribute is <code>Linux</code>. Per-CI <code>ssh_*</code> attributes override these defaults.</p>
+          <div class="form-grid">
+            <div>
+              <label for="hibp-username">Default SSH username *</label>
+              <input id="hibp-username" type="text" maxlength="255" value="root">
+            </div>
+            <div>
+              <label for="hibp-port">Default SSH port</label>
+              <input id="hibp-port" type="number" min="1" max="65535" value="22">
+            </div>
+            <div>
+              <label for="hibp-auth-type">Default authentication</label>
+              <select id="hibp-auth-type">
+                <option value="agent">ssh-agent</option>
+                <option value="key">SSH key</option>
+                <option value="certificate">SSH certificate</option>
+                <option value="password">Password (manual fallback)</option>
+              </select>
+            </div>
+            <div>
+              <label for="hibp-key-path">Default key path</label>
+              <input id="hibp-key-path" type="text" placeholder="/home/ops/.ssh/id_ed25519">
+            </div>
+          </div>
+        </div>
+        <p id="export-hint" class="hint">Exports are plaintext files outside the encrypted database. CSV files are import-compatible.</p>
         <p id="export-error" class="error" role="alert"></p>
         <div class="modal-actions">
           <button type="button" class="secondary" data-close="export-modal">Cancel</button>

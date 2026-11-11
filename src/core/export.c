@@ -6,6 +6,8 @@
 
 #include "cJSON.h"
 
+#include <ctype.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -85,6 +87,312 @@ static const char *export_attr_value(const cmdb_ci_t *ci, const char *key) {
     }
   }
   return "";
+}
+
+static int export_text_equal(const char *a, const char *b) {
+  int ca;
+  int cb;
+
+  if (a == NULL || b == NULL) {
+    return a == b;
+  }
+  while (*a != '\0' && *b != '\0') {
+    ca = tolower((unsigned char)*a);
+    cb = tolower((unsigned char)*b);
+    if (ca != cb) {
+      return 0;
+    }
+    a++;
+    b++;
+  }
+  return *a == '\0' && *b == '\0';
+}
+
+static int export_text_contains(const char *haystack, const char *needle) {
+  size_t needle_len;
+
+  if (haystack == NULL || needle == NULL || needle[0] == '\0') {
+    return 0;
+  }
+  needle_len = strlen(needle);
+  while (*haystack != '\0') {
+    size_t i;
+    for (i = 0; i < needle_len; i++) {
+      if (haystack[i] == '\0' ||
+          tolower((unsigned char)haystack[i]) !=
+            tolower((unsigned char)needle[i])) {
+        break;
+      }
+    }
+    if (i == needle_len) {
+      return 1;
+    }
+    haystack++;
+  }
+  return 0;
+}
+
+static int export_host_like(const char *value) {
+  const unsigned char *p;
+
+  if (value == NULL || value[0] == '\0') {
+    return 0;
+  }
+  for (p = (const unsigned char *)value; *p != '\0'; p++) {
+    if (!(isalnum(*p) || *p == '.' || *p == '-' || *p == '_' ||
+          *p == ':' || *p == '%')) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+static const char *export_first_attr(const cmdb_ci_t *ci, const char *key,
+                                     const char *fallback) {
+  const char *value = export_attr_value(ci, key);
+  return value[0] != '\0' ? value : fallback;
+}
+
+static const char *hibp_address(const cmdb_ci_t *ci) {
+  const char *value;
+
+  value = export_attr_value(ci, "ip_address");
+  if (export_host_like(value)) {
+    return value;
+  }
+  value = export_attr_value(ci, "management_ip");
+  if (export_host_like(value)) {
+    return value;
+  }
+  value = export_attr_value(ci, "hostname");
+  if (export_host_like(value)) {
+    return value;
+  }
+  value = export_attr_value(ci, "address");
+  if (export_host_like(value)) {
+    return value;
+  }
+  return export_host_like(ci->name) ? ci->name : NULL;
+}
+
+static int hibp_linux_ci(const cmdb_ci_t *ci) {
+  const char *family = export_attr_value(ci, "os_family");
+  return (family[0] != '\0' && export_text_equal(family, "linux")) ||
+         export_text_contains(ci->type_name, "linux");
+}
+
+static const char *hibp_auth_type(const char *value) {
+  if (export_text_equal(value, "key")) {
+    return "key";
+  }
+  if (export_text_equal(value, "agent")) {
+    return "agent";
+  }
+  if (export_text_equal(value, "certificate")) {
+    return "certificate";
+  }
+  if (export_text_equal(value, "password")) {
+    return "password";
+  }
+  return NULL;
+}
+
+static int hibp_port(const cmdb_ci_t *ci, int default_port, int *out) {
+  const char *value = export_attr_value(ci, "ssh_port");
+  if (value[0] == '\0') {
+    value = export_attr_value(ci, "port");
+  }
+  if (value[0] == '\0') {
+    *out = default_port;
+    return 0;
+  }
+  return cmdb_parse_int(value, 1, 65535, out);
+}
+
+static void hibp_append_tag(cmdb_strbuf_t *tags, const char *value) {
+  if (value == NULL || value[0] == '\0') {
+    return;
+  }
+  if (tags->len > 0) {
+    cmdb_strbuf_append(tags, ",");
+  }
+  cmdb_strbuf_append(tags, value);
+}
+
+static int export_hibp_csv(cmdb_db_t *db, const char *path,
+                           const cmdb_hibp_export_options_t *options,
+                           cmdb_hibp_export_stats_t *stats,
+                           cmdb_error_t *err) {
+  cmdb_strbuf_t buffer;
+  cmdb_ci_filter_t filter;
+  size_t offset = 0;
+  size_t exported = 0;
+  size_t skipped = 0;
+
+  if (stats != NULL) {
+    stats->exported = 0;
+    stats->skipped = 0;
+  }
+  if (options == NULL || options->ssh_username == NULL ||
+      options->ssh_username[0] == '\0') {
+    cmdb_error_set(err, CMDB_ERR_INVALID_ARGUMENT,
+                   "A default SSH username is required");
+    return -1;
+  }
+  if (options->ssh_port < 1 || options->ssh_port > 65535) {
+    cmdb_error_set(err, CMDB_ERR_INVALID_ARGUMENT,
+                   "The default SSH port must be between 1 and 65535");
+    return -1;
+  }
+  if (hibp_auth_type(options->ssh_auth_type == NULL ? "agent"
+                                                    : options->ssh_auth_type)
+        == NULL) {
+    cmdb_error_set(err, CMDB_ERR_INVALID_ARGUMENT,
+                   "The default SSH authentication type is invalid");
+    return -1;
+  }
+
+  cmdb_strbuf_init(&buffer);
+  cmdb_strbuf_append(
+    &buffer,
+    "name,address,port,username,auth_type,key_path,group,tags,"
+    "cmdb_ci_id,external_id,os_family,os_version,status\n");
+
+  memset(&filter, 0, sizeof(filter));
+  filter.limit = CMDB_MAX_LIST_LIMIT;
+  for (;;) {
+    cmdb_ci_t *items = NULL;
+    size_t count = 0;
+    size_t total = 0;
+    size_t i;
+
+    filter.offset = offset;
+    if (cmdb_ci_list(db, &filter, &items, &count, &total, err) != 0) {
+      cmdb_strbuf_free(&buffer);
+      return -1;
+    }
+    if (count == 0) {
+      cmdb_ci_free_list(items, count);
+      break;
+    }
+    for (i = 0; i < count; i++) {
+      cmdb_ci_t ci;
+      cmdb_strbuf_t tags;
+      const char *address;
+      const char *username;
+      const char *auth_value;
+      const char *auth_type;
+      const char *key_path;
+      const char *group;
+      const char *os_version;
+      int port;
+      char port_text[16];
+
+      if (cmdb_ci_get(db, items[i].id, &ci, err) != 0) {
+        cmdb_ci_free_list(items, count);
+        cmdb_strbuf_free(&buffer);
+        return -1;
+      }
+      if (!hibp_linux_ci(&ci)) {
+        cmdb_ci_free(&ci);
+        continue;
+      }
+      address = hibp_address(&ci);
+      if (address == NULL || hibp_port(&ci, options->ssh_port, &port) != 0) {
+        skipped++;
+        cmdb_ci_free(&ci);
+        continue;
+      }
+      auth_value = export_first_attr(&ci, "ssh_auth_type",
+                                     export_first_attr(&ci, "auth_type",
+                                                       options->ssh_auth_type));
+      auth_type = hibp_auth_type(auth_value == NULL ? "agent" : auth_value);
+      if (auth_type == NULL) {
+        skipped++;
+        cmdb_ci_free(&ci);
+        continue;
+      }
+      username = export_first_attr(&ci, "ssh_username",
+                                   export_first_attr(&ci, "username",
+                                                     options->ssh_username));
+      key_path = export_first_attr(&ci, "ssh_key_path",
+                                   export_first_attr(&ci, "key_path",
+                                     options->ssh_key_path == NULL
+                                       ? "" : options->ssh_key_path));
+      if (strcmp(auth_type, "key") == 0 && key_path[0] == '\0') {
+        skipped++;
+        cmdb_ci_free(&ci);
+        continue;
+      }
+      group = ci.environment[0] != '\0'
+                ? ci.environment
+                : (ci.support_team[0] != '\0'
+                     ? ci.support_team
+                     : ci.hosting_location);
+      os_version = export_first_attr(&ci, "os_version",
+                                     export_first_attr(&ci, "os", ""));
+
+      cmdb_strbuf_init(&tags);
+      hibp_append_tag(&tags, "cmdb-lite");
+      hibp_append_tag(&tags, ci.environment);
+      hibp_append_tag(&tags, ci.criticality);
+      hibp_append_tag(&tags, ci.support_team);
+      hibp_append_tag(&tags, ci.status);
+
+      (void)snprintf(port_text, sizeof(port_text), "%d", port);
+      export_csv_value(&buffer, ci.name);
+      export_csv_end(&buffer, 0);
+      export_csv_value(&buffer, address);
+      export_csv_end(&buffer, 0);
+      export_csv_value(&buffer, port_text);
+      export_csv_end(&buffer, 0);
+      export_csv_value(&buffer, username);
+      export_csv_end(&buffer, 0);
+      export_csv_value(&buffer, auth_type);
+      export_csv_end(&buffer, 0);
+      export_csv_value(&buffer, key_path);
+      export_csv_end(&buffer, 0);
+      export_csv_value(&buffer, group);
+      export_csv_end(&buffer, 0);
+      export_csv_value(&buffer, tags.data != NULL ? tags.data : "");
+      export_csv_end(&buffer, 0);
+      export_csv_value(&buffer, ci.id);
+      export_csv_end(&buffer, 0);
+      export_csv_value(&buffer, ci.external_id);
+      export_csv_end(&buffer, 0);
+      export_csv_value(&buffer, "Linux");
+      export_csv_end(&buffer, 0);
+      export_csv_value(&buffer, os_version);
+      export_csv_end(&buffer, 0);
+      export_csv_value(&buffer, ci.status);
+      cmdb_strbuf_append(&buffer, "\n");
+
+      cmdb_strbuf_free(&tags);
+      exported++;
+      cmdb_ci_free(&ci);
+    }
+    cmdb_ci_free_list(items, count);
+    offset += count;
+    if (offset >= total) {
+      break;
+    }
+  }
+
+  {
+    char *data = cmdb_strbuf_steal(&buffer);
+    int rc;
+    if (data == NULL) {
+      cmdb_error_set(err, CMDB_ERR_INTERNAL, "Cannot build CSV export");
+      return -1;
+    }
+    rc = cmdb_file_write_atomic(path, data, strlen(data), 0600, err);
+    free(data);
+    if (rc == 0 && stats != NULL) {
+      stats->exported = exported;
+      stats->skipped = skipped;
+    }
+    return rc;
+  }
 }
 
 static int export_cis_csv(cmdb_db_t *db, const char *path,
@@ -398,4 +706,15 @@ int cmdb_export_save(cmdb_db_t *db, cmdb_export_kind_t kind,
       cmdb_error_set(err, CMDB_ERR_INVALID_ARGUMENT, "Invalid export format");
       return -1;
   }
+}
+
+int cmdb_export_hibp_csv(cmdb_db_t *db, const char *path,
+                         const cmdb_hibp_export_options_t *options,
+                         cmdb_hibp_export_stats_t *stats,
+                         cmdb_error_t *err) {
+  if (db == NULL || path == NULL || path[0] == '\0') {
+    cmdb_error_set(err, CMDB_ERR_INVALID_ARGUMENT, "Invalid export arguments");
+    return -1;
+  }
+  return export_hibp_csv(db, path, options, stats, err);
 }

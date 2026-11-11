@@ -994,6 +994,16 @@ tbody tr:last-child td { border-bottom: 0; }
 .wide-modal { width: min(54rem, 100%); }
 .small-modal { width: min(25rem, 100%); }
 
+.hibp-export-options {
+  margin: 0.6rem 0;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--line-soft);
+}
+
+.hibp-export-options .form-grid {
+  grid-template-columns: 1fr;
+}
+
 .modal-heading {
   display: flex;
   align-items: flex-start;

@@ -108,6 +108,7 @@ void test_api(void) {
   char restored_path[4096];
   char export_path[4096];
   char export_json_path[4096];
+  char export_hibp_path[4096];
 
   TEST_ASSERT(dir != NULL);
   if (dir == NULL) {
@@ -119,6 +120,8 @@ void test_api(void) {
   test_path(restored_path, sizeof(restored_path), dir, "restored.cmdb");
   test_path(export_path, sizeof(export_path), dir, "export.csv");
   test_path(export_json_path, sizeof(export_json_path), dir, "export.json");
+  test_path(export_hibp_path, sizeof(export_hibp_path), dir,
+            "hibp-hosts.csv");
 #ifdef _WIN32
   _putenv_s("CMDB_CONFIG_DIR", dir);
 #else
@@ -560,6 +563,27 @@ void test_api(void) {
     TEST_ASSERT(cmdb_export_save(cmdb_app_db(app), CMDB_EXPORT_JSON,
                                  export_json_path, &err) == 0);
     TEST_ASSERT(test_file_contains(export_json_path, "\"cis\""));
+    (void)cmdb_str_copy(choose_path, sizeof(choose_path), export_hibp_path);
+    response = api_call(app,
+      "{\"id\":41,\"method\":\"export.save\",\"params\":{"
+      "\"kind\":\"hibp_csv\",\"ssh_username\":\"ops\","
+      "\"ssh_port\":22,\"ssh_auth_type\":\"agent\","
+      "\"ssh_key_path\":\"\"}}");
+    TEST_ASSERT(response != NULL);
+    if (response != NULL) {
+      cJSON *exported;
+      ok = cJSON_GetObjectItemCaseSensitive(response, "ok");
+      result = cJSON_GetObjectItemCaseSensitive(response, "result");
+      TEST_ASSERT(cJSON_IsTrue(ok));
+      TEST_ASSERT(cJSON_IsObject(result));
+      exported = cJSON_GetObjectItemCaseSensitive(result, "exported");
+      TEST_ASSERT(cJSON_IsNumber(exported));
+      TEST_ASSERT(exported != NULL && exported->valueint == 2);
+      cJSON_Delete(response);
+    }
+    TEST_ASSERT(test_file_contains(export_hibp_path,
+                                   "api-app,10.0.0.99,22,ops,agent,,,"
+                                   "cmdb-lite,"));
     TEST_ASSERT(cmdb_db_backup(cmdb_app_db(app), backup_path, &err) == 0);
     TEST_ASSERT(cmdb_db_open(backup_path, TEST_PASSPHRASE, &backup_db,
                              &err) == 0);
@@ -581,6 +605,7 @@ void test_api(void) {
   test_cleanup_db(dir, "restored.cmdb");
   (void)remove(export_path);
   (void)remove(export_json_path);
+  (void)remove(export_hibp_path);
 
   response = api_call(app, "{\"id\":8,\"method\":\"db.lock\",\"params\":{}}");
   TEST_ASSERT(response != NULL);
