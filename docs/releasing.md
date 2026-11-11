@@ -13,6 +13,9 @@ manual trigger required.
    cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMDB_WERROR=ON
    cmake --build build
    ctest --test-dir build --output-on-failure
+   (cd server && gofmt -l . && go vet ./... && go test ./...)
+   # Optional vulnerability scan:
+   (cd server && govulncheck ./...)
    python3 packaging/embed_web.py --check
    git diff --check
    ```
@@ -20,9 +23,20 @@ manual trigger required.
 3. Test migrations against at least the previous schema version. v0.7.0 does
    not change the schema, but verify that a v0.6.0 database opens and that its
    inventory, diagrams, scans, and audit chain remain intact.
-4. Verify the Linux package contains `cmdb-server`, `cmdb-rpc`, and
-   `share/cmdb-lite/web`, and that server setup/login/TOTP/recovery work from a
-   fresh database.
+4. Verify both Linux packages:
+   - the desktop+server package contains `cmdb`, `cmdb-server`, `cmdb-rpc`, and
+     `share/cmdb-lite/web`;
+   - the server-only package contains `cmdb-server`, `cmdb-rpc`, web assets, the
+     systemd unit, and the passphrase example, and does **not** contain the
+     desktop `cmdb` binary or GTK/WebKit dependencies.
+   Verify server setup, mandatory TOTP enrollment, recovery-code generation, and
+   forced password change from a fresh database. Check the package contents explicitly:
+
+   ```bash
+   dpkg-deb -c dist/*.deb | grep -E 'bin/(cmdb|cmdb-server|cmdb-rpc)|cmdb-lite/web'
+   rpm -qlp dist/*.rpm | grep -E 'bin/(cmdb|cmdb-server|cmdb-rpc)|cmdb-lite/web'
+   tar -tzf dist/*.tar.gz | grep -E 'bin/(cmdb|cmdb-server|cmdb-rpc)|cmdb-lite/web'
+   ```
 5. Run the clean-Windows-VM checklist and a Linux GUI/Flatpak smoke test on the
    target distributions.
 6. Signing and SBOMs are not required for the current rollout. Windows artifacts
@@ -38,11 +52,14 @@ git push origin v0.7.0
 ```
 
 The tag triggers `.github/workflows/ci.yml` for Linux, Fedora, Flatpak, and
-Windows. When all four jobs pass, the `release` job:
+Windows. Fedora CI passes `-DCMDB_PACKAGE_VARIANT=fedora`, so its tarballs are
+distinct from the Ubuntu-built tarballs. When all four jobs pass, the `release`
+job:
 
-1. downloads the four platform artifacts;
-2. copies the DEB, RPM, portable Linux tarball, Flatpak, Windows ZIP, and MSI
-   into one asset directory;
+1. downloads the four platform artifacts plus the two server-only Linux
+   artifacts;
+2. copies the desktop DEB/RPM/tarballs, server-only DEB/RPM/tarballs, Flatpak,
+   Windows ZIP, and MSI into one asset directory;
 3. generates `SHA256SUMS`;
 4. creates a GitHub Release with generated notes.
 

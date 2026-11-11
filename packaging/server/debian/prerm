@@ -1,0 +1,13 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+  remove|purge)
+    if [ -d /run/systemd/system ]; then
+      systemctl stop cmdb-server.service >/dev/null 2>&1 || true
+      systemctl disable cmdb-server.service >/dev/null 2>&1 || true
+    fi
+    ;;
+esac
+
+exit 0

@@ -1,14 +1,22 @@
 # Windows build, run, and validation
 
-The Windows application is a normal Win32 GUI executable. There is no console
-window and no server to start separately.
+The Windows application is a normal Win32 GUI executable. It runs in
+desktop-local mode by default, keeps the database in-process, and has no console
+window. It can also act as a desktop client for a Linux `cmdb-server`; Windows
+server support is not implemented.
 
 ```text
+Desktop-local mode
 cmdb.exe
    └── WinMain (src/ui/main.c)
         └── Win32 window + WebView2
              └── embedded HTML/CSS/JS bundle
                   └── app.js ↔ C JSON bridge ↔ SQLCipher database
+
+Remote server mode
+cmdb.exe
+   └── Win32 window + WebView2
+        └── CMDB_SERVER_URL → HTTPS → cmdb-server on Linux
 ```
 
 The executable is built with CMake, Visual Studio 2022, and vcpkg. SQLCipher,
@@ -84,6 +92,23 @@ For development, `CMDB_WEB_DIR` can point at `src\web` in a **Debug build** to
 load the external assets instead of the embedded bundle. Release builds always
 use the embedded UI. If the embedded UI cannot be loaded, the application shows
 an error page rather than a blank window.
+
+## Remote server mode
+
+Set `CMDB_SERVER_URL` before launching the EXE to use the desktop client against
+a Linux `cmdb-server` instead of a local database:
+
+```powershell
+$env:CMDB_SERVER_URL = "https://cmdb.example.internal"
+.\dist\cmdb-lite-windows-x64\bin\cmdb.exe
+```
+
+The client loads the server UI and uses the same account login, TOTP, and
+recovery-code flow as a browser. It skips the local C bridge and never opens a
+local database in this mode. Use HTTPS only; do not send credentials over plain
+HTTP except to a loopback test server. If the server uses a private CA or a
+self-signed certificate, install the certificate in the Windows trust store and
+validate the hostname. The desktop client does not start a server automatically.
 
 ## Install
 
@@ -177,6 +202,9 @@ Run this on a clean Windows VM before calling the Windows build supported:
       database is not deleted.
 - [ ] Verify SmartScreen behaviour; sign the executable and MSI before public
       release.
+- [ ] With a Linux test server, set `CMDB_SERVER_URL=https://…` and verify login,
+      TOTP/recovery, CSRF, and logout. Confirm that unexpected server
+      certificates are rejected.
 
 ## Code signing
 

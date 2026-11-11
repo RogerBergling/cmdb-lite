@@ -48,10 +48,14 @@ instead. A strict Content-Security-Policy blocks remote scripts, frames,
 objects, and arbitrary network connections.
 
 `packaging/embed_web.py` inlines the CSS and JavaScript into one HTML document,
-computes SHA-256 CSP hashes, and generates `src/web_bundle.c`. The executable
-loads that embedded document, so there is no separate `web/` folder to ship.
-In Debug builds, `CMDB_WEB_DIR` can be set to load `src/web` from disk instead
-of the embedded bundle. Release builds always use the embedded UI.
+computes SHA-256 CSP hashes, and generates `src/web_bundle.c`. The desktop
+executable loads that embedded document, so a desktop-local install has no
+separate `web/` folder. Server mode serves the source files from
+`/usr/share/cmdb-lite/web`; the package installs that directory alongside
+`cmdb-server` and `cmdb-rpc`. In Debug builds, `CMDB_WEB_DIR` can load
+`src/web` from disk instead of the embedded bundle. Release desktop builds
+always use the embedded UI; the server always uses the installed web directory
+unless `--web-dir` is given.
 
 The UI calls a single binding:
 
@@ -242,7 +246,7 @@ is rolled back.
 
 ## Threading and concurrency
 
-The application is single-user with one UI thread and one scan worker:
+Desktop-local mode has one UI thread and one scan worker:
 
 - The webview runs on the UI thread.
 - Bridge callbacks run on the UI thread and call the core synchronously.
@@ -253,9 +257,11 @@ The application is single-user with one UI thread and one scan worker:
   across threads.
 - `BEGIN IMMEDIATE` is used for imports; row-level operations use savepoints.
 
-The implemented server adds a request boundary, authentication, per-request
-audit actors, and a serialized RPC bridge. RBAC, per-CI permissions, and
-connection pooling remain future work.
+Server mode has one HTTP process, one `cmdb-rpc` child, and one database
+connection. The server serializes API requests; `cmdb-rpc` serializes C-core
+calls. All users share that single serialized path. RBAC, per-CI permissions,
+connection pooling, and horizontal scaling remain future work. Deployment
+details are in [`server.md`](server.md).
 
 ## Build system
 

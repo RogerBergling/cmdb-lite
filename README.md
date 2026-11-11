@@ -15,21 +15,29 @@ Windows.
 > and MSI. A clean-Windows-VM install/uninstall check is still recommended.
 
 > **Release status:** v0.6.0 is the latest published release. v0.7.0, which adds
-> authenticated server mode, is not tagged yet. Verify downloaded assets against
-> `SHA256SUMS`; see [`docs/releasing.md`](docs/releasing.md) and
+> authenticated server mode and server-only packages, is not tagged for this
+> rollout. Install from a verified local build/package, record the commit hash,
+> and verify checksums. See [`docs/releasing.md`](docs/releasing.md) and
 > [`docs/authentication.md`](docs/authentication.md).
+
+> **Production use:** server mode is single-node and is not yet a turnkey
+> appliance. Before exposing it to users, complete the server deployment
+> checklist in [`docs/server.md`](docs/server.md): dedicated service account,
+> root-only passphrase file, TLS at HAProxy/VPN, accurate time, backup/restore
+> drill, and a tested break-glass procedure for the one-admin deployment.
 
 ## At a glance
 
 - **Deployment:** one package with two Linux modes. `cmdb` is a desktop client
   for a local encrypted database or for connecting to a server. `cmdb-server`
   owns the database and adds multiple accounts, username/password login, TOTP,
-  recovery codes, and per-user audit actors. Passkeys are out of scope for this
+  recovery codes, and per-user audit actors. It is a single-node server: one
+  process, one database, no clustering/HA. Passkeys are out of scope for this
   phase. The separate HIBP server provides the privileged patch-management role;
   HIBP server support starts with Debian and Fedora.
-- **Platforms built by CI:** Linux x86_64 (`.deb`, RPM, portable tarball,
-  Flatpak) and Windows x86_64 (portable ZIP, MSI). The Windows package is a
-  desktop client only.
+- **Platforms built by CI:** Linux x86_64 (desktop+server `.deb`, RPM, portable
+  tarball, server-only `.deb`/RPM/tarball, Flatpak) and Windows x86_64 (portable
+  ZIP, MSI). The Windows package is a desktop client only.
 - **Current limitation:** desktop-local mode has no application-level login
   beyond the database passphrase, and the desktop client does not start the
   server automatically. Server mode is Linux-only for now.
@@ -79,6 +87,9 @@ you download):
 | Flatpak (Linux) | `cmdb-lite.flatpak` |
 | Windows portable | `cmdb-lite-windows-x64.zip` |
 | Windows installer | `cmdb-lite-0.6.0-windows-x64.msi` |
+| Server-only DEB (v0.7.0+) | `cmdb-lite-server_0.7.0_amd64.deb` |
+| Server-only RPM (v0.7.0+) | `cmdb-lite-server-0.7.0-*.rpm` |
+| Server-only tarball (v0.7.0+) | `cmdb-lite-server-0.7.0-linux-x86_64.tar.gz` |
 | Checksums | `SHA256SUMS` |
 
 Verify the download before running it:
@@ -202,15 +213,20 @@ server owns the database; users log in with their own accounts and never receive
 the database passphrase.
 
 ```bash
-CMDB_DB_PASSPHRASE='your database passphrase' \
-  cmdb-server --db /var/lib/cmdb-lite/inventory.cmdb --listen 127.0.0.1:8080
+# Interactive first validation: the server prompts for the passphrase.
+cmdb-server --db /var/lib/cmdb-lite/inventory.cmdb --listen 127.0.0.1:8080
 ```
+
+For a non-interactive service, put `CMDB_DB_PASSPHRASE` in a root-owned
+environment file read by systemd; do not put it in shell history or a command
+line.
 
 On first start the server prints a one-time setup token. Open
 `http://127.0.0.1:8080/login`, enter the token, and create the first
 administrator. The token expires after 24 hours; while no users exist, restarting
-the server prints a new one. After setup, create additional accounts from the
-**Users** page. TOTP and recovery codes are managed from **Security**.
+the server prints a new one. TOTP enrollment and at least one unused recovery
+code are mandatory before inventory access; the Security page guides this. After
+setup, create additional accounts from the **Users** page if needed.
 
 To use the desktop client against a server instead of opening a local file:
 
@@ -238,16 +254,32 @@ desktop mode bypasses application logins. See
 |---|---|---|
 | Inventory database | The `.cmdb` path you choose | Encrypted inventory, diagrams, audit log. The passphrase is never stored. |
 | KDF sidecar | `<database>.cmdb.meta` next to the database | Salt and KDF parameters only; required to open the database. |
-| Recent-database settings | Linux: `$XDG_CONFIG_HOME/cmdb-lite/config.json` (normally `~/.config/cmdb-lite/config.json`). Windows: `%APPDATA%\cmdb-lite\config.json` | Database paths only; no passphrase or key. |
-| Server authentication state | Inside the server database under `app_meta` (`auth.state`) | Account records, Argon2id hashes, TOTP secrets, recovery-code hashes. Encrypted by SQLCipher. |
+| Recent-database settings (desktop-local) | Linux: `$XDG_CONFIG_HOME/cmdb-lite/config.json` (normally `~/.config/cmdb-lite/config.json`). Windows: `%APPDATA%\cmdb-lite\config.json` | Database paths only; no passphrase or key. |
+| Server database | Operator path, typically `/var/lib/cmdb-lite/inventory.cmdb` | Encrypted inventory, audit log, and `auth.state` (accounts, Argon2id hashes, TOTP secrets, recovery-code hashes). |
+| Server web assets | `/usr/share/cmdb-lite/web/` | `index.html`, `app.js`, `style.css`; must match the server version. |
+| Server passphrase file | Operator-managed, typically `/etc/cmdb-lite/server.env` | Contains `CMDB_DB_PASSPHRASE`; root-owned and readable only by the service manager/group. |
 | Server sessions | Server process memory only | Session and CSRF tokens. Lost on restart. |
-| Backups | The path you choose in **Backup** | An encrypted `.cmdb` plus matching `.meta` sidecar. |
+| Server logs | systemd journal or process stdout/stderr | Startup, first-run setup token, database-open result, audit write failures. Restrict journal access. |
+| Backups | Desktop: the path you choose in **Backup**. Server: operator copy while stopped. | An encrypted `.cmdb` plus matching `.meta` sidecar. Server backups include `auth.state`. |
 | Exports, `.drawio`, HIBP CSV | The path you choose | Plaintext. Store and delete according to your data-handling policy. |
 | Scan XML | Private temporary file (`0600` on POSIX), deleted after parsing | Discovery results before they enter encrypted staging. |
 | Application logs | None by default | The application does not maintain an inventory or access log outside the encrypted audit table. |
 
 Do not put the database or its sidecar in a world-writable directory. On
 Windows, use a per-user folder; the POSIX `0600` protection does not apply.
+
+### Environment variables
+
+| Variable | Applies to | Purpose |
+|---|---|---|
+| `CMDB_DB_PASSPHRASE` | `cmdb-server` | Database passphrase for non-interactive start. The server unsets it after reading. Prefer a root-only environment file/systemd `EnvironmentFile`, never a command line or shell history. |
+| `CMDB_SERVER_URL` | desktop `cmdb` | Load the authenticated UI from a running server instead of a local database. Use HTTPS for anything except loopback. |
+| `CMDB_NMAP` | scanner | Full path to `nmap`/`nmap.exe` when it is not on `PATH`. |
+| `CMDB_CONFIG_DIR` | desktop-local | Override the per-user config directory used for recent database paths. |
+| `CMDB_WEB_DIR` | Debug desktop; server | Debug desktop: load `src/web` instead of the embedded UI. Server: override the installed web asset directory. |
+| `CMDB_UI_URL` | Debug desktop | Load a custom UI URL. Compiled out of release desktop builds with `NDEBUG`. |
+| `CMDB_DEVTOOLS` | Debug desktop | Enable webview developer tools when set to `1`. |
+| `CMDB_SMOKE_TEST`, `CMDB_SMOKE_DB`, `CMDB_SMOKE_RESULT` | CI/dev desktop | Automated WebView2/WebKit smoke test. Not for production. |
 
 ### Backup, restore, and upgrade
 
@@ -331,10 +363,11 @@ Or build locally with `./setup.sh` (Debian/Ubuntu), `./setup-fedora.sh`
 
 ## Why this exists
 
-Most CMDB products are server applications. `cmdb-lite` is a single-user desktop
-application that keeps the inventory in one encrypted database file that you
-choose and control. It is offline-first: no account, no cloud service, and no
-telemetry.
+Most CMDB products are server applications. `cmdb-lite` is desktop-first: it
+keeps the inventory in one encrypted database file that you choose and control,
+and it can also run as a self-hosted authenticated server for a small team. The
+desktop-local mode is offline-first; server mode is self-hosted and still has no
+cloud dependency or telemetry.
 
 The intended data is ordinary CMDB data — servers, IP addresses, serial numbers,
 operating systems, owners, business services, applications, network devices,
@@ -349,7 +382,12 @@ password vault instead.
 - Desktop webview shell for Linux (GTK3 + WebKitGTK 4.1) and Windows
   (WebView2), with one shared C17 core and one shared HTML/CSS/JS user
   interface.
-- Encrypted SQLCipher database at a user-selected path.
+- **Authenticated server mode** for Linux: Go `cmdb-server`, C `cmdb-rpc`, a
+  first-run setup token, Argon2id passwords, mandatory TOTP and recovery codes,
+  forced temporary-password changes, CSRF-protected sessions, admin account
+  management, and per-user audit actors.
+- Encrypted SQLCipher database at a user-selected path in desktop-local mode;
+  server mode keeps the database behind the server.
 - Master passphrase with Argon2id key derivation (libsodium).
 - Sidecar key-derivation metadata file with an integrity checksum.
 - Managed CI categories with stable IDs, ordering, colors, and CI type
@@ -388,10 +426,12 @@ password vault instead.
   **HIBP Linux host feed** with `cmdb_ci_id` links and no secrets.
 - **Audit log viewer** with hash-chain verification.
 - Append-only audit log with a hash chain.
-- **Single-file executables**: a Linux ELF and a Windows EXE with the HTML/CSS/JS
-  UI embedded; no separate `web/` folder is needed.
-- Linux `.deb`/RPM/TGZ, a **Flatpak using the GNOME runtime and bundling nmap**,
-  and Windows portable ZIP plus WiX-generated MSI.
+- **Desktop executables embed the UI**: a Linux ELF and a Windows EXE contain the
+  HTML/CSS/JS bundle. The Linux server package additionally ships
+  `cmdb-server`, `cmdb-rpc`, and `share/cmdb-lite/web`.
+- Linux `.deb`/RPM/TGZ (desktop and server), a **Flatpak using the GNOME runtime
+  and bundling nmap** (desktop only), and Windows portable ZIP plus
+  WiX-generated MSI (desktop only, able to connect to a Linux server).
 - Core test suite, including a live nmap test in Linux/Fedora CI, parser
   fixtures, asynchronous scan-manager cancellation, backup, export, impact, and
   graph tests. Schema migration is exercised manually against the previous
@@ -400,18 +440,21 @@ password vault instead.
 
 ### Distribution model
 
-The application ships as one executable per OS, with no `web/` asset folder:
+The desktop application embeds its UI. Linux server packages ship separate
+binaries and web assets because the server serves the UI over HTTP:
 
-| Platform | Artifact | Runtime requirements |
+| Platform | Artifact | Contents and runtime requirements |
 |---|---|---|
-| Windows | `cmdb.exe` | WebView2 runtime (present on current Windows 10/11). SQLCipher, libsodium, OpenSSL, expat, and the C/C++ runtime are linked statically. |
-| Linux (.deb/RPM/TGZ) | `cmdb` ELF | GTK3, WebKitGTK 4.1, expat, and system OpenSSL. SQLCipher and libsodium are linked statically when `.a` archives are available. |
-| Linux (Flatpak) | `cmdb-lite.flatpak` | Uses the GNOME runtime for GTK3/WebKitGTK and bundles SQLCipher, libsodium, and nmap. The GNOME runtime is installed separately by Flatpak. |
+| Windows | `cmdb.exe` | Desktop only. Embedded UI. WebView2 runtime (present on current Windows 10/11). SQLCipher, libsodium, OpenSSL, expat, and the C/C++ runtime are linked statically. Use `CMDB_SERVER_URL` to connect to a Linux server over HTTPS. |
+| Linux (.deb/RPM/TGZ) | `cmdb`, `cmdb-server`, `cmdb-rpc`, `share/cmdb-lite/web/`, systemd unit | Desktop plus single-node server. The desktop needs GTK3, WebKitGTK 4.1, expat, and system OpenSSL. SQLCipher and libsodium are linked statically when `.a` archives are available. Server-only packages omit `cmdb` and GTK/WebKit. |
+| Linux (Flatpak) | `cmdb-lite.flatpak` | Desktop only. Uses the GNOME runtime for GTK3/WebKitGTK and bundles SQLCipher, libsodium, and nmap. The GNOME runtime is installed separately by Flatpak. |
 
-The encrypted database and its `.meta` sidecar are intentionally separate files
-chosen by the user. In **Debug builds only**, `CMDB_WEB_DIR=src/web` can load
-the external UI files instead of the embedded bundle; release builds always use
-the embedded UI. Set `CMDB_STATIC_CRYPTO=OFF` to link SQLCipher/libsodium
+The encrypted database and its `.meta` sidecar are intentionally separate files.
+In desktop-local mode the user chooses the path. In server mode the server owns
+a path such as `/var/lib/cmdb-lite/inventory.cmdb`; users never receive the
+passphrase. In **Debug builds only**, `CMDB_WEB_DIR=src/web` can load the
+external UI files instead of the embedded bundle; release desktop builds always
+use the embedded UI. Set `CMDB_STATIC_CRYPTO=OFF` to link SQLCipher/libsodium
 dynamically on Linux.
 
 CI builds on Ubuntu 24.04, a current Fedora container, the GNOME 48 Flatpak
@@ -428,6 +471,9 @@ environments you intend to support.
 
 ### Next milestones
 
+- Server: flags/config file beyond the packaged systemd unit, health/readiness
+  endpoint, graceful shutdown, online backup/restore, browser export/download,
+  role-change UI, active-session management, and server HTTP integration tests.
 - Windows server support and a one-click local-server launcher for the desktop
   client.
 - Role-based access control and per-CI permissions.
@@ -539,10 +585,13 @@ patch-management server for the rollout. It provides single-user login with a
 password plus TOTP and/or passkeys, owns its own encrypted database and SSH
 credentials, and starts with Debian and Fedora server support.
 
-The intended flow is one-way inventory onboarding: add the host once in
-`cmdb-lite`, export the HIBP CSV, import it into HIBP, then complete SSH/host-key
-setup once in HIBP. HIBP patch facts can be written back later. Do not share the
-encrypted databases or passphrases between the two applications. See
+`cmdb-lite` can be used desktop-local or with its optional authenticated server
+mode; HIBP remains a separate security boundary with its own accounts, database,
+passphrase, and SSH credentials. The intended flow is one-way inventory
+onboarding: add the host once in `cmdb-lite`, export the HIBP CSV, import it into
+HIBP, then complete SSH/host-key setup once in HIBP. HIBP patch facts can be
+written back later. Do not share the encrypted databases or passphrases between
+the two applications. See
 [`docs/hibp.md`](docs/hibp.md) for current importer limitations and the
 onboarding flow.
 
@@ -569,7 +618,87 @@ Authentication state is JSON in `app_meta`; schema v4 is unchanged. Sessions are
 memory-only. The desktop client does not start the server automatically, and
 Windows server support is future work. See
 [`docs/authentication.md`](docs/authentication.md) for architecture, flags,
-storage, API, and known gaps.
+storage, and API, and [`docs/server.md`](docs/server.md) for the deployment runbook.
+
+### Server production notes
+
+A Linux package installs `cmdb`, `cmdb-server`, `cmdb-rpc`, and
+`share/cmdb-lite/web`. All four must come from the same release. The server
+auto-detects the bridge and web assets; use `--rpc`/`--web-dir` only when they
+are in non-standard locations.
+
+Before go-live:
+
+- Run it as a dedicated unprivileged user with `UMask=0077` and a `0700` state
+  directory.
+- Put the database passphrase in a root-owned environment file. Do not put it on
+  a command line or in shell history.
+- Terminate TLS at HAProxy/VPN; never expose the HTTP listener. Set
+  `X-Forwarded-Proto: https` and append `X-Forwarded-For` at the proxy, and put
+  the proxy address/CIDR in `--proxy`.
+- Synchronize system time. TOTP accepts only one 30-second step of skew.
+- With the one-admin decision, test the `--reset-auth` break-glass procedure in
+  [`docs/server.md`](docs/server.md) on a copy. It requires the database
+  passphrase and clears all accounts/TOTP/recovery state. The Users page can
+  create additional administrators later if needed.
+- Enroll TOTP and generate recovery codes for every account. The server forces
+  both before inventory access; changing either requires the current password.
+- Stop the server before copying the database pair. There is no online backup
+  API, and the user-facing Backup action is hidden in server mode.
+- Plan for sessions to be lost on every restart.
+
+| Area | Current server behavior | Go-live implication |
+|---|---|---|
+| Availability | One process, one database, no clustering/HA | Plan a maintenance window for restarts and backups. |
+| Concurrency | All API requests are serialized | A long import, scan operation, or audit verification blocks other users. |
+| Backup | Offline copy only; no online API | Stop the service, copy `.cmdb` + `.meta`, restart. Test restore. |
+| Export | Export/save operations are blocked in server mode | There is currently no browser download of inventory or `.drawio` files. |
+| Accounts | First admin + admin-created users, including additional admins; no delete/role change UI | No user deletion or admin demotion after creation. |
+| MFA | TOTP and at least one unused recovery code are required before inventory access | Enroll during first login; the server blocks inventory until both are present. |
+| Passwords | Admin-created/reset passwords are temporary and force a change | The administrator knows the temporary password; the user must replace it before inventory access. |
+| Sessions | Memory-only; no session list or global revoke UI | Restart logs everyone out; disable/reset actions revoke per user. |
+| Authorization | Admin flag only; all other accounts share inventory privileges | No RBAC or per-CI permissions. |
+| Operations | systemd unit packaged; no health endpoint, metrics, or request log | Enable the packaged unit and use a TCP check in [`docs/server.md`](docs/server.md); add monitoring. |
+| Ingress | No TLS listener; proxy trust is CIDR-based | HAProxy/VPN is mandatory; configure forwarded headers or cookies/rate limits break. |
+
+See [`docs/server.md`](docs/server.md) for a sample systemd unit, HAProxy
+configuration, file permissions, backup/restore, upgrade/rollback, NTP, logs,
+and hardening checklist.
+
+### Install the server-only package
+
+The v0.7.0 release adds a server-only Linux package that does not install the
+desktop client or GTK/WebKit. It installs `cmdb-server`, `cmdb-rpc`, the web
+assets, a systemd unit, documentation, and a sample environment file.
+
+```bash
+# Debian/Ubuntu
+sudo apt install ./cmdb-lite-server_0.7.0_amd64.deb
+
+# Fedora
+sudo dnf install ./cmdb-lite-server-0.7.0-*.rpm
+
+# Create the root-only passphrase file from the example, then edit it.
+sudo install -d -o root -g root -m 0700 /etc/cmdb-lite
+sudo install -o root -g root -m 0600 \
+  /usr/share/doc/cmdb-lite/server.env.example /etc/cmdb-lite/server.env
+sudo editor /etc/cmdb-lite/server.env
+
+sudo systemctl enable --now cmdb-server
+sudo journalctl -u cmdb-server -n 20 --no-pager
+```
+
+The package's post-install script creates the `cmdb` service user and
+`/var/lib/cmdb-lite` with mode `0700`. It does not start the service or create
+the passphrase file automatically. The first start prints the one-time setup
+token to the journal. Read it, then open `https://your-host/login` through your
+TLS proxy.
+
+Install either the desktop+server package or the server-only package on a host,
+not both: they share `cmdb-server`, `cmdb-rpc`, web assets, and the systemd unit.
+The server-only package intentionally has no online backup/export feature and no
+health endpoint yet; see the limitations above and in
+[`docs/server.md`](docs/server.md).
 
 ## Import file formats
 
@@ -754,6 +883,25 @@ file through a native save dialog. The embedded editor is a lightweight
   possible. The containing directory's permissions still matter; do not place
   the database in a world-writable directory.
 
+### Server authentication state
+
+- Server accounts and MFA material live in the same SQLCipher database under
+  `app_meta.auth.state`. A database backup includes them.
+- User passwords are Argon2id hashes (64 MiB, 3 iterations). Recovery codes are
+  Argon2id hashes. TOTP secrets and the last accepted step are stored in the
+  encrypted database.
+- Session tokens and CSRF tokens are random 256-bit values. Only session-token
+  hashes are kept, in server memory; a restart drops every session.
+- The database passphrase is separate from user passwords and is never given to
+  users. It is read from a TTY or `CMDB_DB_PASSPHRASE`.
+- Server mode has no TLS listener. It must be reached through HAProxy/VPN, and
+  the proxy must set `X-Forwarded-Proto` and `X-Forwarded-For`. A direct HTTP
+  listener exposes passwords and session cookies.
+- Login, TOTP, and recovery endpoints have in-memory rate limits. They are
+  cleared by a restart and are not a persistent lockout system.
+- TOTP requires an accurate server clock. Use NTP/chrony; only one 30-second
+  step of skew is accepted.
+
 ### Threat model
 
 Protected against:
@@ -776,6 +924,17 @@ Not protected against:
 - Full database substitution by an attacker who can replace the file; the
   application will detect it as a different/corrupt database, but cannot prove
   provenance without a signature.
+- A network attacker when `cmdb-server` is exposed over plain HTTP or the proxy
+  forwarding headers are misconfigured. TLS termination is mandatory.
+- A stolen authenticated session until it expires or the user is disabled, its
+  password is reset, or its MFA is reset. There is no active-session management
+  UI.
+- Credential stuffing or password guessing beyond the in-memory rate limits.
+  There is no persistent lockout or breached-password check. TOTP and recovery
+  codes are mandatory after first login, but the initial password remains the
+  first factor.
+- A compromised server administrator/root account. The operator can read the
+  database passphrase and database.
 
 If the database is lost and the passphrase is forgotten, the data cannot be
 recovered. Back up both the database and its `.meta` sidecar together.
@@ -851,28 +1010,25 @@ attacker who knows the key can rewrite the chain.
 ## Architecture
 
 ```text
-┌────────────────────────────────────────────────────────────┐
-│  HTML/CSS/JS UI (src/web)                                  │
-│  inventory · types · relationships · import · discovery      │
-│  diagrams · dependency map                                   │
-└──────────────────────────┬─────────────────────────────────┘
-                           │ JSON binding (webview)
-┌──────────────────────────▼─────────────────────────────────┐
-│  C17 application core (src/core)                            │
-│  api · domain model · SQLCipher · Argon2id · import · graph │
-└──────────────────────────┬─────────────────────────────────┘
-                           │
-        ┌──────────────────┴──────────────────┐
-        │ Linux                               │ Windows
-        │ webview (GTK3 + WebKitGTK 4.1)      │ webview (WebView2)
-        └─────────────────────────────────────┘
+Desktop-local mode
+  HTML/CSS/JS UI (embedded) → native shell → C17 core → SQLCipher (.cmdb + .meta)
+
+Server mode
+  browser / desktop client
+        │ HTTPS (HAProxy/VPN)
+        ▼
+  cmdb-server (Go: HTTP, auth, sessions, TOTP, admin API)
+        │ JSON lines over stdio, serialized
+        ▼
+  cmdb-rpc (C) → C17 core → SQLCipher (.cmdb + .meta)
 ```
 
 The native shell is intentionally thin. `webview/webview` is a pinned
 third-party dependency (MIT) that provides a C API over WebKitGTK/WebView2. The
 application code is C17; the webview dependency itself is C++14 and is compiled
-into the executable. SQLCipher, libsodium, and cJSON are the other runtime
-dependencies.
+into the desktop executable. Server mode adds a Go binary with `x/crypto` and
+`x/term`, plus the small C `cmdb-rpc` bridge. SQLCipher, libsodium, cJSON,
+expat, and the system webview are the other runtime dependencies.
 
 ### Design decisions
 
@@ -887,9 +1043,13 @@ dependencies.
   protects indexes, metadata, and relationships, not just selected columns.
 - **Explicit import previews.** Imports never write silently, and discovery will
   never auto-merge.
+- **Server mode without CGO.** The Go server talks to the C core through a
+  child process (`cmdb-rpc`), so the C core keeps its single-connection model
+  and the server builds with the normal Go toolchain. The C core serializes
+  calls; the server serializes HTTP API requests.
 - **Server-ready data model.** UUID domain IDs, an audit actor column, and a
-  JSON API boundary made the authenticated `cmdb-server` practical without a
-  schema rewrite.
+  JSON API boundary made authenticated server mode possible without a schema
+  rewrite. Accounts are JSON in `app_meta` rather than a new schema version.
 
 ### Repository layout
 
@@ -925,6 +1085,20 @@ packaging/           Icons, embed script, Windows resources, Flatpak, installers
   cJSON 1.7.18 is vendored. SQLCipher, libsodium, expat, GTK, WebKitGTK, and
   OpenSSL come from the distribution or vcpkg and are not version-pinned by this
   repository on every platform.
+
+### CMake options
+
+| Option | Default | Effect |
+|---|---|---|
+| `CMDB_BUILD_UI` | `ON` | Build the GTK/WebView2 desktop client. |
+| `CMDB_BUILD_SERVER` | `ON` on Linux | Build `cmdb-server` and `cmdb-rpc`; requires Go 1.22+. Set `OFF` for Flatpak or a desktop-only build. |
+| `CMDB_BUILD_TESTS` | `ON` | Build the C test suite and register `cmdb_server_tests` when the server is built. |
+| `CMDB_STATIC_CRYPTO` | `ON` | Link SQLCipher/libsodium statically on Unix when `.a` archives are available. |
+| `CMDB_FETCH_WEBVIEW` | `ON` | Fetch the pinned `webview/webview` source. Use `OFF` with `CMDB_WEBVIEW_SOURCE_DIR` for offline builds. |
+| `CMDB_ENABLE_ASAN` | `OFF` | Enable AddressSanitizer and UndefinedBehaviorSanitizer. |
+| `CMDB_WERROR` | `OFF` | Treat compiler warnings as errors for project targets. |
+| `CMDB_BUILD_FUZZERS` | `OFF` | Build the libFuzzer CSV target (Clang only). |
+| `CMDB_PACKAGE_VARIANT` | empty | Optional suffix for Linux package filenames, for example `fedora`; CI uses it to keep Fedora tarballs distinct from Ubuntu builds. |
 
 ### Dependencies
 
@@ -967,18 +1141,20 @@ cpack --config build/CPackConfig.cmake -G RPM -B build/dist
 cpack --config build/CPackConfig.cmake -G TGZ -B build/dist
 ```
 
-The RPM is per-machine and installs the single `cmdb` ELF, desktop entry, icon,
-documentation, and license notices. The RPM license field is `MIT`; third-party
-components keep their own licenses, documented in
-[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). The RPM requires the system
-GTK/WebKit/expat/OpenSSL libraries; SQLCipher and libsodium are required only
-when the build falls back to dynamic linking.
+The Linux package installs `cmdb`, `cmdb-server`, `cmdb-rpc`, the desktop entry,
+icon, documentation, license notices, and `share/cmdb-lite/web`. The RPM license
+field is `MIT`; third-party components keep their own licenses, documented in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). The package requires the
+system GTK/WebKit/expat/OpenSSL libraries for the desktop client; SQLCipher and
+libsodium are required only when the build falls back to dynamic linking.
 
 The Windows and Linux GUI builds use the `webview/webview` library, which is
 fetched by CMake at configure time from a pinned commit-specific tarball with a
-SHA-256 hash. The first configure therefore needs network access. For offline or
-Flatpak builds, pass
-`-DCMDB_FETCH_WEBVIEW=OFF -DCMDB_WEBVIEW_SOURCE_DIR=/path/to/webview-src`.
+SHA-256 hash. The server's Go modules are fetched by `go build` on first build.
+The first configure/build therefore needs network access unless both are cached.
+For offline or Flatpak builds, pass
+`-DCMDB_FETCH_WEBVIEW=OFF -DCMDB_WEBVIEW_SOURCE_DIR=/path/to/webview-src`; vendor
+Go modules separately if the server is built offline.
 
 ### Configure, build, test
 
@@ -994,11 +1170,22 @@ After editing anything in `src/web`, regenerate the embedded UI:
 python3 packaging/embed_web.py
 ```
 
-Run the application:
+Run the desktop application:
 
 ```bash
 ./build/cmdb
 ```
+
+Run the server against a test database:
+
+```bash
+CMDB_DB_PASSPHRASE='a long test passphrase' ./build/cmdb-server \
+  --db /tmp/cmdb-test.cmdb --listen 127.0.0.1:8080
+```
+
+`cmdb-server --help` lists all flags. The server uses `./build/cmdb-rpc` and
+`./src/web` when run from the repository/build tree; installed packages resolve
+the bridge and assets relative to the binary.
 
 Build Linux packages:
 
@@ -1009,8 +1196,28 @@ cpack --config CPackConfig.cmake -G RPM
 cpack --config CPackConfig.cmake -G TGZ
 ```
 
-The DEB/RPM install the single `cmdb` ELF under `/usr/bin`, the desktop entry,
-and the icon. The UI assets are embedded in the executable.
+The DEB/RPM install `cmdb`, `cmdb-server`, and `cmdb-rpc` under `/usr/bin`, the
+desktop entry and icon, the systemd unit, and the server UI under
+`/usr/share/cmdb-lite/web`. The desktop client embeds its own UI copy. Never
+install the server binaries without the matching web assets.
+
+Build a server-only package without GTK/WebKit:
+
+```bash
+cmake -S . -B build-server -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMDB_BUILD_UI=OFF \
+  -DCMDB_BUILD_SERVER=ON \
+  -DCMDB_BUILD_TESTS=OFF
+cmake --build build-server
+cpack --config build-server/CPackConfig.cmake -G DEB -B build-server/dist
+cpack --config build-server/CPackConfig.cmake -G RPM -B build-server/dist
+cpack --config build-server/CPackConfig.cmake -G TGZ -B build-server/dist
+```
+
+This produces `cmdb-lite-server_*`/`cmdb-lite-server-*` artifacts with
+`cmdb-server`, `cmdb-rpc`, web assets, the systemd unit, docs, and the passphrase
+example, but no desktop client.
 
 Build the self-contained Flatpak:
 
@@ -1041,10 +1248,17 @@ Useful on a headless CI runner or when the GUI dependencies are unavailable:
 ```bash
 cmake -S . -B build-core -G Ninja \
   -DCMAKE_BUILD_TYPE=Debug \
-  -DCMDB_BUILD_UI=OFF
+  -DCMDB_BUILD_UI=OFF \
+  -DCMDB_BUILD_SERVER=OFF
 cmake --build build-core
 ctest --test-dir build-core --output-on-failure
 ```
+
+A headless server build can use `-DCMDB_BUILD_UI=OFF` while leaving
+`CMDB_BUILD_SERVER=ON`; the install rules then install `cmdb-server`,
+`cmdb-rpc`, and `share/cmdb-lite/web` without GTK/WebKit. If Go is missing,
+configuration now fails instead of silently producing a desktop-only package.
+Use `-DCMDB_BUILD_SERVER=OFF` for a truly core-only build.
 
 ## Building on Windows
 
@@ -1112,6 +1326,8 @@ GitHub Actions Windows runner.
   and dependency choices.
 - [`docs/authentication.md`](docs/authentication.md) — server mode,
   `cmdb-rpc`, accounts, sessions, TOTP, recovery codes, storage, and API.
+- [`docs/server.md`](docs/server.md) — production server deployment: systemd,
+  HAProxy/TLS, permissions, backup/restore, upgrade, logs, and hardening.
 - [`docs/dependencies.md`](docs/dependencies.md) — impact classes, vCenter and
   DNS examples, service modeling, and redundancy.
 - [`docs/drawio.md`](docs/drawio.md) — dependency traversal and `.drawio` format.
@@ -1163,31 +1379,52 @@ cmake --build build-asan
 ctest --test-dir build --output-on-failure
 ctest --test-dir build-asan --output-on-failure
 
+# Go server tests, formatting, and static checks
+cd server
+gofmt -l .
+go vet ./...
+go test ./...
+GOTOOLCHAIN=local go build -trimpath -o /tmp/cmdb-server .
+# Optional, when installed:
+govulncheck ./...
+cd ..
+
 # Static analysis (when installed)
 cppcheck --enable=warning,performance,portability --error-exitcode=1 \
   --suppress=missingIncludeSystem src include
+
+# Package contents must include the server binaries and web assets
+dpkg-deb -c dist/*.deb | grep -E 'bin/(cmdb|cmdb-server|cmdb-rpc)|cmdb-lite/web'
+rpm -qlp dist/*.rpm | grep -E 'bin/(cmdb|cmdb-server|cmdb-rpc)|cmdb-lite/web'
+tar -tzf dist/*.tar.gz | grep -E 'bin/(cmdb|cmdb-server|cmdb-rpc)|cmdb-lite/web'
 ```
 
 ### Current validation status
 
-The Linux core build was configured with CMake and compiled with strict
-warnings (`-Wall -Wextra -Wpedantic`, shadow/format/cast/prototype checks,
-`-Werror`). The full CTest suite passed:
+The Linux build was configured with CMake and compiled with strict warnings
+(`-Wall -Wextra -Wpedantic`, shadow/format/cast/prototype checks, `-Werror`).
+CTest passes both suites:
 
 ```text
-test_crypto                      ok
-test_csv                         ok
-test_types                       ok
-test_ci                          ok
-test_relationships               ok
-test_graph                       ok
-test_drawio                      ok
-test_import                      ok
-test_export                      ok
-test_api                         ok
-test_scan                        ok
+cmdb_server_tests                ok
+cmdb_tests                       ok
 0 failure(s)
 ```
+
+`cmdb_server_tests` runs the Go unit tests (`auth_test.go`, `server_test.go`).
+The development validation also exercised a fresh-database end-to-end flow
+(first-run setup, mandatory TOTP enrollment, mandatory recovery codes, forced
+password change, login/MFA/recovery, one-admin guard, restart/session
+invalidation, and `--reset-auth`) plus a >1 MiB server-mode import through
+`/api/v1/rpc`. Those HTTP integration flows are **not yet committed as automated
+tests**, so this remains a regression risk.
+
+The Go server builds with Go 1.22.x (tested locally with 1.22.12; CI installs
+Ubuntu 24.04's `golang-go`) and is linked with `CGO_ENABLED=0`. Its dependencies
+are currently `golang.org/x/crypto v0.31.0`, `golang.org/x/sys v0.28.0`, and
+`golang.org/x/term v0.27.0`; they are older than current upstream releases and
+are not scanned in CI. Run `govulncheck` and update them as part of release
+preparation.
 
 The test suite includes an encryption-at-rest assertion: it creates a database,
 writes known CI names and descriptions, verifies the plaintext does not appear in
@@ -1232,6 +1469,9 @@ jobs and publishes the assets with `SHA256SUMS` automatically; see
 
 Not yet enforced in CI:
 
+- HTTP/session/TOTP/recovery/admin integration tests for `cmdb-server`;
+- `gofmt`, `go vet`, `govulncheck`, and Go module updates;
+- `cmdb-server`/`cmdb-rpc`/web-asset content checks for built packages;
 - ASan/UBSan and the CSV fuzz target;
 - cppcheck, clang-tidy, CodeQL, or dependency/OSV scanning;
 - Linux GUI smoke tests;
@@ -1265,7 +1505,8 @@ Ready-to-use examples are in [`examples/`](examples/):
   **Lock** is pressed or the application exits. Server sessions do have idle
   and absolute expiry.
 - No single-instance guard. Two processes may attempt to open the same database;
-  use the application lock and avoid shared or network filesystems.
+  use the application lock and avoid shared or network filesystems. The server
+  also assumes one process per database.
 - No configurable automatic or scheduled backups. **Backup** is manual; the
   production rollout requires manual, automatic, and scheduled modes with
   configurable destination/interval/retention.
@@ -1276,6 +1517,34 @@ Ready-to-use examples are in [`examples/`](examples/):
   launch.
 - No off-device audit export. The hash chain is local and can be rewritten by an
   attacker who has the database key.
+- No online server backup, restore, or export. Server-mode Backup and export
+  actions are hidden/blocked; a consistent backup requires stopping the server
+  and copying the `.cmdb` + `.meta` pair. There is no browser download of
+  inventory or `.drawio` files in server mode.
+- The server-only package installs a hardened systemd unit, but there is no
+  separate flags/config file; paths and timeouts are edited in the unit. There
+  is no health/readiness endpoint, metrics, structured request logging, or
+  graceful shutdown handler. Use a TCP check and external supervision.
+- One server process and one database. All API requests are serialized, so a
+  long import, scan operation, or audit verification blocks other users. There
+  is no HA or horizontal scaling.
+- Server sessions and rate-limit entries are in memory and uncapped. A restart
+  clears them; an authenticated user can accumulate sessions until restart.
+- Login rate limiting is per IP and per username and is cleared on restart. A
+  known username can be locked out temporarily by repeated failures from any
+  source. There is no persistent lockout or breached-password check.
+- No server RBAC beyond the admin flag. All non-admin accounts can edit the
+  entire inventory, including CI types, relationships, imports, scans, and
+  authentication audit views.
+- No user deletion, role change, or active-session list. Admin-created and
+  admin-reset passwords are temporary and force a change, but the administrator
+  knows the password until the user changes it.
+- No password history or email-based recovery. TOTP and recovery codes are
+  mandatory before inventory access.
+- Admin password/MFA reset actions do not require re-entering the admin's
+  password. A stolen admin session is effectively full administrative control.
+- The first-run setup token is printed to stdout/journald. Restrict access to the
+  server console and journal while no users exist.
 - Discovery never merges automatically; the operator must choose every action.
 - Do not share a database file between a running server and a desktop-local
   process. Server mode supports multiple users through one server process, not
@@ -1300,7 +1569,15 @@ Ready-to-use examples are in [`examples/`](examples/):
   zeroized on close but is not locked with `sodium_mlock`; swap and core dumps
   remain an OS-level concern.
 - No rate limiting on the database passphrase itself; Argon2id is the only
-  brute-force cost. Server login, TOTP, and recovery endpoints are rate-limited.
+  brute-force cost. Server login, TOTP, recovery, and current-password
+  re-authentication are rate-limited, but only in memory and not across restarts.
+- The server holds the database passphrase in a Go string that cannot be
+  reliably wiped. Restrict core dumps, swap, and process inspection.
+- TOTP depends on accurate server time. Use NTP/chrony; only one 30-second step
+  of skew is accepted.
+- The Go module dependencies (`golang.org/x/crypto v0.31.0`, `x/sys v0.28.0`,
+  `x/term v0.27.0`) are older than current upstream releases and are not scanned
+  in CI. Run `govulncheck` and update before release.
 - Signing, SBOMs, and build provenance are not used for the current rollout.
   Windows artifacts are unsigned and may trigger SmartScreen; `SHA256SUMS` is the
   only published integrity check. Reproducible-build verification is not yet
@@ -1327,8 +1604,10 @@ is still needed before a public or enterprise production rollout.
 ### Release and distribution
 
 - [x] Tag and publish v0.6.0; verify all assets and `SHA256SUMS`.
-- [ ] Tag and publish v0.7.0 with `cmdb-server`, `cmdb-rpc`, and server-mode
-      documentation; verify package contents and `SHA256SUMS`.
+- [x] Release tagging/signing/SBOM is skipped for this rollout. Record the
+      commit hash and verify locally built package contents/checksums.
+- [ ] If a public v0.7.0 release is later desired, tag it and publish the
+      desktop + server-only assets with `SHA256SUMS`.
 - [x] Signing and SBOMs are not required by the rollout decision. Windows
       artifacts are unsigned and may trigger SmartScreen.
 - [ ] Pin the vcpkg baseline and GitHub Actions SHAs for reproducible builds.
@@ -1345,8 +1624,36 @@ is still needed before a public or enterprise production rollout.
 
 - [x] Implement server-mode authentication: first-run setup, login, sessions,
       TOTP, recovery codes, admin user management, and per-request audit actor.
-- [ ] Add RBAC/per-CI permissions, a systemd unit, and non-interactive passphrase
-      provisioning for server deployments.
+- [ ] Verify both the desktop+server and server-only packages on the target
+      Ubuntu and Fedora releases; record `SHA256SUMS` for the local build.
+- [x] Add a server-only package with a systemd unit and passphrase example.
+- [ ] Add RBAC/per-CI permissions, a separate server flags/config file, and
+      non-interactive passphrase provisioning.
+- [ ] Add an application health/readiness endpoint and align proxy checks with
+      it. The current proxy check is only TCP.
+- [ ] Deploy with the packaged `cmdb` user, `UMask=0077`, `0700` state
+      directory, root-only passphrase file, and hardened systemd unit; run
+      `systemd-analyze verify` on the installed unit.
+- [ ] Terminate TLS at HAProxy/VPN, bind the server to loopback/private, set
+      `X-Forwarded-Proto` and `X-Forwarded-For`, and configure `--proxy`.
+- [ ] Synchronize server time with NTP/chrony and monitor clock drift.
+- [ ] With the one-admin decision, test `cmdb-server --reset-auth` on a copy
+      and verify mandatory TOTP/recovery enrollment on a fresh database.
+- [ ] Define the policy for admin-created initial passwords, forced changes,
+      password resets, recovery-code storage, and account disable/removal.
+- [ ] Perform a server backup/restore drill, including `auth.state`, login,
+      TOTP, recovery-code, and audit-chain verification. The server must be
+      stopped for the copy.
+- [ ] Perform a server upgrade/rollback drill and document that sessions are
+      lost and future schema migrations create a pre-upgrade backup.
+- [ ] Define journald retention/access, audit retention, monitoring, alerting,
+      and incident response for the server.
+- [ ] Load-test expected users, inventory size, import size, and scan behavior;
+      the API is serialized and has no HA.
+- [ ] Add HTTP/session/TOTP/recovery/admin integration tests to CI; current CI
+      runs only Go unit tests plus manual end-to-end validation.
+- [ ] Run `govulncheck` and update the Go module dependencies, which currently
+      lag upstream.
 - [x] Enable GitHub private vulnerability reporting and publish `SECURITY.md`
       with a monitored contact.
 - [ ] Define a supported-version and security-update policy.
@@ -1375,7 +1682,8 @@ is still needed before a public or enterprise production rollout.
       `Service` CIs with `provided_by` relationships.
 - [x] HIBP integration is in scope for the rollout. HIBP is the separate
       single-user server with password + TOTP/passkey login; cmdb-lite remains
-      the desktop inventory source.
+      the inventory source (desktop-local or optional server mode). Do not share
+      databases or passphrases.
 - [ ] Harden the HIBP importer to match by `cmdb_ci_id`, preserve SSH settings
       and patch facts, and support a one-time “needs setup” state. Current
       limitations are documented in [`docs/hibp.md`](docs/hibp.md).
@@ -1386,7 +1694,8 @@ is still needed before a public or enterprise production rollout.
 
 There is no formal long-term support policy yet. The repository is validated on
 the CI platforms listed above, and only the latest release should be considered
-tested. Before production use, define:
+tested. Server mode is built and tested on Linux x86_64; Windows server support
+is not implemented. Before production use, define:
 
 - which versions receive security fixes;
 - how users are notified of a security release;

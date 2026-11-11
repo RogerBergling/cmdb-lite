@@ -51,8 +51,10 @@ UI hides the desktop **Backup** action. To take a consistent backup:
 3. Restart the server and confirm that accounts and inventory are present.
 
 Stopping the server also ends all sessions. Do not copy the file while the
-server is running. A future release should add an authenticated server-side
-backup action with destination and retention controls.
+server is running. Keep the state directory `0700` and run the service with
+`UMask=0077` so newly created WAL/SHM files are not group/world-readable. A
+future release should add an authenticated server-side backup action with
+destination and retention controls.
 
 ## Restore
 
@@ -89,9 +91,10 @@ will not open it. Use the passphrase that was active when the backup was taken.
 
 ## Backup policy for the production rollout
 
-The current codebase provides **manual in-app backup** and **automatic
-pre-migration backup**. It does not yet provide configured automatic or
-scheduled backups.
+Desktop-local mode provides **manual in-app backup** and **automatic
+pre-migration backup**. Server mode has no online backup API, so a consistent
+backup requires stopping the service and copying the database pair. Neither
+mode provides configured automatic or scheduled backups yet.
 
 The planned go-live requirement is configurable backup policy:
 
@@ -104,16 +107,16 @@ The planned go-live requirement is configurable backup policy:
 - restore verification instructions.
 
 Until that is implemented, use the manual **Backup** action and an external
-scheduler or file-copy procedure. Do not describe the current release as having scheduled
-backups.
+scheduler or file-copy procedure. Do not describe the current release as having
+scheduled backups.
 
 ## What is not included
 
 - Passphrase recovery. A lost passphrase cannot be recovered.
 - Passphrase rotation. It is a future milestone; changing the passphrase
   requires a migration tool.
-- Configurable automatic/scheduled backups. The current backup is manual, plus the
-  automatic pre-migration backup.
+- Configurable automatic/scheduled backups. The current backup is manual, plus
+  the automatic pre-migration backup.
 - A plaintext export of the database. Exports such as `.drawio` are intentionally
   plaintext files chosen by the user.
 

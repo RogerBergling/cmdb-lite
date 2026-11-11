@@ -19,6 +19,7 @@ input,button { font:inherit; padding:.5rem .6rem; border-radius:7px; border:1px 
 button { margin-top:.6rem; background:var(--accent); color:#04110f; border:0; font-weight:700; cursor:pointer; }
 button.secondary { background:transparent; color:var(--text); border:1px solid var(--line); }
 .error { color:var(--error); min-height:1.2em; font-size:.85rem; }
+.notice { border:1px solid var(--line); border-radius:8px; padding:.6rem .7rem; background:#0e1c26; color:var(--text); font-size:.9rem; }
 .hidden { display:none !important; }
 code, .secret { font-family:ui-monospace,monospace; word-break:break-all; }
 .row { display:flex; gap:.5rem; flex-wrap:wrap; align-items:end; }
@@ -28,14 +29,18 @@ code, .secret { font-family:ui-monospace,monospace; word-break:break-all; }
 </head>
 <body>
 <main>
-  <p><a href="/">← Back to inventory</a></p>
+  <p id="back-line" class="hidden"><a href="/">← Continue to inventory</a></p>
   <h1>Account security</h1>
   <p id="user-line">Loading…</p>
+  <p id="forced-notice" class="notice hidden"></p>
   <p id="error" class="error" role="alert"></p>
 
-  <section class="card">
+  <section id="totp-section" class="card">
     <h2>Authenticator app (TOTP)</h2>
     <p id="totp-status">Loading…</p>
+    <label>Current password (required to change MFA or recovery codes)
+      <input id="reauth-password" type="password" autocomplete="current-password">
+    </label>
     <button id="totp-start" type="button">Set up authenticator</button>
     <div id="totp-setup" class="hidden">
       <p>Add this secret to your authenticator app, then enter the 6-digit code.</p>
@@ -48,14 +53,14 @@ code, .secret { font-family:ui-monospace,monospace; word-break:break-all; }
     </div>
   </section>
 
-  <section class="card">
+  <section id="recovery-section" class="card">
     <h2>Recovery codes</h2>
     <p>Generate ten one-time recovery codes. They are shown once and replace any previous codes.</p>
     <button id="recovery-generate" type="button">Generate recovery codes</button>
     <ul id="recovery-codes" class="codes hidden"></ul>
   </section>
 
-  <section class="card">
+  <section id="password-section" class="card">
     <h2>Change password</h2>
     <form id="password-form">
       <label>Current password <input id="current-password" type="password" autocomplete="current-password" required></label>
@@ -77,14 +82,33 @@ async function api(url, options = {}) {
   if (!response.ok) throw new Error((data.error && data.error.message) || "Request failed");
   return data;
 }
+function refreshGuidance() {
+  const mustChange = !!user.must_change_password;
+  const totp = !!user.totp_enabled;
+  const remaining = Number(user.recovery_codes_remaining || 0);
+  let notice = "";
+  if (mustChange) {
+    notice = "You must change your password before continuing.";
+  } else if (!totp) {
+    notice = "You must enroll an authenticator app before continuing.";
+  } else if (remaining === 0) {
+    notice = "You must generate recovery codes before continuing.";
+  }
+  $("forced-notice").textContent = notice;
+  $("forced-notice").classList.toggle("hidden", notice === "");
+  $("totp-section").classList.toggle("hidden", mustChange);
+  $("recovery-section").classList.toggle("hidden", mustChange || !totp);
+  $("back-line").classList.toggle("hidden", mustChange || !totp || remaining === 0);
+  $("totp-status").textContent = totp ? "TOTP is enabled." : "TOTP is not enabled.";
+  $("totp-start").classList.toggle("hidden", totp);
+}
 async function init() {
   try {
     const session = await api("/api/v1/auth/session");
     csrf = session.csrf;
     user = session.user;
     $("user-line").textContent = `${user.username}${user.is_admin ? " · administrator" : ""}`;
-    $("totp-status").textContent = user.totp_enabled ? "TOTP is enabled." : "TOTP is not enabled.";
-    $("totp-start").classList.toggle("hidden", user.totp_enabled);
+    refreshGuidance();
   } catch (error) {
     location.href = "/login";
   }
@@ -92,9 +116,13 @@ async function init() {
 $("totp-start").addEventListener("click", async () => {
   $("error").textContent = "";
   try {
-    const data = await api("/api/v1/auth/totp/setup", { method: "POST", body: "{}" });
+    const data = await api("/api/v1/auth/totp/setup", {
+      method: "POST",
+      body: JSON.stringify({ current: $("reauth-password").value })
+    });
     $("totp-secret").textContent = data.secret;
     $("totp-uri").textContent = data.uri;
+    $("reauth-password").value = "";
     $("totp-setup").classList.remove("hidden");
     $("totp-start").classList.add("hidden");
   } catch (error) { $("error").textContent = error.message; }
@@ -103,16 +131,19 @@ $("totp-confirm").addEventListener("click", async () => {
   $("error").textContent = "";
   try {
     await api("/api/v1/auth/totp/confirm", { method: "POST", body: JSON.stringify({ code: $("totp-code").value.trim() }) });
-    $("totp-status").textContent = "TOTP is enabled.";
     $("totp-setup").classList.add("hidden");
     user.totp_enabled = true;
+    refreshGuidance();
   } catch (error) { $("error").textContent = error.message; }
 });
 $("recovery-generate").addEventListener("click", async () => {
   $("error").textContent = "";
   if (!confirm("Generate a new set of recovery codes? Existing codes will stop working.")) return;
   try {
-    const data = await api("/api/v1/auth/recovery/generate", { method: "POST", body: "{}" });
+    const data = await api("/api/v1/auth/recovery/generate", {
+      method: "POST",
+      body: JSON.stringify({ current: $("reauth-password").value })
+    });
     const list = $("recovery-codes");
     list.replaceChildren();
     for (const code of data.codes) {
@@ -121,6 +152,8 @@ $("recovery-generate").addEventListener("click", async () => {
       list.append(item);
     }
     list.classList.remove("hidden");
+    user.recovery_codes_remaining = data.codes.length;
+    refreshGuidance();
   } catch (error) { $("error").textContent = error.message; }
 });
 $("password-form").addEventListener("submit", async (event) => {
@@ -130,7 +163,9 @@ $("password-form").addEventListener("submit", async (event) => {
     await api("/api/v1/auth/password", { method: "POST", body: JSON.stringify({ current: $("current-password").value, new: $("new-password").value }) });
     $("current-password").value = "";
     $("new-password").value = "";
+    user.must_change_password = false;
     alert("Password changed.");
+    location.reload();
   } catch (error) { $("error").textContent = error.message; }
 });
 init();

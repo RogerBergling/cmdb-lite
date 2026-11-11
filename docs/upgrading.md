@@ -108,8 +108,10 @@ For future releases:
 sudo apt install ./cmdb-lite_0.7.0_amd64.deb
 ```
 
-`apt` replaces `/usr/bin/cmdb` and leaves your database untouched. Your database
-is not in `/usr`; it is the file you selected when you created it. The published
+`apt` replaces `/usr/bin/cmdb`, `/usr/bin/cmdb-server`, `/usr/bin/cmdb-rpc`, and
+the server web assets under `/usr/share/cmdb-lite/web`. It leaves your database
+untouched. Your database is not in `/usr`; it is the file you selected, or the
+server-owned path such as `/var/lib/cmdb-lite/inventory.cmdb`. The published
 `.deb` is built on Ubuntu 24.04 and uses the `t64` package names; Debian 12,
 Ubuntu 22.04, and older releases should use the Flatpak or build from source.
 
@@ -138,8 +140,9 @@ or, if the RPM is in a repository:
 sudo dnf upgrade cmdb-lite
 ```
 
-The RPM replaces the executable, desktop entry, icon, and documentation. It does
-not touch your database. Verify with:
+The RPM replaces the desktop executable, `cmdb-server`, `cmdb-rpc`, desktop
+entry, icon, server web assets, and documentation. It does not touch your
+database. Verify with:
 
 ```bash
 rpm -q cmdb-lite
@@ -150,16 +153,17 @@ build from source if the RPM does not install.
 
 ## Portable Linux tarball
 
-The portable archive contains a single `cmdb` ELF. Keep the old binary until the
-new one starts successfully:
+The portable archive contains `cmdb`, `cmdb-server`, `cmdb-rpc`, and the server
+web assets. Keep the old binaries until the new ones start successfully:
 
 ```bash
 tar -xzf cmdb-lite-0.7.0-linux-x86_64.tar.gz
 ./cmdb-lite-0.7.0-linux-x86_64/bin/cmdb
 ```
 
-The database is opened from the path you choose in the application. File paths
-are absolute, so moving the executable does not move the database.
+The database is opened from the path you choose in the application or from the
+server's configured path. File paths are absolute, so moving the binaries does
+not move the database.
 
 ## Flatpak
 
@@ -169,6 +173,30 @@ flatpak install --user ./cmdb-lite.flatpak
 
 Reinstalling a newer bundle upgrades the application. The database remains in
 your home directory and is not modified. See [`flatpak.md`](flatpak.md).
+
+## Server mode
+
+Stop `cmdb-server` before replacing the package or database files. The server
+keeps the database open through `cmdb-rpc`; installing over a running process
+does not close it cleanly.
+
+Recommended order:
+
+1. Stop the service.
+2. Copy the `.cmdb` and `.meta` files to a backup location.
+3. Install the new package (which replaces the desktop client, server, bridge,
+   and web assets together).
+4. Start the service and inspect the journal.
+5. Log in, verify inventory and relationships, and run **Audit verify**.
+
+Restarting the server logs every user out because sessions are memory-only. A
+future schema migration creates a pre-migration backup next to the database and
+the server logs the `db.open` result; keep that backup. Roll back by restoring
+the database pair and reinstalling the previous package. Do not open a migrated
+database with an older binary.
+
+The server has no online backup or restore API. Do not copy the database while
+the service is running. See [`server.md`](server.md) for the full runbook.
 
 ## Windows ZIP (portable)
 
@@ -228,8 +256,8 @@ restore the backup before retrying.
 
 ## Upgrading multiple machines
 
-Each machine has its own local database. Upgrading the application does not
-synchronise databases between machines. Copy a database only while the
-application is locked, and copy the `.meta` file with it. Do not place the same
-database on a shared drive for simultaneous use; the application is
-single-user and does not implement multi-writer coordination.
+Each desktop-local installation has its own database. Server mode centralizes one
+database behind one server process for multiple users; it is not a shared-file
+mode. Do not place the same database on a shared drive for simultaneous use.
+Copy a database only while the application or server is stopped, and copy the
+`.meta` file with it. There is no multi-writer coordination.

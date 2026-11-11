@@ -51,17 +51,18 @@ type recoveryCode struct {
 }
 
 type userRecord struct {
-	ID            string         `json:"id"`
-	Username      string         `json:"username"`
-	PasswordHash  string         `json:"password_hash"`
-	IsAdmin       bool           `json:"is_admin"`
-	Disabled      bool           `json:"disabled"`
-	TOTPSecret    string         `json:"totp_secret,omitempty"`
-	TOTPConfirmed bool           `json:"totp_confirmed"`
-	TOTPLastStep  int64          `json:"totp_last_step"`
-	RecoveryCodes []recoveryCode `json:"recovery_codes,omitempty"`
-	CreatedAt     string         `json:"created_at"`
-	UpdatedAt     string         `json:"updated_at"`
+	ID                 string         `json:"id"`
+	Username           string         `json:"username"`
+	PasswordHash       string         `json:"password_hash"`
+	IsAdmin            bool           `json:"is_admin"`
+	Disabled           bool           `json:"disabled"`
+	MustChangePassword bool           `json:"must_change_password,omitempty"`
+	TOTPSecret         string         `json:"totp_secret,omitempty"`
+	TOTPConfirmed      bool           `json:"totp_confirmed"`
+	TOTPLastStep       int64          `json:"totp_last_step"`
+	RecoveryCodes      []recoveryCode `json:"recovery_codes,omitempty"`
+	CreatedAt          string         `json:"created_at"`
+	UpdatedAt          string         `json:"updated_at"`
 }
 
 type authState struct {

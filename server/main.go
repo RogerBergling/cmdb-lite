@@ -58,6 +58,7 @@ type server struct {
 	loginIP   *attemptLimiter
 	loginUser *attemptLimiter
 	mfaIP     *attemptLimiter
+	reauth    *attemptLimiter
 	setupHash string
 	setupExp  time.Time
 	idle      time.Duration
@@ -118,6 +119,7 @@ func main() {
 		proxyList = flag.String("proxy", "127.0.0.1/32,::1/128", "trusted proxy CIDRs for X-Forwarded-*")
 		idleFlag  = flag.Duration("session-idle", defaultIdle, "idle session timeout")
 		absolute  = flag.Duration("session-absolute", defaultAbsolute, "absolute session timeout")
+		resetAuth = flag.Bool("reset-auth", false, "clear accounts/TOTP/recovery state and exit (break-glass)")
 	)
 	flag.Parse()
 	if *dbPath == "" {
@@ -149,6 +151,23 @@ func main() {
 	}
 	log.Printf("database opened: %s", string(opened))
 
+	if *resetAuth {
+		var result map[string]any
+		state := `{"version":1,"users":[]}`
+		if err := rpc.callResult("auth.state.set", map[string]any{"state": state}, "break-glass", &result); err != nil {
+			log.Fatalf("reset auth state: %v", err)
+		}
+		_ = rpc.callResult("auth.audit", map[string]any{
+			"actor":       "break-glass",
+			"action":      "reset-auth-state",
+			"entity_type": "auth",
+			"entity_id":   "",
+			"detail":      `{"reason":"operator break-glass"}`,
+		}, "break-glass", &result)
+		log.Printf("Authentication state cleared. Restart cmdb-server and use the new first-run setup token.")
+		return
+	}
+
 	s := &server{
 		rpc:       rpc,
 		webDir:    resolveWebDir(*webDir),
@@ -156,6 +175,7 @@ func main() {
 		loginIP:   newAttemptLimiter(10, 15*time.Minute),
 		loginUser: newAttemptLimiter(5, 15*time.Minute),
 		mfaIP:     newAttemptLimiter(20, 15*time.Minute),
+		reauth:    newAttemptLimiter(10, 15*time.Minute),
 		idle:      *idleFlag,
 		absolute:  *absolute,
 	}
@@ -339,14 +359,14 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/auth/password", s.requireAuth(s.handlePassword))
 	mux.HandleFunc("POST /api/v1/auth/totp/setup", s.requireAuth(s.handleTOTPSetup))
 	mux.HandleFunc("POST /api/v1/auth/totp/confirm", s.requireAuth(s.handleTOTPConfirm))
-	mux.HandleFunc("POST /api/v1/auth/recovery/generate", s.requireAuth(s.handleRecoveryGenerate))
+	mux.HandleFunc("POST /api/v1/auth/recovery/generate", s.requireMFAReady(s.handleRecoveryGenerate))
 	mux.HandleFunc("GET /api/v1/users", s.requireAdmin(s.handleListUsers))
 	mux.HandleFunc("POST /api/v1/users", s.requireAdmin(s.handleCreateUser))
 	mux.HandleFunc("POST /api/v1/users/{id}/disable", s.requireAdmin(s.handleDisableUser))
 	mux.HandleFunc("POST /api/v1/users/{id}/enable", s.requireAdmin(s.handleEnableUser))
 	mux.HandleFunc("POST /api/v1/users/{id}/reset-password", s.requireAdmin(s.handleResetPassword))
 	mux.HandleFunc("POST /api/v1/users/{id}/reset-mfa", s.requireAdmin(s.handleResetMFA))
-	mux.HandleFunc("POST /api/v1/rpc", s.requireAuth(s.handleRPC))
+	mux.HandleFunc("POST /api/v1/rpc", s.requireReady(s.handleRPC))
 	mux.HandleFunc("GET /", s.handleIndex)
 	mux.HandleFunc("GET /index.html", s.handleIndex)
 	mux.HandleFunc("GET /app.js", s.handleStatic("app.js", "application/javascript"))
@@ -398,6 +418,9 @@ func decodeJSON(r *http.Request, out any) error {
 }
 
 func decodeJSONLimit(r *http.Request, out any, limit int64) error {
+	if !strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "application/json") {
+		return errors.New("Content-Type must be application/json")
+	}
 	defer r.Body.Close()
 	decoder := json.NewDecoder(io.LimitReader(r.Body, limit))
 	return decoder.Decode(out)
@@ -435,6 +458,10 @@ func (s *server) handleUsersPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "admin required", http.StatusForbidden)
 		return
 	}
+	if readiness(s.userForSession(sess)) != "" {
+		http.Redirect(w, r, "/security", http.StatusSeeOther)
+		return
+	}
 	data, _ := pageFiles.ReadFile("users.html")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src data:; form-action 'self'; base-uri 'none'")
@@ -446,8 +473,13 @@ func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
-	if s.fullSession(r) == nil {
+	sess := s.fullSession(r)
+	if sess == nil {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	if readiness(s.userForSession(sess)) != "" {
+		http.Redirect(w, r, "/security", http.StatusSeeOther)
 		return
 	}
 	path := filepath.Join(s.webDir, "index.html")
@@ -514,15 +546,73 @@ func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func (s *server) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
+func (s *server) requireMFAReady(next http.HandlerFunc) http.HandlerFunc {
 	return s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
-		sess := s.sessionFromRequest(r)
+		sess := s.fullSession(r)
+		user := s.userForSession(sess)
+		if user == nil {
+			writeAPIError(w, http.StatusUnauthorized, "auth_required", "login required")
+			return
+		}
+		if user.MustChangePassword {
+			writeAPIError(w, http.StatusForbidden, "password_change_required", "change the account password before continuing")
+			return
+		}
+		if !user.TOTPConfirmed {
+			writeAPIError(w, http.StatusForbidden, "mfa_enrollment_required", "enroll an authenticator app before continuing")
+			return
+		}
+		next(w, r)
+	})
+}
+
+func (s *server) requireReady(next http.HandlerFunc) http.HandlerFunc {
+	return s.requireMFAReady(func(w http.ResponseWriter, r *http.Request) {
+		sess := s.fullSession(r)
+		user := s.userForSession(sess)
+		if user == nil {
+			writeAPIError(w, http.StatusUnauthorized, "auth_required", "login required")
+			return
+		}
+		if recoveryCodesRemaining(user) == 0 {
+			writeAPIError(w, http.StatusForbidden, "recovery_codes_required", "generate recovery codes before continuing")
+			return
+		}
+		next(w, r)
+	})
+}
+
+func (s *server) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
+	return s.requireReady(func(w http.ResponseWriter, r *http.Request) {
+		sess := s.fullSession(r)
 		if sess == nil || !sess.isAdmin {
 			writeAPIError(w, http.StatusForbidden, "admin_required", "admin required")
 			return
 		}
 		next(w, r)
 	})
+}
+
+func (s *server) userForSession(sess *session) *userRecord {
+	if sess == nil {
+		return nil
+	}
+	return s.state.findUserByID(sess.userID)
+}
+
+func (s *server) verifyCurrentPassword(w http.ResponseWriter, r *http.Request, user *userRecord, password string) bool {
+	key := "user:" + user.ID + "|ip:" + s.clientIP(r)
+	if !s.reauth.allow(key) {
+		writeAPIError(w, http.StatusTooManyRequests, "rate_limited", "too many password attempts; try again later")
+		return false
+	}
+	if !verifyPassword(user.PasswordHash, password) {
+		s.reauth.fail(key)
+		writeAPIError(w, http.StatusUnauthorized, "invalid_password", "current password is incorrect")
+		return false
+	}
+	s.reauth.reset(key)
+	return true
 }
 
 func (s *server) validCSRF(r *http.Request, sess *session) bool {
@@ -698,12 +788,40 @@ func (s *server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 
 func userView(user *userRecord) map[string]any {
 	return map[string]any{
-		"id":           user.ID,
-		"username":     user.Username,
-		"is_admin":     user.IsAdmin,
-		"disabled":     user.Disabled,
-		"totp_enabled": user.TOTPConfirmed,
+		"id":                       user.ID,
+		"username":                 user.Username,
+		"is_admin":                 user.IsAdmin,
+		"disabled":                 user.Disabled,
+		"must_change_password":     user.MustChangePassword,
+		"totp_enabled":             user.TOTPConfirmed,
+		"recovery_codes_remaining": recoveryCodesRemaining(user),
 	}
+}
+
+func recoveryCodesRemaining(user *userRecord) int {
+	remaining := 0
+	for i := range user.RecoveryCodes {
+		if user.RecoveryCodes[i].UsedAt == "" {
+			remaining++
+		}
+	}
+	return remaining
+}
+
+func readiness(user *userRecord) string {
+	if user == nil || user.Disabled {
+		return "auth_required"
+	}
+	if user.MustChangePassword {
+		return "password_change_required"
+	}
+	if !user.TOTPConfirmed {
+		return "mfa_enrollment_required"
+	}
+	if recoveryCodesRemaining(user) == 0 {
+		return "recovery_codes_required"
+	}
+	return ""
 }
 
 func (s *server) handleSetup(w http.ResponseWriter, r *http.Request) {
@@ -964,8 +1082,11 @@ func (s *server) handlePassword(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "invalid_json", err.Error())
 		return
 	}
-	if !verifyPassword(user.PasswordHash, request.Current) {
-		writeAPIError(w, http.StatusUnauthorized, "invalid_password", "current password is incorrect")
+	if !s.verifyCurrentPassword(w, r, user, request.Current) {
+		return
+	}
+	if request.New == request.Current {
+		writeAPIError(w, http.StatusBadRequest, "password", "new password must differ from the current password")
 		return
 	}
 	hash, err := hashPassword(request.New)
@@ -974,6 +1095,7 @@ func (s *server) handlePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user.PasswordHash = hash
+	user.MustChangePassword = false
 	user.touch()
 	if err := s.saveState(); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "state", err.Error())
@@ -986,9 +1108,19 @@ func (s *server) handlePassword(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleTOTPSetup(w http.ResponseWriter, r *http.Request) {
 	sess := s.sessionFromRequest(r)
-	user := s.state.findUserByID(sess.userID)
+	user := s.userForSession(sess)
 	if user == nil {
 		writeAPIError(w, http.StatusUnauthorized, "auth_required", "login required")
+		return
+	}
+	var request struct {
+		Current string `json:"current"`
+	}
+	if err := decodeJSON(r, &request); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	if !s.verifyCurrentPassword(w, r, user, request.Current) {
 		return
 	}
 	secret, err := generateTOTPSecret()
@@ -1043,9 +1175,19 @@ func (s *server) handleTOTPConfirm(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleRecoveryGenerate(w http.ResponseWriter, r *http.Request) {
 	sess := s.sessionFromRequest(r)
-	user := s.state.findUserByID(sess.userID)
+	user := s.userForSession(sess)
 	if user == nil {
 		writeAPIError(w, http.StatusUnauthorized, "auth_required", "login required")
+		return
+	}
+	var request struct {
+		Current string `json:"current"`
+	}
+	if err := decodeJSON(r, &request); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	if !s.verifyCurrentPassword(w, r, user, request.Current) {
 		return
 	}
 	plain, hashed, err := generateRecoveryCodes()
@@ -1095,12 +1237,13 @@ func (s *server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user := userRecord{
-		ID:           newID(),
-		Username:     request.Username,
-		PasswordHash: hash,
-		IsAdmin:      request.IsAdmin,
-		CreatedAt:    nowISO(),
-		UpdatedAt:    nowISO(),
+		ID:                 newID(),
+		Username:           request.Username,
+		PasswordHash:       hash,
+		IsAdmin:            request.IsAdmin,
+		MustChangePassword: true,
+		CreatedAt:          nowISO(),
+		UpdatedAt:          nowISO(),
 	}
 	s.state.Users = append(s.state.Users, user)
 	if err := s.saveState(); err != nil {
@@ -1178,6 +1321,7 @@ func (s *server) handleResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user.PasswordHash = hash
+	user.MustChangePassword = true
 	user.touch()
 	if err := s.saveState(); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "state", err.Error())
@@ -1228,6 +1372,52 @@ func (s *server) adminCount() int {
 	return count
 }
 
+// serverRPCAllowed is an allowlist. New C API methods are not exposed in server
+// mode until they are reviewed and added here.
+var serverRPCAllowed = map[string]bool{
+	"prefs.get":                true,
+	"prefs.set":                true,
+	"security.info":            true,
+	"audit.list":               true,
+	"audit.verify":             true,
+	"categories.create":        true,
+	"categories.delete":        true,
+	"categories.list":          true,
+	"categories.update":        true,
+	"cis.create":               true,
+	"cis.delete":               true,
+	"cis.get":                  true,
+	"cis.list":                 true,
+	"cis.update":               true,
+	"diagrams.delete":          true,
+	"diagrams.get":             true,
+	"diagrams.list":            true,
+	"diagrams.save":            true,
+	"graph.dependencies":       true,
+	"import.commit":            true,
+	"import.preview":           true,
+	"relationships.create":     true,
+	"relationships.delete":     true,
+	"relationships.list":       true,
+	"relationships.set_impact": true,
+	"relationships.types":      true,
+	"scan.cancel":              true,
+	"scan.discard":             true,
+	"scan.import":              true,
+	"scan.job":                 true,
+	"scan.jobs":                true,
+	"scan.start":               true,
+	"scan.status":              true,
+	"types.create":             true,
+	"types.delete":             true,
+	"types.field_add":          true,
+	"types.field_delete":       true,
+	"types.field_update":       true,
+	"types.get":                true,
+	"types.list":               true,
+	"types.update":             true,
+}
+
 func (s *server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	sess := s.sessionFromRequest(r)
 	if sess == nil {
@@ -1245,11 +1435,7 @@ func (s *server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	if request.Params == nil {
 		request.Params = map[string]any{}
 	}
-	switch request.Method {
-	case "db.open", "db.create", "db.lock", "db.restore", "db.backup",
-		"dialog.choose_database", "export.save", "graph.save_drawio",
-		"settings.get", "settings.remember", "auth.state.get", "auth.state.set",
-		"auth.audit":
+	if !serverRPCAllowed[request.Method] {
 		writeAPIError(w, http.StatusForbidden, "forbidden", "method is not available in server mode")
 		return
 	}

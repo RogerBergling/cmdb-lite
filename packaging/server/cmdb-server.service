@@ -1,0 +1,47 @@
+[Unit]
+Description=cmdb-lite authenticated CMDB server
+Documentation=file:///usr/share/doc/cmdb-lite/docs/server.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cmdb
+Group=cmdb
+WorkingDirectory=/var/lib/cmdb-lite
+StateDirectory=cmdb-lite
+StateDirectoryMode=0700
+UMask=0077
+EnvironmentFile=/etc/cmdb-lite/server.env
+ExecStart=/usr/bin/cmdb-server \
+  --db /var/lib/cmdb-lite/inventory.cmdb \
+  --listen 127.0.0.1:8080 \
+  --proxy 127.0.0.1/32 \
+  --session-idle 30m \
+  --session-absolute 12h
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ReadWritePaths=/var/lib/cmdb-lite
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+LimitNOFILE=8192
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

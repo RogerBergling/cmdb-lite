@@ -19,7 +19,10 @@
 - Several accounts have the same inventory privileges. Administrators can only
   manage accounts and reset credentials.
 - First-run admin, then admin-created accounts. No self-registration.
-- TOTP and ten one-time recovery codes per user; admins can reset both.
+- TOTP is mandatory for every account before inventory access. Ten one-time
+  recovery codes are required before inventory access; admins can reset both.
+- Admin-created and admin-reset passwords are temporary and must be changed at
+  first login.
 - Passkeys/WebAuthn are explicitly out of scope for this phase.
 - Session defaults are 12 hours absolute and 30 minutes idle, configurable at
   server start.
@@ -65,6 +68,7 @@ Why the child process instead of CGO:
 
 `cmdb-server` serializes HTTP API requests and `cmdb-rpc` serializes every
 C-core call. Do not run two `cmdb-rpc` processes against the same database.
+The full production runbook is in [`server.md`](server.md).
 
 ## Process modes
 
@@ -96,10 +100,14 @@ certificate, configure the operating system trust store.
 ### Server mode
 
 ```bash
-CMDB_DB_PASSPHRASE='…' cmdb-server \
+# Interactive first validation: the server prompts for the database passphrase.
+cmdb-server \
   --db /var/lib/cmdb-lite/inventory.cmdb \
   --listen 127.0.0.1:8080
 ```
+
+For a service, provide the passphrase through a root-owned environment file or
+the packaged systemd unit; do not put it in shell history or a command line.
 
 Flags:
 
@@ -112,6 +120,7 @@ Flags:
 | `--proxy` | `127.0.0.1/32,::1/128` | Trusted proxy CIDRs for `X-Forwarded-*`. |
 | `--session-idle` | `30m` | Idle session timeout. |
 | `--session-absolute` | `12h` | Absolute session timeout. |
+| `--reset-auth` | off | Break-glass: clear accounts/TOTP/recovery state, write an audit entry, and exit. Requires the database passphrase and a stopped server. |
 
 The database passphrase is read from `CMDB_DB_PASSPHRASE` or prompted on a TTY.
 The variable is unset after reading. An interactive start is acceptable for the
@@ -171,7 +180,8 @@ tables and a schema migration.
 
 - Passwords: Argon2id, 64 MiB, 3 iterations, 2 lanes, 32-byte key, random
   16-byte salt, PHC-encoded parameters. Minimum 12 characters, maximum 1024
-  bytes. Verifier parameters are bounded to reject a tampered hash.
+  bytes. A password change must use a different value. Verifier parameters are
+  bounded to reject a tampered hash.
 - Recovery codes: 10 codes, 12 Base32 characters, Argon2id-hashed like
   passwords, single use.
 - TOTP: 30-second period, 6 digits, SHA-1, 20-byte secret, one step of clock
@@ -188,7 +198,9 @@ tables and a schema migration.
 3. Open `/login`, enter the token, username, and password. The first account is
    an administrator.
 4. The setup endpoint is permanently disabled once a user exists.
-5. If the token is lost before setup, restart the server. While no users exist,
+5. The new admin is redirected to `/security` and must confirm TOTP and generate
+   recovery codes before the inventory pages and RPC API become available.
+6. If the token is lost before setup, restart the server. While no users exist,
    a new token is printed on every start.
 
 The setup token is not stored in the database. It is not written to a file or
@@ -200,11 +212,14 @@ logged after the startup line.
 
 1. `POST /api/v1/auth/login` with JSON `username` and `password`.
 2. The server applies per-IP (10 per 15 minutes) and per-username (5 per 15
-   minutes) limits.
+   minutes) limits. Current-password re-authentication for password changes,
+   TOTP setup, and recovery-code generation is limited per user/IP.
 3. Verify Argon2id in constant time. Unknown usernames still run a dummy hash.
 4. If TOTP is confirmed, create a pending-MFA session valid for 5 minutes.
 5. Otherwise create a full session and rotate the cookie.
 6. Audit success and failure without logging passwords or codes.
+7. A full session is still restricted until the user changes a temporary
+   password, confirms TOTP, and generates at least one unused recovery code.
 
 ### TOTP
 
@@ -217,8 +232,9 @@ logged after the startup line.
 
 1. `POST /api/v1/auth/recovery` with one unused code.
 2. On success, mark it used, rotate to a full session, and audit the event.
-3. Recovery codes are generated from `/security`; generating a new set replaces
-   all previous codes.
+3. Recovery codes are generated from `/security` after re-entering the current
+   password; generating a new set replaces all previous codes. TOTP setup also
+   requires the current password.
 
 ## Sessions and transport security
 
@@ -230,7 +246,10 @@ logged after the startup line.
 - Logout deletes the session. Changing a password revokes the user's other
   sessions. Disabling a user, resetting a password, or resetting MFA revokes all
   of that user's sessions.
-- State-changing API calls require `X-CSRF-Token` matching the session.
+- State-changing inventory and account API calls require `X-CSRF-Token`
+  matching the session. Login, first-run setup, MFA completion, recovery-code
+  login, and logout rely on `SameSite=Strict` cookies and, for setup, the
+  one-time token; they do not take a CSRF header.
 - The server sends `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
   `Referrer-Policy: no-referrer`, and `Cache-Control: no-store`.
 - Login and account pages use a restrictive Content-Security-Policy.
@@ -304,11 +323,12 @@ POST /api/v1/rpc     {"method": "...", "params": {...}}
                      → {"ok": false, "error": {...}}
 ```
 
-The proxy rejects process/database-management methods that make no sense in
-server mode: `db.open`, `db.create`, `db.lock`, `db.restore`, `db.backup`,
-`dialog.choose_database`, `export.save`, `graph.save_drawio`, `settings.get`,
-`settings.remember`, and the auth-state methods. Every other C API method is
-proxied with the authenticated actor.
+The proxy uses an explicit allowlist of inventory and account-safe C methods.
+It does not expose process/database-management methods, filesystem dialogs,
+local exports/saves, local settings, `app.info`, `db.status`, or the auth-state
+methods. In particular, `app.info`/`db.status` would reveal the server-side
+database path. New C API methods are not reachable through server mode until
+they are reviewed and added to the allowlist with the authenticated actor.
 
 The server holds one `cmdb-rpc` child and one open database connection for its
 lifetime. Restart the server to release the database.
@@ -342,9 +362,9 @@ lifetime. Restart the server to release the database.
   assets under `share/cmdb-lite/web`.
 - Flatpak builds only the desktop client (`-DCMDB_BUILD_SERVER=OFF`).
 - Windows packages contain only the desktop client.
-- There is no systemd unit or packaged configuration file yet. For the current
-  phase, start `cmdb-server` from a service manager or a supervised process and
-  provide the passphrase through a root-only environment file or TTY.
+- The server-only package installs a systemd unit. There is no separate
+  flags/config file yet, so edit paths and timeouts in the unit and provide the
+  passphrase through a root-only environment file or TTY.
 - HAProxy should terminate TLS, forward to the loopback listener, and preserve
   the client address. Add the proxy address/CIDR to `--proxy`.
 
@@ -369,13 +389,36 @@ recovery-code single use. Before a production rollout, also exercise:
 
 - Sessions are memory-only, so a restart logs everyone out.
 - The auth state is a single JSON document rather than typed tables.
-- No systemd unit, automatic passphrase provisioning, or packaged server
-  configuration.
 - The first-run setup token is printed to standard output/logs. Restrict access
   to the server console and journal while the instance has no users.
 - The database passphrase is a Go string in the server process and cannot be
   reliably wiped. Restrict core dumps and swap for server deployments.
 - No account deletion, password-history policy, or email-based recovery.
+- Admin-created and admin-reset passwords are known to the administrator until
+  the user changes them. The temporary-password flag forces the change before
+  inventory access.
+- The Users page can create administrators and non-admin users, but there is no
+  role change or user deletion after creation.
+- No active-session list or global session-revocation UI. Per-user revocation is
+  triggered by disable, password reset, and MFA reset.
+- Admin password/MFA reset actions do not require re-authentication; a stolen
+  admin session is effectively full administrative control.
+- No RBAC beyond the admin flag; all non-admin accounts have full inventory
+  privileges.
+- No online backup, restore, or export/download in server mode.
+- No health/readiness endpoint, metrics, request log, or graceful-shutdown
+  handler. The server-only package installs a systemd unit, but there is no
+  separate flags/config file; paths and timeouts live in the unit.
+- Login rate limits are in memory, cleared on restart, and keyed by username and
+  IP. A known username can be temporarily locked out by repeated failures. There
+  is no persistent lockout.
+- Failed and successful logins are audited without source IP or user-agent.
+- Login, setup, MFA, and recovery require `Content-Type: application/json` and
+  use `SameSite=Strict` cookies, which blocks ordinary cross-site form login
+  CSRF. `Origin`/`Referer` validation is not implemented, and logout does not
+  require a CSRF header. Add origin validation if the threat model requires it.
+- TOTP requires NTP-synchronized server time; only one 30-second step of skew is
+  accepted.
 - Desktop local mode has no application-level login.
 - The desktop client does not start a local server automatically.
 - No passkey/WebAuthn support.

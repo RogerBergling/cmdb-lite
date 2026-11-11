@@ -1,0 +1,29 @@
+#!/bin/sh
+set -e
+
+if ! getent group cmdb >/dev/null 2>&1; then
+  if command -v addgroup >/dev/null 2>&1; then
+    addgroup --system cmdb
+  else
+    groupadd --system cmdb
+  fi
+fi
+if ! getent passwd cmdb >/dev/null 2>&1; then
+  if command -v adduser >/dev/null 2>&1; then
+    adduser --system --ingroup cmdb --home /var/lib/cmdb-lite \
+      --no-create-home --disabled-login --gecos "cmdb-lite" cmdb
+  else
+    useradd --system --gid cmdb --home-dir /var/lib/cmdb-lite \
+      --no-create-home --shell /sbin/nologin cmdb
+  fi
+fi
+
+install -d -o cmdb -g cmdb -m 0700 /var/lib/cmdb-lite
+install -d -o root -g root -m 0700 /etc/cmdb-lite
+
+if [ -d /run/systemd/system ]; then
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  systemctl try-restart cmdb-server.service >/dev/null 2>&1 || true
+fi
+
+exit 0

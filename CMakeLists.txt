@@ -27,6 +27,7 @@ include(GNUInstallDirs)
 include(CTest)
 
 option(CMDB_BUILD_UI "Build the desktop webview application" ON)
+option(CMDB_BUILD_SERVER "Build cmdb-server and cmdb-rpc on Linux" ON)
 option(CMDB_BUILD_TESTS "Build the test suite" ${BUILD_TESTING})
 option(CMDB_ENABLE_ASAN "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 option(CMDB_WERROR "Treat compiler warnings as errors" OFF)
@@ -34,6 +35,8 @@ option(CMDB_FETCH_WEBVIEW "Fetch the pinned webview dependency" ON)
 set(CMDB_WEBVIEW_SOURCE_DIR "" CACHE PATH
   "Use a local webview source tree instead of downloading it")
 option(CMDB_BUILD_FUZZERS "Build libFuzzer targets (Clang only)" OFF)
+set(CMDB_PACKAGE_VARIANT "" CACHE STRING
+  "Optional suffix for Linux package filenames, e.g. fedora")
 option(CMDB_STATIC_CRYPTO
   "Link SQLCipher and libsodium statically on Unix when available" ON)
 
@@ -318,34 +321,43 @@ if(CMDB_BUILD_UI)
       DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/256x256/apps
       RENAME cmdb-lite.png)
   endif()
-  if(NOT WIN32)
-    install(DIRECTORY src/web/
-      DESTINATION ${CMAKE_INSTALL_DATADIR}/cmdb-lite/web
-      FILES_MATCHING PATTERN "index.html" PATTERN "app.js" PATTERN "style.css")
-  endif()
-  install(FILES README.md LICENSE SECURITY.md THIRD_PARTY_NOTICES.md
-    DESTINATION ${CMAKE_INSTALL_DOCDIR})
-  install(DIRECTORY docs/
-    DESTINATION ${CMAKE_INSTALL_DOCDIR}/docs
-    FILES_MATCHING PATTERN "*.md")
-  # Keep license notices outside share/doc: the Flatpak cleanup removes
-  # share/doc, but redistributed binaries still need their notices.
-  install(FILES LICENSE THIRD_PARTY_NOTICES.md
-    DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/cmdb-lite)
+endif()
+
+# Documentation and notices are useful for both desktop and server packages.
+install(FILES README.md LICENSE SECURITY.md THIRD_PARTY_NOTICES.md
+  DESTINATION ${CMAKE_INSTALL_DOCDIR})
+install(DIRECTORY docs/
+  DESTINATION ${CMAKE_INSTALL_DOCDIR}/docs
+  FILES_MATCHING PATTERN "*.md")
+# Keep license notices outside share/doc: the Flatpak cleanup removes
+# share/doc, but redistributed binaries still need their notices.
+install(FILES LICENSE THIRD_PARTY_NOTICES.md
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/cmdb-lite)
+
+if(NOT WIN32 AND (CMDB_BUILD_UI OR CMDB_BUILD_SERVER))
+  install(DIRECTORY src/web/
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/cmdb-lite/web
+    FILES_MATCHING PATTERN "index.html" PATTERN "app.js" PATTERN "style.css")
 endif()
 
 if(NOT WIN32)
-  option(CMDB_BUILD_SERVER "Build cmdb-server and cmdb-rpc" ON)
   if(CMDB_BUILD_SERVER)
     add_executable(cmdb-rpc src/ui/rpc_main.c)
     target_compile_options(cmdb-rpc PRIVATE ${CMDB_WARNINGS})
     target_compile_definitions(cmdb-rpc PRIVATE _POSIX_C_SOURCE=200809L)
     target_link_libraries(cmdb-rpc PRIVATE cmdb_core)
     install(TARGETS cmdb-rpc RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    install(FILES packaging/server/cmdb-server.service
+      DESTINATION lib/systemd/system)
+    install(FILES packaging/server/server.env.example
+      DESTINATION ${CMAKE_INSTALL_DOCDIR}
+      RENAME server.env.example)
 
     find_program(GO_EXECUTABLE go)
     if(GO_EXECUTABLE)
-      file(GLOB CMDB_SERVER_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/server/*.go")
+      file(GLOB CMDB_SERVER_SOURCES CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/server/*.go"
+        "${CMAKE_CURRENT_SOURCE_DIR}/server/*.html")
       add_custom_command(
         OUTPUT "${CMAKE_BINARY_DIR}/cmdb-server"
         COMMAND "${CMAKE_COMMAND}" -E env CGO_ENABLED=0
@@ -365,7 +377,8 @@ if(NOT WIN32)
           WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/server")
       endif()
     else()
-      message(WARNING "Go not found; skipping cmdb-server")
+      message(FATAL_ERROR
+        "Go was not found; install Go 1.22+ or configure with -DCMDB_BUILD_SERVER=OFF")
     endif()
   endif()
 endif()
@@ -383,6 +396,7 @@ if(CMDB_BUILD_TESTS)
     tests/test_import.c
     tests/test_relationships.c
     tests/test_scan.c
+    tests/test_settings.c
     tests/test_types.c)
   target_compile_options(cmdb_tests PRIVATE ${CMDB_WARNINGS})
   target_link_libraries(cmdb_tests PRIVATE cmdb_core)
@@ -416,15 +430,24 @@ if(CMDB_BUILD_UI)
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
       COMMENT "Regenerating embedded web UI")
   endif()
+endif()
 
-  set(CPACK_PACKAGE_NAME "cmdb-lite")
+if(CMDB_BUILD_UI OR (NOT WIN32 AND CMDB_BUILD_SERVER))
   set(CPACK_PACKAGE_VENDOR "Roger Bergling")
   set(CPACK_PACKAGE_CONTACT "github@bergling.net")
-  set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
-    "Local-first encrypted Configuration Management Database")
   set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
   set(CPACK_PACKAGE_INSTALL_DIRECTORY "cmdb-lite")
-  set(CPACK_PACKAGE_EXECUTABLES "cmdb" "cmdb-lite")
+
+  if(CMDB_BUILD_UI)
+    set(CPACK_PACKAGE_NAME "cmdb-lite")
+    set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
+      "Local-first encrypted Configuration Management Database")
+    set(CPACK_PACKAGE_EXECUTABLES "cmdb" "cmdb-lite")
+  else()
+    set(CPACK_PACKAGE_NAME "cmdb-lite-server")
+    set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
+      "Authenticated cmdb-lite CMDB server")
+  endif()
 
   if(WIN32)
     set(CPACK_PACKAGE_FILE_NAME
@@ -436,7 +459,7 @@ if(CMDB_BUILD_UI)
       "${CMAKE_CURRENT_SOURCE_DIR}/packaging/windows/cmdb-lite.ico")
     set(CPACK_WIX_PROGRAM_MENU_FOLDER "cmdb-lite")
     set(CPACK_WIX_INSTALL_SCOPE "perMachine")
-  else()
+  elseif(CMDB_BUILD_UI)
     set(CPACK_PACKAGE_FILE_NAME
       "cmdb-lite-${PROJECT_VERSION}-linux-${CMAKE_SYSTEM_PROCESSOR}")
     set(CPACK_GENERATOR "TGZ;DEB;RPM")
@@ -445,21 +468,48 @@ if(CMDB_BUILD_UI)
     set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
     set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
     set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
-
-    # RPM packaging for Fedora/RHEL. The project is MIT-licensed; third-party
-    # notices are installed alongside the binary.
     set(CPACK_RPM_PACKAGE_LICENSE "MIT")
     set(CPACK_RPM_PACKAGE_GROUP "Applications/System")
     set(CPACK_RPM_PACKAGE_DESCRIPTION
       "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}")
     set(CMDB_RPM_REQUIRES
       "gtk3, webkit2gtk4.1, expat, openssl-libs, glib2")
+  else()
+    set(CPACK_PACKAGE_FILE_NAME
+      "cmdb-lite-server-${PROJECT_VERSION}-linux-${CMAKE_SYSTEM_PROCESSOR}")
+    set(CPACK_GENERATOR "TGZ;DEB;RPM")
+    set(CPACK_DEBIAN_PACKAGE_MAINTAINER
+      "Roger Bergling <github@bergling.net>")
+    set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
+    set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+    set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+    set(CPACK_RPM_PACKAGE_LICENSE "MIT")
+    set(CPACK_RPM_PACKAGE_GROUP "Applications/System")
+    set(CPACK_RPM_PACKAGE_DESCRIPTION
+      "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}")
+    set(CMDB_RPM_REQUIRES "expat, openssl-libs, zlib")
+  endif()
+
+  if(NOT WIN32)
+    if(CMDB_PACKAGE_VARIANT)
+      string(APPEND CPACK_PACKAGE_FILE_NAME "-${CMDB_PACKAGE_VARIANT}")
+    endif()
     if(NOT CMDB_STATIC_CRYPTO_LINKED)
       string(APPEND CMDB_RPM_REQUIRES ", sqlcipher, libsodium")
     endif()
     set(CPACK_RPM_PACKAGE_REQUIRES "${CMDB_RPM_REQUIRES}")
     set(CPACK_RPM_PACKAGE_AUTOREQ ON)
     set(CPACK_RPM_FILE_NAME RPM-DEFAULT)
+  endif()
+
+  if(NOT WIN32 AND CMDB_BUILD_SERVER)
+    set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
+      "${CMAKE_CURRENT_SOURCE_DIR}/packaging/server/debian/postinst"
+      "${CMAKE_CURRENT_SOURCE_DIR}/packaging/server/debian/prerm")
+    set(CPACK_RPM_POST_INSTALL_SCRIPT_FILE
+      "${CMAKE_CURRENT_SOURCE_DIR}/packaging/server/rpm/post.sh")
+    set(CPACK_RPM_PRE_UNINSTALL_SCRIPT_FILE
+      "${CMAKE_CURRENT_SOURCE_DIR}/packaging/server/rpm/preun.sh")
   endif()
 
   include(CPack)

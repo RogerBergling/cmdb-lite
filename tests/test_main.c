@@ -29,6 +29,7 @@ int main(void) {
   RUN_TEST(test_export);
   RUN_TEST(test_api);
   RUN_TEST(test_scan);
+  RUN_TEST(test_settings);
 
   (void)printf("\n%d failure(s)\n", test_failures);
   return test_failures == 0 ? 0 : 1;

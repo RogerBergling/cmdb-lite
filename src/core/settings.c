@@ -35,6 +35,7 @@ static int settings_make_dir(const char *path) {
 char *cmdb_settings_config_path(void) {
   const char *base = getenv("CMDB_CONFIG_DIR");
   const char *home;
+  char base_buffer[CMDB_MAX_PATH];
   char path[CMDB_MAX_PATH];
   char directory[CMDB_MAX_PATH];
   int written;
@@ -65,11 +66,11 @@ char *cmdb_settings_config_path(void) {
   if (base == NULL || base[0] == '\0') {
     home = getenv("HOME");
     if (home != NULL && home[0] != '\0') {
-      written = snprintf(directory, sizeof(directory), "%s/.config", home);
-      if (written < 0 || (size_t)written >= sizeof(directory)) {
+      written = snprintf(base_buffer, sizeof(base_buffer), "%s/.config", home);
+      if (written < 0 || (size_t)written >= sizeof(base_buffer)) {
         return NULL;
       }
-      base = directory;
+      base = base_buffer;
     }
   }
 #endif

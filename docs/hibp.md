@@ -7,13 +7,14 @@ passphrases, or credentials.
 
 ## Deployment roles
 
-- **`cmdb-lite`** is the single-user desktop inventory source of truth. It does
-  not provide a server login, MFA, or passkeys; it does not store SSH
-  credentials or patch state.
+- **`cmdb-lite`** is the inventory source of truth. It can run desktop-local
+  (single user, database passphrase only) or as the optional authenticated
+  `cmdb-server` (local accounts, TOTP, recovery codes; no passkeys). It does not
+  store SSH credentials or patch state.
 - **HIBP** is the separate privileged patch-management server. It provides
-  single-user account login with a password plus TOTP and/or passkeys, owns its
-  own encrypted database and SSH credentials, and starts with Debian and Fedora
-  server support.
+  account login with a password plus TOTP and/or passkeys, owns its own encrypted
+  database and SSH credentials, and starts with Debian and Fedora server
+  support. HIBP accounts are not shared with `cmdb-lite`.
 - The integration boundary is versioned file import/export. Do not share the
   encrypted databases, passphrases, or keys between the applications.
 

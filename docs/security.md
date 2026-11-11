@@ -141,7 +141,8 @@ Server mode moves the database behind a Go server with:
 
 - username/password accounts and Argon2id password hashes;
 - session tokens kept in memory and stored only as hashes;
-- TOTP and recovery codes; passkeys are out of scope for this phase;
+- mandatory TOTP and at least one unused recovery code before inventory
+  access; passkeys are out of scope for this phase;
 - ten one-time recovery-code hashes per user;
 - admin user management and MFA reset;
 - per-request audit actor;
@@ -152,7 +153,30 @@ Server mode moves the database behind a Go server with:
 The database passphrase is known only to the server; users authenticate to the
 server and never receive the database key. Authentication state is JSON in
 `app_meta` inside SQLCipher. Sessions are memory-only. The complete design,
-storage format, and API are in [`authentication.md`](authentication.md).
+storage format, and API are in [`authentication.md`](authentication.md); the
+deployment runbook is in [`server.md`](server.md).
+
+Server-specific requirements and limitations:
+
+- TLS termination is mandatory. `cmdb-server` has no TLS listener; a direct HTTP
+  listener exposes passwords and session cookies.
+- Proxy forwarding headers are trusted only from `--proxy` CIDRs. The proxy must
+  set `X-Forwarded-Proto` for Secure cookies and append the client to
+  `X-Forwarded-For`. The rightmost forwarded address is used.
+- TOTP requires accurate server time. Only one 30-second step of skew is
+  accepted. Use NTP/chrony.
+- Login, TOTP, and recovery rate limits are in memory and cleared by restart.
+  There is no persistent lockout or global rate limit.
+- The server API is serialized: one process, one database, one `cmdb-rpc` child.
+  A long import, scan, or audit verification blocks other users.
+- There is no health/readiness endpoint, metrics, structured request log, or
+  graceful-shutdown handler in this release. Use a TCP check and external
+  supervision.
+- Server accounts and MFA material are inside the database backup. Protect the
+  backup and passphrase separately. The server has no online backup API; stop
+  the service before copying the database pair.
+- The server mode UI hides the desktop Backup action and blocks export/save
+  methods. There is no browser download of inventory or `.drawio` files.
 
 Desktop-local mode still has no application-level login. Anyone who can open the
 database file and knows the passphrase has full access. Opening a server-managed
@@ -268,6 +292,14 @@ The monitored fallback contact is `github@bergling.net`. See
 - The Go server holds the database passphrase in a Go string. Go strings cannot
   be reliably wiped, so the passphrase may remain in the server process memory
   until exit. Restrict core dumps and swap for server deployments.
+- Server mode has no persistent lockout, RBAC, or session list. TOTP and at
+  least one unused recovery code are required before inventory access;
+  admin-created/reset passwords are forced to change. Treat it as an
+  authenticated inventory for a trusted team, not a hardened multi-tenant
+  service.
+- Server mode has no health/readiness endpoint or graceful shutdown handler.
+  Use a TCP check, external supervision, and a maintenance window for backups
+  and restarts.
 - Webview memory cannot be fully zeroized.
 - The audit chain is local and key-holder-rewritable; there is no off-device
   audit export or forwarding yet.

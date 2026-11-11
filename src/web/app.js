@@ -2911,6 +2911,15 @@ async function serverInit() {
     state.serverMode = true;
     state.csrfToken = session.csrf || "";
     state.authUser = session.user || null;
+    if (
+      state.authUser &&
+      (state.authUser.must_change_password ||
+        !state.authUser.totp_enabled ||
+        !state.authUser.recovery_codes_remaining)
+    ) {
+      window.location.href = "/security";
+      return;
+    }
     await enterApplication();
   } catch (error) {
     window.location.href = "/login";
