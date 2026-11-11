@@ -102,9 +102,9 @@ requests to `cmdb_app_handle`. File dialogs are implemented in:
 | `types.c` | CI types, category assignment, and custom field definitions. |
 | `categories.c` | Managed CI categories, ordering, colors, and assignment cleanup. |
 | `ci.c` | CI records, attributes, validation, name/external-ID resolution. |
-| `relationships.c` | Typed directed relationships. |
+| `relationships.c` | Typed directed relationships with impact classes. |
 | `import.c` | Bounded CSV/TSV parser, preview, transactional import. |
-| `graph.c` | Multi-seed, depth-limited BFS dependency traversal. |
+| `graph.c` | Multi-seed, depth-limited BFS traversal with relationship and impact filters. |
 | `drawio.c` | Uncompressed `.drawio` XML generation and layout. |
 | `diagram.c` | Persisted `.drawio`-XML diagrams in encrypted storage. |
 | `scan.c` | nmap validation, fixed-argv process execution, bounded XML parsing. |

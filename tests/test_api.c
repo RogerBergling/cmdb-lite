@@ -5,6 +5,7 @@
 #include "cmdb/ci.h"
 #include "cmdb/diagram.h"
 #include "cmdb/export.h"
+#include "cmdb/relationships.h"
 #include "cmdb/scan.h"
 #include "cmdb/types.h"
 #include "cmdb/util.h"
@@ -98,10 +99,13 @@ void test_api(void) {
   cJSON *result;
   cJSON *ok;
   cmdb_ci_type_t type;
+  cmdb_relationship_type_t manages_type;
   char type_id[37];
   char category_id[37] = "";
   char ci_id[37] = "";
   char response_id[37] = "";
+  char imported_id[37] = "";
+  char rel_id[37] = "";
   cmdb_api_host_t host;
   char drawio_path[4096];
   char backup_path[4096];
@@ -452,9 +456,89 @@ void test_api(void) {
     result = cJSON_GetObjectItemCaseSensitive(response, "result");
     if (cJSON_IsObject(result)) {
       cJSON *total = cJSON_GetObjectItemCaseSensitive(result, "total");
+      cJSON *items = cJSON_GetObjectItemCaseSensitive(result, "items");
       TEST_ASSERT(cJSON_IsNumber(total));
       TEST_ASSERT(total != NULL && total->valueint == 1);
+      if (cJSON_IsArray(items) && cJSON_GetArraySize(items) == 1) {
+        cJSON *id = cJSON_GetObjectItemCaseSensitive(
+          cJSON_GetArrayItem(items, 0), "id");
+        TEST_ASSERT(cJSON_IsString(id));
+        if (cJSON_IsString(id)) {
+          (void)cmdb_str_copy(imported_id, sizeof(imported_id),
+                              id->valuestring);
+        }
+      }
     }
+    cJSON_Delete(response);
+  }
+  TEST_ASSERT(imported_id[0] != '\0');
+  TEST_ASSERT(cmdb_relationship_type_find(cmdb_app_db(app), "manages",
+                                          &manages_type, &err) == 0);
+  TEST_ASSERT(strcmp(manages_type.default_impact, "management") == 0);
+  (void)snprintf(request, sizeof(request),
+                 "{\"id\":42,\"method\":\"relationships.create\",\"params\":{"
+                 "\"source_id\":\"%s\",\"target_id\":\"%s\","
+                 "\"type_id\":\"%s\",\"impact\":\"management\","
+                 "\"description\":\"Management link\"}}",
+                 ci_id, imported_id, manages_type.id);
+  response = api_call(app, request);
+  TEST_ASSERT(response != NULL);
+  if (response != NULL) {
+    result = cJSON_GetObjectItemCaseSensitive(response, "result");
+    if (cJSON_IsObject(result)) {
+      cJSON *id = cJSON_GetObjectItemCaseSensitive(result, "id");
+      TEST_ASSERT(cJSON_IsString(id));
+      if (cJSON_IsString(id)) {
+        (void)cmdb_str_copy(rel_id, sizeof(rel_id), id->valuestring);
+      }
+    }
+    cJSON_Delete(response);
+  }
+  TEST_ASSERT(rel_id[0] != '\0');
+  (void)snprintf(request, sizeof(request),
+                 "{\"id\":43,\"method\":\"relationships.set_impact\","
+                 "\"params\":{\"id\":\"%s\",\"impact\":\"monitoring\"}}",
+                 rel_id);
+  response = api_call(app, request);
+  TEST_ASSERT(response != NULL);
+  if (response != NULL) {
+    result = cJSON_GetObjectItemCaseSensitive(response, "result");
+    if (cJSON_IsObject(result)) {
+      cJSON *impact = cJSON_GetObjectItemCaseSensitive(result, "impact");
+      TEST_ASSERT(cJSON_IsString(impact));
+      TEST_ASSERT(impact != NULL &&
+                  strcmp(impact->valuestring, "monitoring") == 0);
+    }
+    cJSON_Delete(response);
+  }
+  (void)snprintf(request, sizeof(request),
+                 "{\"id\":44,\"method\":\"relationships.list\",\"params\":{"
+                 "\"ci_id\":\"%s\",\"limit\":200}}", ci_id);
+  response = api_call(app, request);
+  TEST_ASSERT(response != NULL);
+  if (response != NULL) {
+    result = cJSON_GetObjectItemCaseSensitive(response, "result");
+    if (cJSON_IsObject(result)) {
+      cJSON *items = cJSON_GetObjectItemCaseSensitive(result, "items");
+      cJSON *first = cJSON_IsArray(items) ? cJSON_GetArrayItem(items, 0)
+                                          : NULL;
+      cJSON *impact = first != NULL
+                        ? cJSON_GetObjectItemCaseSensitive(first, "impact")
+                        : NULL;
+      TEST_ASSERT(cJSON_IsString(impact));
+      TEST_ASSERT(impact != NULL &&
+                  strcmp(impact->valuestring, "monitoring") == 0);
+    }
+    cJSON_Delete(response);
+  }
+  (void)snprintf(request, sizeof(request),
+                 "{\"id\":45,\"method\":\"relationships.delete\","
+                 "\"params\":{\"id\":\"%s\"}}", rel_id);
+  response = api_call(app, request);
+  TEST_ASSERT(response != NULL);
+  if (response != NULL) {
+    ok = cJSON_GetObjectItemCaseSensitive(response, "ok");
+    TEST_ASSERT(cJSON_IsTrue(ok));
     cJSON_Delete(response);
   }
 

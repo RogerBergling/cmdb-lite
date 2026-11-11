@@ -1,5 +1,21 @@
 "use strict";
 
+const IMPACT_OPTIONS = [
+  { value: "availability", label: "Availability (hard)" },
+  { value: "degraded", label: "Degraded (soft)" },
+  { value: "management", label: "Management only" },
+  { value: "monitoring", label: "Monitoring only" },
+  { value: "informational", label: "Informational only" }
+];
+
+const IMPACT_HINTS = {
+  availability: "The source stops working if the target is unavailable.",
+  degraded: "The source keeps working with reduced function if the target is unavailable.",
+  management: "Management/control-plane link only; the target being down does not stop the source.",
+  monitoring: "Observability link only; no runtime impact.",
+  informational: "Documentation or association only; no runtime impact."
+};
+
 const state = {
   dbPath: "",
   lastDatabase: "",
@@ -40,6 +56,7 @@ const state = {
   mapNodeIds: new Set(),
   mapRelTypes: new Set(),
   mapRelTypesInitialized: false,
+  mapImpacts: new Set(["availability", "degraded"]),
   searchTimer: null
 };
 
@@ -389,6 +406,7 @@ async function lockApplication() {  try {
   state.mapNodeIds.clear();
   state.mapRelTypes.clear();
   state.mapRelTypesInitialized = false;
+  state.mapImpacts = new Set(["availability", "degraded"]);
   state.scanResult = null;
   state.scanSelected.clear();
   state.scanJobs = [];
@@ -424,6 +442,7 @@ async function loadAll() {
     renderTypeList();
     renderRelationshipSelects();
     renderMapRelTypes();
+    renderMapImpacts();
     renderScanTypes();
     renderDiagramSelects();
     await loadCis();
@@ -1163,6 +1182,24 @@ async function deleteType() {  if (!state.selectedTypeId) {
   }
 }
 
+function impactLabel(value) {
+  const option = IMPACT_OPTIONS.find((item) => item.value === value);
+  return option ? option.label : value;
+}
+
+function updateRelationshipImpactHint() {
+  $("rel-impact-hint").textContent =
+    IMPACT_HINTS[$("rel-impact").value] || "";
+}
+
+function updateRelationshipImpactDefault() {
+  const type = state.relTypes.find((item) => item.id === $("rel-type").value);
+  if (type && type.default_impact) {
+    $("rel-impact").value = type.default_impact;
+  }
+  updateRelationshipImpactHint();
+}
+
 function renderRelationshipSelects() {
   populateSelect($("rel-source"), state.cis.map((ci) => ({
     value: ci.id,
@@ -1188,15 +1225,36 @@ function renderRelationships() {
       text: "Delete",
       onclick: () => deleteRelationship(rel)
     });
+    const impact = el("select", {
+      class: "impact-select",
+      "aria-label": `Impact for ${rel.source_name} to ${rel.target_name}`,
+      onchange: (event) => setRelationshipImpact(rel, event.target.value)
+    });
+    for (const option of IMPACT_OPTIONS) {
+      impact.append(el("option", { value: option.value, text: option.label }));
+    }
+    impact.value = rel.impact || "availability";
     tbody.append(el("tr", {}, [
       el("td", { text: rel.source_name }),
       el("td", { text: rel.type_name.replaceAll("_", " ") }),
       el("td", { text: rel.target_name }),
+      el("td", {}, impact),
       el("td", { text: rel.description || "\u2014" }),
       el("td", {}, el("div", { class: "table-actions" }, [remove]))
     ]));
   }
   $("relationship-empty").classList.toggle("hidden", state.rels.length !== 0);
+}
+
+async function setRelationshipImpact(rel, impact) {
+  try {
+    await api("relationships.set_impact", { id: rel.id, impact });
+    rel.impact = impact;
+    toast(`Impact set to ${impactLabel(impact)}.`, "success");
+  } catch (error) {
+    toast(formatError(error), "error");
+    await loadRelationships();
+  }
 }
 
 async function saveRelationship(event) {
@@ -1206,6 +1264,7 @@ async function saveRelationship(event) {
       source_id: $("rel-source").value,
       type_id: $("rel-type").value,
       target_id: $("rel-target").value,
+      impact: $("rel-impact").value,
       description: $("rel-description").value
     });
     $("rel-description").value = "";
@@ -1262,6 +1321,28 @@ function renderMapRelTypes() {
   }
 }
 
+function renderMapImpacts() {
+  const container = $("map-impacts");
+  clear(container);
+  for (const option of IMPACT_OPTIONS) {
+    const checkbox = el("input", {
+      type: "checkbox",
+      checked: state.mapImpacts.has(option.value),
+      onchange: (event) => {
+        if (event.target.checked) {
+          state.mapImpacts.add(option.value);
+        } else {
+          state.mapImpacts.delete(option.value);
+        }
+      }
+    });
+    container.append(el("label", { class: "check-row" }, [
+      checkbox,
+      el("span", { text: option.label })
+    ]));
+  }
+}
+
 function renderMapCiList() {
   const container = $("map-ci-list");
   const filter = $("map-search").value.trim().toLowerCase();
@@ -1297,6 +1378,11 @@ function selectedRelationshipTypes() {
   return values.length > 0 ? values : ["__none__"];
 }
 
+function selectedImpacts() {
+  const values = [...state.mapImpacts];
+  return values.length > 0 ? values : ["__none__"];
+}
+
 async function generateMap() {
   const ids = [...state.mapNodeIds];
   if (ids.length === 0) {
@@ -1307,7 +1393,8 @@ async function generateMap() {
     ids,
     depth: Number($("map-depth").value),
     direction: $("map-direction").value,
-    relationship_types: selectedRelationshipTypes()
+    relationship_types: selectedRelationshipTypes(),
+    impacts: selectedImpacts()
   };
   try {
     const graph = await api("graph.dependencies", params);
@@ -1384,6 +1471,7 @@ function renderMapGraph(graph) {
   for (const edge of edges) {
     const source = positions.get(edge.source);
     const target = positions.get(edge.target);
+    const impact = edge.impact || "availability";
     if (!source || !target) {
       continue;
     }
@@ -1409,7 +1497,7 @@ function renderMapGraph(graph) {
     }
     const dx = Math.max(40, Math.abs(x2 - x1) / 2);
     const path = svgEl("path", {
-      class: "graph-edge",
+      class: `graph-edge impact-${impact}`,
       d: `M ${x1} ${y1} C ${x1 + (x2 > x1 ? dx : -dx)} ${y1}, ${x2 - (x2 > x1 ? dx : -dx)} ${y2}, ${x2} ${y2}`,
       "marker-end": "url(#arrow-head)"
     });
@@ -1420,7 +1508,7 @@ function renderMapGraph(graph) {
       y: (y1 + y2) / 2 - 5,
       "text-anchor": "middle"
     });
-    label.textContent = edge.type_name.replaceAll("_", " ");
+    label.textContent = `${edge.type_name.replaceAll("_", " ")} · ${impact}`;
     svg.append(label);
   }
 
@@ -2668,6 +2756,8 @@ function bindEvents() {
   $("field-cancel").addEventListener("click", resetFieldForm);
 
   $("relationship-form").addEventListener("submit", saveRelationship);
+  $("rel-type").addEventListener("change", updateRelationshipImpactDefault);
+  $("rel-impact").addEventListener("change", updateRelationshipImpactHint);
 
   $("import-file").addEventListener("change", readImportFile);
   $("import-preview").addEventListener("click", previewImport);

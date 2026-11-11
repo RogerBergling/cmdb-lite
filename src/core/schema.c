@@ -81,6 +81,7 @@ static const char schema_sql[] =
   "  inverse_name TEXT NOT NULL DEFAULT '',\n"
   "  description TEXT NOT NULL DEFAULT '',\n"
   "  color TEXT NOT NULL DEFAULT '',\n"
+  "  default_impact TEXT NOT NULL DEFAULT 'availability',\n"
   "  created_at TEXT NOT NULL,\n"
   "  updated_at TEXT NOT NULL\n"
   ");\n"
@@ -90,6 +91,7 @@ static const char schema_sql[] =
   "  target_id TEXT NOT NULL REFERENCES cis(id) ON DELETE CASCADE,\n"
   "  type_id TEXT NOT NULL REFERENCES relationship_types(id) ON DELETE RESTRICT,\n"
   "  description TEXT NOT NULL DEFAULT '',\n"
+  "  impact TEXT NOT NULL DEFAULT 'availability',\n"
   "  created_at TEXT NOT NULL,\n"
   "  updated_at TEXT NOT NULL,\n"
   "  UNIQUE(source_id, target_id, type_id),\n"
@@ -200,6 +202,7 @@ typedef struct {
   const char *inverse;
   const char *description;
   const char *color;
+  const char *default_impact;
 } seed_rel_type_t;
 
 static const seed_category_t seed_categories[] = {
@@ -239,7 +242,10 @@ static const seed_type_t seed_types[] = {
   {"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "Network",
    "Network segment or network service", "network", "#d5e8d4", "Network"},
   {"cccccccc-cccc-4ccc-8ccc-cccccccccccc", "Other",
-   "Any other configuration item", "other", "#f5f5f5", "Other"}
+   "Any other configuration item", "other", "#f5f5f5", "Other"},
+  {"dddddddd-dddd-4ddd-8ddd-dddddddddddd", "Service",
+   "A technical service such as DNS, SMTP, or NTP, provided by one or more resources",
+   "service", "#e6d0de", "Services"}
 };
 
 static const seed_field_t seed_fields[] = {
@@ -296,25 +302,60 @@ static const seed_field_t seed_fields[] = {
   {"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "cidr", "CIDR", "text", 0, 10},
   {"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "vlan", "VLAN", "text", 0, 20},
   {"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "gateway", "Gateway", "text", 0, 30},
-  {"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "site", "Site", "text", 0, 40}
+  {"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "site", "Site", "text", 0, 40},
+  {"dddddddd-dddd-4ddd-8ddd-dddddddddddd", "service_type", "Service Type",
+   "select", 0, 10},
+  {"dddddddd-dddd-4ddd-8ddd-dddddddddddd", "service_endpoint", "Endpoint",
+   "text", 0, 20},
+  {"dddddddd-dddd-4ddd-8ddd-dddddddddddd", "service_port", "Port",
+   "number", 0, 30},
+  {"dddddddd-dddd-4ddd-8ddd-dddddddddddd", "service_protocol", "Protocol",
+   "select", 0, 40},
+  {"dddddddd-dddd-4ddd-8ddd-dddddddddddd", "availability_mode",
+   "Availability Mode", "select", 0, 50},
+  {"dddddddd-dddd-4ddd-8ddd-dddddddddddd", "service_scope", "Scope",
+   "text", 0, 60}
 };
 
 static const seed_rel_type_t seed_rel_types[] = {
   {"d0000000-0000-4000-8000-000000000001", "runs_on", "hosts",
-   "Application or service runs on a host", "#6c8ebf"},
+   "Application or service runs on a host", "#6c8ebf", "availability"},
   {"d0000000-0000-4000-8000-000000000002", "uses", "used_by",
-   "Component uses another component", "#9673a6"},
+   "Component uses another component", "#9673a6", "availability"},
   {"d0000000-0000-4000-8000-000000000003", "hosted_in", "hosts",
-   "CI is hosted in a location or platform", "#82b366"},
+   "CI is hosted in a location or platform", "#82b366", "availability"},
   {"d0000000-0000-4000-8000-000000000004", "supports", "supported_by",
-   "CI supports a business service", "#d79b00"},
+   "CI supports a business service", "#d79b00", "informational"},
   {"d0000000-0000-4000-8000-000000000005", "depends_on", "depended_on_by",
-   "CI depends on another CI", "#b85450"},
+   "CI depends on another CI", "#b85450", "availability"},
   {"d0000000-0000-4000-8000-000000000006", "connects_to", "connects_to",
-   "Network or physical connection", "#666666"},
+   "Network or physical connection", "#666666", "informational"},
   {"d0000000-0000-4000-8000-000000000007", "member_of", "contains",
-   "CI is a member of a group or service", "#a680b8"}
+   "CI is a member of a group or service", "#a680b8", "informational"},
+  {"d0000000-0000-4000-8000-000000000008", "manages", "managed_by",
+   "CI manages another CI; management plane only", "#6c8ebf", "management"},
+  {"d0000000-0000-4000-8000-000000000009", "monitors", "monitored_by",
+   "CI monitors another CI; observability only", "#9673a6", "monitoring"},
+  {"d0000000-0000-4000-8000-00000000000a", "provided_by", "provides",
+   "Service is provided by a resource", "#82b366", "availability"}
 };
+
+static const char *seed_field_options(const char *type_id, const char *key) {
+  if (type_id != NULL && key != NULL &&
+      strcmp(type_id, "dddddddd-dddd-4ddd-8ddd-dddddddddddd") == 0) {
+    if (strcmp(key, "service_type") == 0) {
+      return "[\"DNS\",\"SMTP\",\"NTP\",\"DHCP\",\"LDAP/AD\",\"vCenter\","
+             "\"Monitoring\",\"Backup\",\"Other\"]";
+    }
+    if (strcmp(key, "service_protocol") == 0) {
+      return "[\"TCP\",\"UDP\",\"TCP and UDP\",\"Other\"]";
+    }
+    if (strcmp(key, "availability_mode") == 0) {
+      return "[\"Single\",\"Redundant\",\"Active/passive\",\"Active/active\"]";
+    }
+  }
+  return "[]";
+}
 
 int cmdb_schema_create(cmdb_db_t *db, cmdb_error_t *err) {
   if (cmdb_db_exec(db, schema_sql, err) != 0) {
@@ -553,6 +594,236 @@ fail:
   return -1;
 }
 
+static const char *seed_category_id(const char *name);
+
+static int schema_insert_rel_types_v4(cmdb_db_t *db, const char *now,
+                                      cmdb_error_t *err) {
+  sqlite3_stmt *insert = NULL;
+  sqlite3_stmt *update = NULL;
+  size_t i;
+  int rc;
+
+  if (sqlite3_prepare_v2(
+        cmdb_db_sqlite(db),
+        "INSERT OR IGNORE INTO relationship_types"
+        "(id, name, inverse_name, description, color, default_impact, "
+        "created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?);",
+        -1, &insert, NULL) != SQLITE_OK) {
+    cmdb_error_set(err, CMDB_ERR_DATABASE,
+                   "Cannot prepare relationship type migration");
+    return -1;
+  }
+  for (i = 0; i < sizeof(seed_rel_types) / sizeof(seed_rel_types[0]); i++) {
+    sqlite3_reset(insert);
+    sqlite3_clear_bindings(insert);
+    sqlite3_bind_text(insert, 1, seed_rel_types[i].id, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(insert, 2, seed_rel_types[i].name, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(insert, 3, seed_rel_types[i].inverse, -1,
+                      SQLITE_TRANSIENT);
+    sqlite3_bind_text(insert, 4, seed_rel_types[i].description, -1,
+                      SQLITE_TRANSIENT);
+    sqlite3_bind_text(insert, 5, seed_rel_types[i].color, -1,
+                      SQLITE_TRANSIENT);
+    sqlite3_bind_text(insert, 6, seed_rel_types[i].default_impact, -1,
+                      SQLITE_TRANSIENT);
+    sqlite3_bind_text(insert, 7, now, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(insert, 8, now, -1, SQLITE_TRANSIENT);
+    if (sqlite3_step(insert) != SQLITE_DONE) {
+      cmdb_error_set(err, CMDB_ERR_DATABASE,
+                     "Cannot migrate relationship types");
+      goto fail;
+    }
+  }
+  sqlite3_finalize(insert);
+  insert = NULL;
+
+  if (sqlite3_prepare_v2(
+        cmdb_db_sqlite(db),
+        "UPDATE relationship_types SET default_impact = ? "
+        "WHERE name = ? COLLATE NOCASE;",
+        -1, &update, NULL) != SQLITE_OK) {
+    cmdb_error_set(err, CMDB_ERR_DATABASE,
+                   "Cannot prepare relationship impact migration");
+    return -1;
+  }
+  for (i = 0; i < sizeof(seed_rel_types) / sizeof(seed_rel_types[0]); i++) {
+    sqlite3_reset(update);
+    sqlite3_clear_bindings(update);
+    sqlite3_bind_text(update, 1, seed_rel_types[i].default_impact, -1,
+                      SQLITE_TRANSIENT);
+    sqlite3_bind_text(update, 2, seed_rel_types[i].name, -1, SQLITE_TRANSIENT);
+    rc = sqlite3_step(update);
+    if (rc != SQLITE_DONE) {
+      cmdb_error_set(err, CMDB_ERR_DATABASE,
+                     "Cannot migrate relationship impacts");
+      goto fail;
+    }
+  }
+  sqlite3_finalize(update);
+  return 0;
+
+fail:
+  if (insert != NULL) {
+    sqlite3_finalize(insert);
+  }
+  if (update != NULL) {
+    sqlite3_finalize(update);
+  }
+  return -1;
+}
+
+static int schema_migrate_service_type(cmdb_db_t *db, const char *now,
+                                       cmdb_error_t *err) {
+  sqlite3_stmt *insert_type = NULL;
+  sqlite3_stmt *find_type = NULL;
+  sqlite3_stmt *insert_field = NULL;
+  char service_type_id[37];
+  const seed_type_t *service = NULL;
+  size_t i;
+  int rc;
+
+  for (i = 0; i < sizeof(seed_types) / sizeof(seed_types[0]); i++) {
+    if (strcmp(seed_types[i].name, "Service") == 0) {
+      service = &seed_types[i];
+      break;
+    }
+  }
+  if (service == NULL) {
+    cmdb_error_set(err, CMDB_ERR_INTERNAL, "Service type seed is missing");
+    return -1;
+  }
+
+  if (sqlite3_prepare_v2(
+        cmdb_db_sqlite(db),
+        "INSERT OR IGNORE INTO ci_types"
+        "(id, name, description, icon, color, category, created_at, updated_at) "
+        "VALUES(?, ?, ?, ?, ?, ?, ?, ?);",
+        -1, &insert_type, NULL) != SQLITE_OK) {
+    cmdb_error_set(err, CMDB_ERR_DATABASE,
+                   "Cannot prepare Service type migration");
+    return -1;
+  }
+  sqlite3_bind_text(insert_type, 1, service->id, -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(insert_type, 2, service->name, -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(insert_type, 3, service->description, -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(insert_type, 4, service->icon, -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(insert_type, 5, service->color, -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(insert_type, 6, seed_category_id(service->category), -1,
+                    SQLITE_TRANSIENT);
+  sqlite3_bind_text(insert_type, 7, now, -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(insert_type, 8, now, -1, SQLITE_TRANSIENT);
+  if (sqlite3_step(insert_type) != SQLITE_DONE) {
+    cmdb_error_set(err, CMDB_ERR_DATABASE,
+                   "Cannot migrate the Service CI type");
+    goto fail;
+  }
+  sqlite3_finalize(insert_type);
+  insert_type = NULL;
+
+  if (sqlite3_prepare_v2(
+        cmdb_db_sqlite(db),
+        "SELECT id FROM ci_types WHERE name = 'Service' COLLATE NOCASE;",
+        -1, &find_type, NULL) != SQLITE_OK) {
+    cmdb_error_set(err, CMDB_ERR_DATABASE,
+                   "Cannot read the Service CI type");
+    return -1;
+  }
+  rc = sqlite3_step(find_type);
+  if (rc != SQLITE_ROW) {
+    cmdb_error_set(err, CMDB_ERR_DATABASE,
+                   "Cannot read the Service CI type");
+    goto fail;
+  }
+  (void)cmdb_str_copy(service_type_id, sizeof(service_type_id),
+                      (const char *)sqlite3_column_text(find_type, 0));
+  sqlite3_finalize(find_type);
+  find_type = NULL;
+
+  if (sqlite3_prepare_v2(
+        cmdb_db_sqlite(db),
+        "INSERT OR IGNORE INTO ci_type_fields"
+        "(id, type_id, field_key, label, field_type, required, options_json, "
+        "sort_order) VALUES(?, ?, ?, ?, ?, ?, ?, ?);",
+        -1, &insert_field, NULL) != SQLITE_OK) {
+    cmdb_error_set(err, CMDB_ERR_DATABASE,
+                   "Cannot prepare Service field migration");
+    return -1;
+  }
+  for (i = 0; i < sizeof(seed_fields) / sizeof(seed_fields[0]); i++) {
+    char field_id[37];
+    if (strcmp(seed_fields[i].type_id, service->id) != 0) {
+      continue;
+    }
+    if (cmdb_random_uuid(field_id) != 0) {
+      cmdb_error_set(err, CMDB_ERR_INTERNAL, "Cannot generate field ID");
+      goto fail;
+    }
+    sqlite3_reset(insert_field);
+    sqlite3_clear_bindings(insert_field);
+    sqlite3_bind_text(insert_field, 1, field_id, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(insert_field, 2, service_type_id, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(insert_field, 3, seed_fields[i].key, -1,
+                      SQLITE_TRANSIENT);
+    sqlite3_bind_text(insert_field, 4, seed_fields[i].label, -1,
+                      SQLITE_TRANSIENT);
+    sqlite3_bind_text(insert_field, 5, seed_fields[i].field_type, -1,
+                      SQLITE_TRANSIENT);
+    sqlite3_bind_int(insert_field, 6, seed_fields[i].required);
+    sqlite3_bind_text(insert_field, 7,
+                      seed_field_options(seed_fields[i].type_id,
+                                         seed_fields[i].key),
+                      -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(insert_field, 8, seed_fields[i].sort_order);
+    if (sqlite3_step(insert_field) != SQLITE_DONE) {
+      cmdb_error_set(err, CMDB_ERR_DATABASE,
+                     "Cannot migrate Service fields");
+      goto fail;
+    }
+  }
+  sqlite3_finalize(insert_field);
+  return 0;
+
+fail:
+  if (insert_type != NULL) {
+    sqlite3_finalize(insert_type);
+  }
+  if (find_type != NULL) {
+    sqlite3_finalize(find_type);
+  }
+  if (insert_field != NULL) {
+    sqlite3_finalize(insert_field);
+  }
+  return -1;
+}
+
+static int schema_migrate_v4(cmdb_db_t *db, const char *now,
+                             cmdb_error_t *err) {
+  if (cmdb_db_exec(
+        db,
+        "ALTER TABLE relationship_types ADD COLUMN "
+        "default_impact TEXT NOT NULL DEFAULT 'availability';",
+        err) != 0 ||
+      cmdb_db_exec(
+        db,
+        "ALTER TABLE relationships ADD COLUMN "
+        "impact TEXT NOT NULL DEFAULT 'availability';",
+        err) != 0) {
+    return -1;
+  }
+  if (schema_insert_rel_types_v4(db, now, err) != 0) {
+    return -1;
+  }
+  if (schema_migrate_service_type(db, now, err) != 0) {
+    return -1;
+  }
+  return cmdb_db_exec(
+    db,
+    "UPDATE relationships SET impact = COALESCE("
+    "(SELECT default_impact FROM relationship_types rt "
+    " WHERE rt.id = relationships.type_id), 'availability');",
+    err);
+}
+
 int cmdb_schema_migrate(cmdb_db_t *db, cmdb_error_t *err) {
   char value[64];
   int version = 0;
@@ -616,6 +887,14 @@ int cmdb_schema_migrate(cmdb_db_t *db, cmdb_error_t *err) {
     char now[21];
     cmdb_iso8601_now(now);
     if (schema_migrate_categories(db, now, err) != 0) {
+      (void)cmdb_db_rollback(db, NULL);
+      return -1;
+    }
+  }
+  if (version < 4) {
+    char now[21];
+    cmdb_iso8601_now(now);
+    if (schema_migrate_v4(db, now, err) != 0) {
       (void)cmdb_db_rollback(db, NULL);
       return -1;
     }
@@ -750,7 +1029,7 @@ int cmdb_schema_seed(cmdb_db_t *db, cmdb_error_t *err) {
                          "INSERT OR IGNORE INTO ci_type_fields"
                          "(id, type_id, field_key, label, field_type, required, "
                          "options_json, sort_order) "
-                         "VALUES(?, ?, ?, ?, ?, ?, '[]', ?);",
+                         "VALUES(?, ?, ?, ?, ?, ?, ?, ?);",
                          -1, &field_stmt, NULL) != SQLITE_OK) {
     cmdb_error_set(err, CMDB_ERR_DATABASE, "Cannot prepare field seed");
     cmdb_error_set_detail(err, "%s", sqlite3_errmsg(handle));
@@ -770,7 +1049,11 @@ int cmdb_schema_seed(cmdb_db_t *db, cmdb_error_t *err) {
     sqlite3_bind_text(field_stmt, 4, seed_fields[i].label, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(field_stmt, 5, seed_fields[i].field_type, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(field_stmt, 6, seed_fields[i].required);
-    sqlite3_bind_int(field_stmt, 7, seed_fields[i].sort_order);
+    sqlite3_bind_text(field_stmt, 7,
+                      seed_field_options(seed_fields[i].type_id,
+                                         seed_fields[i].key),
+                      -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(field_stmt, 8, seed_fields[i].sort_order);
     if (sqlite3_step(field_stmt) != SQLITE_DONE) {
       cmdb_error_set(err, CMDB_ERR_DATABASE, "Cannot seed CI type fields");
       cmdb_error_set_detail(err, "%s", sqlite3_errmsg(handle));
@@ -781,8 +1064,8 @@ int cmdb_schema_seed(cmdb_db_t *db, cmdb_error_t *err) {
   if (sqlite3_prepare_v2(handle,
                          "INSERT OR IGNORE INTO relationship_types"
                          "(id, name, inverse_name, description, color, "
-                         "created_at, updated_at) "
-                         "VALUES(?, ?, ?, ?, ?, ?, ?);",
+                         "default_impact, created_at, updated_at) "
+                         "VALUES(?, ?, ?, ?, ?, ?, ?, ?);",
                          -1, &rel_stmt, NULL) != SQLITE_OK) {
     cmdb_error_set(err, CMDB_ERR_DATABASE, "Cannot prepare relationship seed");
     cmdb_error_set_detail(err, "%s", sqlite3_errmsg(handle));
@@ -797,8 +1080,10 @@ int cmdb_schema_seed(cmdb_db_t *db, cmdb_error_t *err) {
     sqlite3_bind_text(rel_stmt, 3, seed_rel_types[i].inverse, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(rel_stmt, 4, seed_rel_types[i].description, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(rel_stmt, 5, seed_rel_types[i].color, -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(rel_stmt, 6, now, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(rel_stmt, 6, seed_rel_types[i].default_impact,
+                      -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(rel_stmt, 7, now, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(rel_stmt, 8, now, -1, SQLITE_TRANSIENT);
     if (sqlite3_step(rel_stmt) != SQLITE_DONE) {
       cmdb_error_set(err, CMDB_ERR_DATABASE, "Cannot seed relationship types");
       cmdb_error_set_detail(err, "%s", sqlite3_errmsg(handle));

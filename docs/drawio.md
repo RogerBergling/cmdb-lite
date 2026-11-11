@@ -22,6 +22,9 @@ Inputs:
 - `depth`: 1–5.
 - `direction`: `outgoing`, `incoming`, or `both`.
 - `relationship_types`: optional list of relationship type names.
+- `impacts`: optional list of impact classes (`availability`, `degraded`,
+  `management`, `monitoring`, `informational`). The UI defaults to
+  `availability` and `degraded`.
 
 The graph builder uses breadth-first search:
 
@@ -38,8 +41,9 @@ The graph builder uses breadth-first search:
 ## Map rendering
 
 The UI lays nodes out in columns by depth and rows by discovery order. Each node
-shows its name and CI type. Edges are labelled with the relationship type
-(underscores are displayed as spaces). Seed nodes use a distinct colour.
+shows its name and CI type. Edges are labelled with the relationship type and
+impact class (underscores are displayed as spaces). Seed nodes use a distinct
+colour, and management/monitoring/informational edges use dashed styles.
 
 Clicking a node opens the CI editor. This is a convenience for investigation, not
 a replacement for the inventory view.
@@ -58,7 +62,7 @@ The exporter writes uncompressed draw.io XML:
         <mxCell id="n-<ci-uuid>" value="Name&#10;Type" style="..." vertex="1" parent="1">
           <mxGeometry x="..." y="..." width="200" height="60" as="geometry"/>
         </mxCell>
-        <mxCell id="e-<relationship-uuid>" value="runs on" style="..." edge="1"
+        <mxCell id="e-<relationship-uuid>" value="runs on · availability" style="..." edge="1"
                 parent="1" source="n-..." target="n-...">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>

@@ -3,14 +3,15 @@
 A local-first, encrypted Configuration Management Database (CMDB) for Linux and
 Windows.
 
-> **Status: v0.5.0 feature release.** The repository contains the C17 core,
+> **Status: v0.6.0 feature release.** The repository contains the C17 core,
 > SQLCipher storage layer, Argon2id key derivation, CI categories/types/custom
-> fields, typed relationships, CSV/TSV import, dependency graph builder,
-> `.drawio` export, an embedded diagram editor, persisted nmap discovery with
-> matching/merge review, encrypted database backup, and the desktop webview
-> shell. Linux, Fedora, Windows, and Flatpak CI builds are defined; the Windows
-> job runs a real WebView2 smoke test and produces the portable ZIP and MSI.
-> A clean-Windows-VM install/uninstall check is still recommended.
+> fields, impact-aware typed relationships, seeded infrastructure services,
+> CSV/TSV import, dependency graph builder, `.drawio` export, an embedded
+> diagram editor, persisted nmap discovery with matching/merge review,
+> encrypted database backup, and the desktop webview shell. Linux, Fedora,
+> Windows, and Flatpak CI builds are defined; the Windows job runs a real
+> WebView2 smoke test and produces the portable ZIP and MSI. A clean-Windows-VM
+> install/uninstall check is still recommended.
 
 ## Screenshots
 
@@ -23,8 +24,8 @@ Windows.
 | ![CI types](docs/screenshots/ci-types.png) | ![Light theme](docs/screenshots/inventory-light.png) |
 | **Audit log** | **HIBP export** |
 | ![Audit log](docs/screenshots/audit.png) | ![HIBP export](docs/screenshots/export.png) |
-| **Unlock / recent databases** | |
-| ![Unlock](docs/screenshots/unlock.png) | |
+| **Relationships and impact** | **Unlock / recent databases** |
+| ![Relationships and impact](docs/screenshots/dependencies.png) | ![Unlock](docs/screenshots/unlock.png) |
 
 The screenshots use sample inventory data.
 
@@ -39,12 +40,12 @@ Release assets:
 
 | Platform | Files |
 |---|---|
-| Debian/Ubuntu | `cmdb-lite_0.5.0_amd64.deb` |
-| Fedora/RHEL | `cmdb-lite-0.5.0-*.rpm` |
-| Portable Linux | `cmdb-lite-0.5.0-linux-x86_64.tar.gz` |
+| Debian/Ubuntu | `cmdb-lite_0.6.0_amd64.deb` |
+| Fedora/RHEL | `cmdb-lite-0.6.0-*.rpm` |
+| Portable Linux | `cmdb-lite-0.6.0-linux-x86_64.tar.gz` |
 | Flatpak (Linux) | `cmdb-lite.flatpak` |
 | Windows portable | `cmdb-lite-windows-x64.zip` |
-| Windows installer | `cmdb-lite-0.5.0-windows-x64.msi` |
+| Windows installer | `cmdb-lite-0.6.0-windows-x64.msi` |
 | Checksums | `SHA256SUMS` |
 
 Verify the download before running it:
@@ -85,7 +86,7 @@ Install the dependencies first, then the package:
 ```bash
 sudo apt update
 sudo apt install -y libgtk-3-0t64 libwebkit2gtk-4.1-0 libssl3t64
-sudo apt install ./cmdb-lite_0.5.0_amd64.deb
+sudo apt install ./cmdb-lite_0.6.0_amd64.deb
 cmdb
 ```
 
@@ -99,7 +100,7 @@ fully self-contained option.
 Install with `dnf` so dependencies are resolved automatically:
 
 ```bash
-sudo dnf install ./cmdb-lite-0.5.0-*.rpm
+sudo dnf install ./cmdb-lite-0.6.0-*.rpm
 cmdb
 ```
 
@@ -121,21 +122,21 @@ libsodium, OpenSSL, expat, and the C/C++ runtime are linked statically.
 **MSI installer**
 
 ```powershell
-msiexec /i .\cmdb-lite-0.5.0-windows-x64.msi
+msiexec /i .\cmdb-lite-0.6.0-windows-x64.msi
 ```
 
 The MSI is per-machine, requires administrator elevation, and creates a Start
 Menu shortcut. Uninstall with:
 
 ```powershell
-msiexec /x .\cmdb-lite-0.5.0-windows-x64.msi
+msiexec /x .\cmdb-lite-0.6.0-windows-x64.msi
 ```
 
 ### Portable Linux tarball
 
 ```bash
-tar -xzf cmdb-lite-0.5.0-linux-x86_64.tar.gz
-./cmdb-lite-0.5.0-linux-x86_64/bin/cmdb
+tar -xzf cmdb-lite-0.6.0-linux-x86_64.tar.gz
+./cmdb-lite-0.6.0-linux-x86_64/bin/cmdb
 ```
 
 The ELF requires GTK3, WebKitGTK 4.1, expat, and the system OpenSSL 3
@@ -183,17 +184,20 @@ Application upgrades replace the executable only. Your database and `.meta`
 sidecar stay where they are. The application remembers the last database and
 shows recent databases on the unlock screen.
 
-v0.5.0 does not change the database schema; it remains schema version 3. Before
-any future schema migration, the application now creates an automatic
-pre-upgrade backup and shows its path. You can also use the in-app **Backup**
-button at any time.
+v0.6.0 migrates the database from schema version 3 to version 4. It adds
+relationship impact classes, new management/monitoring/provider relationship
+types, and the seeded `Service` CI type. Review existing `supports`,
+`connects_to`, and `member_of` relationships after the upgrade; they default to
+`informational` and should be changed if they represent real runtime
+dependencies. The automatic pre-upgrade backup is created first and its path is
+shown after opening. You can also use the in-app **Backup** button at any time.
 
 ```bash
 # Debian/Ubuntu
-sudo apt install ./cmdb-lite_0.5.0_amd64.deb
+sudo apt install ./cmdb-lite_0.6.0_amd64.deb
 
 # Fedora
-sudo dnf upgrade ./cmdb-lite-0.5.0-*.rpm
+sudo dnf upgrade ./cmdb-lite-0.6.0-*.rpm
 ```
 
 On Windows, install the new MSI or replace the portable executable and open the
@@ -234,6 +238,11 @@ password vault instead.
 - Dark, light, and follow-system themes with persisted preference.
 - CI records with the standard CMDB fields listed below.
 - Typed relationships with duplicate and self-reference protection.
+- **Impact-aware relationships**: availability, degraded, management,
+  monitoring, and informational, with per-type defaults and per-connection
+  overrides. See [`docs/dependencies.md`](docs/dependencies.md).
+- **Service CIs** for DNS, SMTP, NTP, DHCP, LDAP/AD, vCenter, monitoring, and
+  backup functions, linked to the servers or routers that provide them.
 - CSV and TSV import with validation preview and transactional commit.
 - Relationship import from CSV/TSV.
 - Multi-seed dependency traversal with direction and depth controls.
@@ -430,16 +439,17 @@ Required headers:
 source_ci,relationship_type,target_ci
 ```
 
-Optional header: `description`.
+Optional headers: `description` and `impact` (`availability`, `degraded`,
+`management`, `monitoring`, or `informational`).
 
 Example `relationships.csv`:
 
 ```csv
-source_ci,relationship_type,target_ci,description
-app01,runs_on,app01,Application server hosts the application
-payments-api,runs_on,app01,Payments API runs on app01
-payments-api,uses,db01,Payments API uses the primary database
-payments-api,supports,payments-service,Payments API supports the Payments business service
+source_ci,relationship_type,target_ci,description,impact
+payments-api,runs_on,app01,Payments API runs on app01,availability
+payments-api,uses,db01,Payments API uses the primary database,availability
+payments-api,depends_on,payments-service,Payments API depends on the payments business service,availability
+app01,depends_on,router01,App server depends on the core router,availability
 ```
 
 `source_ci` and `target_ci` may contain a CI ID, an external ID, or a CI name.
@@ -450,7 +460,8 @@ Resolution is deterministic:
 3. Exact CI name, but only if exactly one CI has that name. Ambiguous names are
    an error and must be replaced with an ID.
 
-Relationship types are matched case-insensitively. A relationship cannot point a
+Relationship types are matched case-insensitively. The optional `impact` column
+uses the relationship type's default when omitted. A relationship cannot point a
 CI at itself, and duplicate `(source, type, target)` triples are rejected or
 skipped according to the duplicate policy.
 
@@ -818,7 +829,7 @@ It installs the static vcpkg dependencies, builds, tests, and creates:
 
 ```text
 dist\cmdb-lite-windows-x64.zip
-dist\cmdb-lite-0.5.0-windows-x64.msi
+dist\cmdb-lite-0.6.0-windows-x64.msi
 dist\cmdb-lite-windows-x64\bin\cmdb.exe
 ```
 
@@ -865,6 +876,8 @@ GitHub Actions Windows runner.
   hardening, and limitations.
 - [`docs/architecture.md`](docs/architecture.md) — layers, bridge, data flows,
   and dependency choices.
+- [`docs/dependencies.md`](docs/dependencies.md) — impact classes, vCenter and
+  DNS examples, service modeling, and redundancy.
 - [`docs/drawio.md`](docs/drawio.md) — dependency traversal and `.drawio` format.
 - [`docs/diagrams.md`](docs/diagrams.md) — embedded diagram editor and
   relationship-creating connections.

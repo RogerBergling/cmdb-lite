@@ -4,7 +4,8 @@
 
 #include <string.h>
 
-static void append_edge_label(cmdb_strbuf_t *sb, const char *type_name) {
+static void append_edge_label(cmdb_strbuf_t *sb, const char *type_name,
+                              const char *impact) {
   char buffer[CMDB_MAX_RELATIONSHIP_NAME];
   size_t i;
 
@@ -18,6 +19,10 @@ static void append_edge_label(cmdb_strbuf_t *sb, const char *type_name) {
     }
   }
   cmdb_strbuf_append_xml_escaped(sb, buffer);
+  if (impact != NULL && impact[0] != '\0') {
+    cmdb_strbuf_append(sb, " · ");
+    cmdb_strbuf_append_xml_escaped(sb, impact);
+  }
 }
 
 int cmdb_drawio_export(const cmdb_graph_t *graph, const char *diagram_name,
@@ -111,7 +116,7 @@ int cmdb_drawio_export(const cmdb_graph_t *graph, const char *diagram_name,
     cmdb_strbuf_append(&sb, "        <mxCell id=\"e-");
     cmdb_strbuf_append_xml_escaped(&sb, edge->id);
     cmdb_strbuf_append(&sb, "\" value=\"");
-    append_edge_label(&sb, edge->type_name);
+    append_edge_label(&sb, edge->type_name, edge->impact);
     cmdb_strbuf_append(&sb,
                        "\" style=\"edgeStyle=orthogonalEdgeStyle;rounded=0;"
                        "orthogonalLoop=1;jettySize=auto;html=0;"

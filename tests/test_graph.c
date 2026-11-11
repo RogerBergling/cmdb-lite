@@ -31,10 +31,13 @@ void test_graph(void) {
   cmdb_relationship_type_t runs_on;
   cmdb_relationship_type_t uses;
   cmdb_relationship_type_t depends_on;
+  cmdb_relationship_type_t manages;
   char rel_id[37];
+  char manages_id[37];
   cmdb_graph_t graph;
   const char *seeds[1];
   const char *filter[1];
+  const char *impacts[1];
 
   TEST_ASSERT(dir != NULL);
   if (dir == NULL) {
@@ -56,6 +59,7 @@ void test_graph(void) {
   TEST_ASSERT(cmdb_relationship_type_find(db, "runs_on", &runs_on, &err) == 0);
   TEST_ASSERT(cmdb_relationship_type_find(db, "uses", &uses, &err) == 0);
   TEST_ASSERT(cmdb_relationship_type_find(db, "depends_on", &depends_on, &err) == 0);
+  TEST_ASSERT(cmdb_relationship_type_find(db, "manages", &manages, &err) == 0);
 
   TEST_ASSERT(cmdb_relationship_create(db, app_id, server_id, runs_on.id, "",
                                        rel_id, &err) == 0);
@@ -96,6 +100,28 @@ void test_graph(void) {
   memset(&graph, 0, sizeof(graph));
   TEST_ASSERT(cmdb_graph_build(db, seeds, 1, 2, CMDB_DIRECTION_OUT,
                                filter, 1, &graph, &err) == 0);
+  TEST_ASSERT(graph.node_count == 2);
+  TEST_ASSERT(graph.edge_count == 1);
+  cmdb_graph_free(&graph);
+
+  TEST_ASSERT(cmdb_relationship_create(db, app_id, network_id, manages.id,
+                                       "", manages_id, &err) == 0);
+
+  seeds[0] = app_id;
+  impacts[0] = "availability";
+  memset(&graph, 0, sizeof(graph));
+  TEST_ASSERT(cmdb_graph_build_with_impacts(
+                db, seeds, 1, 1, CMDB_DIRECTION_OUT, NULL, 0,
+                impacts, 1, &graph, &err) == 0);
+  TEST_ASSERT(graph.node_count == 3);
+  TEST_ASSERT(graph.edge_count == 3);
+  cmdb_graph_free(&graph);
+
+  impacts[0] = "management";
+  memset(&graph, 0, sizeof(graph));
+  TEST_ASSERT(cmdb_graph_build_with_impacts(
+                db, seeds, 1, 1, CMDB_DIRECTION_OUT, NULL, 0,
+                impacts, 1, &graph, &err) == 0);
   TEST_ASSERT(graph.node_count == 2);
   TEST_ASSERT(graph.edge_count == 1);
   cmdb_graph_free(&graph);

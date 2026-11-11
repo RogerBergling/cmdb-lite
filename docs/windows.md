@@ -47,7 +47,7 @@ The script:
 5. Creates:
    - `dist\cmdb-lite-windows-x64\bin\cmdb.exe`
    - `dist\cmdb-lite-windows-x64.zip`
-   - `dist\cmdb-lite-0.5.0-windows-x64.msi` when WiX Toolset v3 is installed
+   - `dist\cmdb-lite-0.6.0-windows-x64.msi` when WiX Toolset v3 is installed
 
 ## Manual build
 
@@ -92,7 +92,7 @@ elevation. It installs under `Program Files\cmdb-lite`, creates a Start Menu
 shortcut, and registers the application for uninstall.
 
 ```powershell
-msiexec /i .\dist\cmdb-lite-0.5.0-windows-x64.msi
+msiexec /i .\dist\cmdb-lite-0.6.0-windows-x64.msi
 ```
 
 The portable ZIP is also supported:
@@ -124,7 +124,7 @@ cmdb-lite-windows-x64/
 
 dist/
   cmdb-lite-windows-x64.zip
-  cmdb-lite-0.5.0-windows-x64.msi
+  cmdb-lite-0.6.0-windows-x64.msi
 ```
 
 There should be **no** `sqlcipher.dll`, `libsodium.dll`, `libcrypto-*.dll`,
@@ -149,7 +149,12 @@ Run this on a clean Windows VM before calling the Windows build supported:
       preference persists.
 - [ ] Add a CI with the standard fields and a custom attribute.
 - [ ] Import the example CSV and relationships files.
-- [ ] Create a relationship manually.
+- [ ] Create a relationship manually and confirm the impact defaults to the
+      relationship type's value.
+- [ ] Create a `manages` relationship with `management` impact and confirm the
+      default Dependency Map impact view does not include it.
+- [ ] Create a `Service` CI for DNS, add a `provided_by` relationship to a
+      server or router, and confirm the service fields render.
 - [ ] Generate a dependency map.
 - [ ] Create a diagram, add two CIs, connect them, save, and verify the
       relationship appears in the Dependency Map.
@@ -193,7 +198,7 @@ signtool sign /f your-cert.pfx /p your-password `
   build\Release\cmdb.exe
 signtool sign /f your-cert.pfx /p your-password `
   /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
-  dist\cmdb-lite-0.5.0-windows-x64.msi
+  dist\cmdb-lite-0.6.0-windows-x64.msi
 ```
 
 Never commit the certificate or password.

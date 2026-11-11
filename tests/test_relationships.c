@@ -17,6 +17,7 @@ void test_relationships(void) {
   cmdb_relationship_type_t *types = NULL;
   size_t type_count = 0;
   cmdb_relationship_type_t runs_on;
+  cmdb_relationship_type_t manages;
   cmdb_relationship_t *rels = NULL;
   size_t count = 0;
   size_t total = 0;
@@ -24,6 +25,7 @@ void test_relationships(void) {
   char app_id[37];
   char server_id[37];
   char rel_id[37];
+  char manages_id[37];
   char duplicate_id[37];
   char self_id[37];
 
@@ -50,9 +52,12 @@ void test_relationships(void) {
   TEST_ASSERT(cmdb_ci_create(db, &input, server_id, &err) == 0);
 
   TEST_ASSERT(cmdb_relationship_types_list(db, &types, &type_count, &err) == 0);
-  TEST_ASSERT(type_count >= 7);
+  TEST_ASSERT(type_count >= 10);
   cmdb_relationship_types_free(types);
   TEST_ASSERT(cmdb_relationship_type_find(db, "runs_on", &runs_on, &err) == 0);
+  TEST_ASSERT(strcmp(runs_on.default_impact, "availability") == 0);
+  TEST_ASSERT(cmdb_relationship_type_find(db, "manages", &manages, &err) == 0);
+  TEST_ASSERT(strcmp(manages.default_impact, "management") == 0);
 
   TEST_ASSERT(cmdb_relationship_create(db, app_id, server_id, runs_on.id,
                                        "API runs on app01", rel_id, &err) == 0);
@@ -60,6 +65,7 @@ void test_relationships(void) {
   TEST_ASSERT(strcmp(rel.source_name, "payments-api") == 0);
   TEST_ASSERT(strcmp(rel.target_name, "app01") == 0);
   TEST_ASSERT(strcmp(rel.type_name, "runs_on") == 0);
+  TEST_ASSERT(strcmp(rel.impact, "availability") == 0);
 
   TEST_ASSERT(cmdb_relationship_create(db, app_id, server_id, runs_on.id,
                                        "duplicate", duplicate_id, &err) != 0);
@@ -72,6 +78,18 @@ void test_relationships(void) {
   TEST_ASSERT(total == 1);
   TEST_ASSERT(count == 1);
   cmdb_relationship_free_list(rels, count);
+
+  TEST_ASSERT(cmdb_relationship_create(db, server_id, app_id, manages.id,
+                                       "Server manages the app", manages_id,
+                                       &err) == 0);
+  TEST_ASSERT(cmdb_relationship_get(db, manages_id, &rel, &err) == 0);
+  TEST_ASSERT(strcmp(rel.impact, "management") == 0);
+  TEST_ASSERT(cmdb_relationship_set_impact(db, manages_id, "monitoring",
+                                           &err) == 0);
+  TEST_ASSERT(cmdb_relationship_get(db, manages_id, &rel, &err) == 0);
+  TEST_ASSERT(strcmp(rel.impact, "monitoring") == 0);
+  TEST_ASSERT(cmdb_relationship_set_impact(db, manages_id, "bogus", &err) != 0);
+  TEST_ASSERT(cmdb_relationship_delete(db, manages_id, &err) == 0);
 
   TEST_ASSERT(cmdb_relationship_delete(db, rel_id, &err) == 0);
   TEST_ASSERT(cmdb_relationship_get(db, rel_id, &rel, &err) != 0);

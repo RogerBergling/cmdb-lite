@@ -44,15 +44,23 @@ wrong.
 
 ## Database compatibility
 
-v0.5.0 does not change the database schema; it remains version 3. v0.4.0
-introduced the managed `ci_categories` table and converted existing free-text
-CI type category labels into category records with stable IDs. v0.3.0 added the
-persisted scan-staging tables.
+v0.6.0 migrates the schema from version 3 to version 4. It adds relationship
+impact classes, new management/monitoring/provider relationship types, and the
+seeded `Service` CI type. Existing relationships receive their relationship
+type's default impact.
 
-When a future release needs a schema migration, the application creates an
-automatic backup next to the database before migrating and reports the backup
-path. The migration itself is transactional and runs when the database is
-opened.
+Review existing `supports`, `connects_to`, and `member_of` relationships after
+the upgrade. They default to `informational`; if one of them represents a real
+runtime dependency, change its impact to `availability` or `degraded`.
+
+v0.5.0 stayed on schema version 3. v0.4.0 introduced the managed
+`ci_categories` table and converted existing free-text CI type category labels
+into category records with stable IDs. v0.3.0 added the persisted scan-staging
+tables.
+
+Before migrating, the application creates an automatic backup next to the
+database and reports the backup path. The migration itself is transactional and
+runs when the database is opened.
 
 After a migration, do not open the same file with an older application. Restore
 the pre-upgrade backup if you need to roll back.
@@ -63,8 +71,8 @@ When a future release needs a schema migration, opening the database first
 creates a backup next to it:
 
 ```text
-inventory.cmdb.pre-v3-20261110T101500Z.cmdb
-inventory.cmdb.pre-v3-20261110T101500Z.cmdb.meta
+inventory.cmdb.pre-v4-20261111T101500Z.cmdb
+inventory.cmdb.pre-v4-20261111T101500Z.cmdb.meta
 ```
 
 The application reports the exact path after opening. If the backup cannot be
@@ -85,7 +93,7 @@ For future releases:
 
 ```bash
 # Stop any running instance, then install the new package over the old one.
-sudo apt install ./cmdb-lite_0.5.0_amd64.deb
+sudo apt install ./cmdb-lite_0.6.0_amd64.deb
 ```
 
 `apt` replaces `/usr/bin/cmdb` and leaves your database untouched. Your database
@@ -107,7 +115,7 @@ dpkg -s cmdb-lite | grep '^Version:'
 ## Fedora / RHEL (`.rpm`)
 
 ```bash
-sudo dnf upgrade ./cmdb-lite-0.5.0-1.x86_64.rpm
+sudo dnf upgrade ./cmdb-lite-0.6.0-1.x86_64.rpm
 ```
 
 or, if the RPM is in a repository:
@@ -129,8 +137,8 @@ The portable archive contains a single `cmdb` ELF. Keep the old binary until the
 new one starts successfully:
 
 ```bash
-tar -xzf cmdb-lite-0.5.0-linux-x86_64.tar.gz
-./cmdb-lite-0.5.0-linux-x86_64/bin/cmdb
+tar -xzf cmdb-lite-0.6.0-linux-x86_64.tar.gz
+./cmdb-lite-0.6.0-linux-x86_64/bin/cmdb
 ```
 
 The database is opened from the path you choose in the application. File paths
@@ -157,7 +165,7 @@ executable does not store the database next to itself.
 ## Windows MSI
 
 ```powershell
-msiexec /i .\cmdb-lite-0.5.0-windows-x64.msi
+msiexec /i .\cmdb-lite-0.6.0-windows-x64.msi
 ```
 
 The per-machine MSI upgrades the installed executable and Start Menu shortcut.
@@ -167,7 +175,7 @@ required.
 To uninstall:
 
 ```powershell
-msiexec /x .\cmdb-lite-0.5.0-windows-x64.msi
+msiexec /x .\cmdb-lite-0.6.0-windows-x64.msi
 ```
 
 Uninstalling removes the application only. Back up your database first if you

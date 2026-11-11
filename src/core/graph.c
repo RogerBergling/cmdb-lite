@@ -36,6 +36,20 @@ static int type_allowed(const char *name, const char *const *types,
   return 0;
 }
 
+static int impact_allowed(const char *impact, const char *const *impacts,
+                          size_t impact_count) {
+  size_t i;
+  if (impact_count == 0) {
+    return 1;
+  }
+  for (i = 0; i < impact_count; i++) {
+    if (impacts[i] != NULL && ascii_case_equal(impact, impacts[i])) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
 static int node_find(const cmdb_graph_t *graph, const char *id) {
   size_t i;
   for (i = 0; i < graph->node_count; i++) {
@@ -131,7 +145,7 @@ static int node_add_with_info(cmdb_db_t *db, cmdb_graph_t *graph,
 
 static int edge_add(cmdb_graph_t *graph, const char *id,
                     const char *source_id, const char *target_id,
-                    const char *type_name) {
+                    const char *type_name, const char *impact) {
   cmdb_graph_edge_t *edge;
 
   if (edge_find(graph, id) >= 0) {
@@ -149,13 +163,14 @@ static int edge_add(cmdb_graph_t *graph, const char *id,
   (void)cmdb_str_copy(edge->source_id, sizeof(edge->source_id), source_id);
   (void)cmdb_str_copy(edge->target_id, sizeof(edge->target_id), target_id);
   (void)cmdb_str_copy(edge->type_name, sizeof(edge->type_name), type_name);
+  (void)cmdb_str_copy(edge->impact, sizeof(edge->impact), impact);
   graph->edge_count++;
   return 1;
 }
 
 typedef int (*edge_callback_fn)(const char *edge_id, const char *other_id,
-                                const char *type_name, void *context,
-                                cmdb_error_t *err);
+                                const char *type_name, const char *impact,
+                                void *context, cmdb_error_t *err);
 
 static int query_edges(cmdb_db_t *db, const char *node_id, int incoming,
                        edge_callback_fn callback, void *context,
@@ -165,11 +180,11 @@ static int query_edges(cmdb_db_t *db, const char *node_id, int incoming,
   int rc;
 
   if (incoming) {
-    sql = "SELECT r.id, r.source_id, rt.name FROM relationships r "
+    sql = "SELECT r.id, r.source_id, rt.name, r.impact FROM relationships r "
           "JOIN relationship_types rt ON rt.id = r.type_id "
           "WHERE r.target_id = ?;";
   } else {
-    sql = "SELECT r.id, r.target_id, rt.name FROM relationships r "
+    sql = "SELECT r.id, r.target_id, rt.name, r.impact FROM relationships r "
           "JOIN relationship_types rt ON rt.id = r.type_id "
           "WHERE r.source_id = ?;";
   }
@@ -182,12 +197,14 @@ static int query_edges(cmdb_db_t *db, const char *node_id, int incoming,
     const char *edge_id = (const char *)sqlite3_column_text(stmt, 0);
     const char *other_id = (const char *)sqlite3_column_text(stmt, 1);
     const char *type_name = (const char *)sqlite3_column_text(stmt, 2);
-    if (edge_id == NULL || other_id == NULL || type_name == NULL) {
+    const char *impact = (const char *)sqlite3_column_text(stmt, 3);
+    if (edge_id == NULL || other_id == NULL || type_name == NULL ||
+        impact == NULL) {
       sqlite3_finalize(stmt);
       cmdb_error_set(err, CMDB_ERR_DATABASE, "Graph relationship is corrupt");
       return -1;
     }
-    if (callback(edge_id, other_id, type_name, context, err) != 0) {
+    if (callback(edge_id, other_id, type_name, impact, context, err) != 0) {
       sqlite3_finalize(stmt);
       return -1;
     }
@@ -209,18 +226,21 @@ typedef struct {
   int max_depth;
   const char *const *relationship_types;
   size_t relationship_type_count;
+  const char *const *impacts;
+  size_t impact_count;
   cmdb_error_t *err;
 } bfs_context_t;
 
 static int bfs_visit(const char *edge_id, const char *other_id,
-                     const char *type_name, void *context,
-                     cmdb_error_t *err) {
+                     const char *type_name, const char *impact,
+                     void *context, cmdb_error_t *err) {
   bfs_context_t *ctx = context;
   int added;
   (void)edge_id;
 
   if (!type_allowed(type_name, ctx->relationship_types,
-                    ctx->relationship_type_count)) {
+                    ctx->relationship_type_count) ||
+      !impact_allowed(impact, ctx->impacts, ctx->impact_count)) {
     return 0;
   }
   if (ctx->graph->truncated) {
@@ -254,34 +274,39 @@ typedef struct {
   int incoming;
   const char *const *relationship_types;
   size_t relationship_type_count;
+  const char *const *impacts;
+  size_t impact_count;
 } collect_context_t;
 
 static int collect_visit(const char *edge_id, const char *other_id,
-                         const char *type_name, void *context,
-                         cmdb_error_t *err) {
+                         const char *type_name, const char *impact,
+                         void *context, cmdb_error_t *err) {
   collect_context_t *ctx = context;
   (void)err;
 
   if (!type_allowed(type_name, ctx->relationship_types,
-                    ctx->relationship_type_count)) {
+                    ctx->relationship_type_count) ||
+      !impact_allowed(impact, ctx->impacts, ctx->impact_count)) {
     return 0;
   }
   if (node_find(ctx->graph, other_id) < 0) {
     return 0;
   }
   if (ctx->incoming) {
-    (void)edge_add(ctx->graph, edge_id, other_id, ctx->node_id, type_name);
+    (void)edge_add(ctx->graph, edge_id, other_id, ctx->node_id, type_name,
+                   impact);
   } else {
-    (void)edge_add(ctx->graph, edge_id, ctx->node_id, other_id, type_name);
+    (void)edge_add(ctx->graph, edge_id, ctx->node_id, other_id, type_name,
+                   impact);
   }
   return 0;
 }
 
-int cmdb_graph_build(cmdb_db_t *db, const char *const *seed_ids,
-                     size_t seed_count, int depth, cmdb_direction_t direction,
-                     const char *const *relationship_types,
-                     size_t relationship_type_count, cmdb_graph_t *out,
-                     cmdb_error_t *err) {
+int cmdb_graph_build_with_impacts(
+  cmdb_db_t *db, const char *const *seed_ids, size_t seed_count, int depth,
+  cmdb_direction_t direction, const char *const *relationship_types,
+  size_t relationship_type_count, const char *const *impacts,
+  size_t impact_count, cmdb_graph_t *out, cmdb_error_t *err) {
   graph_queue_item_t *queue = NULL;
   size_t head = 0;
   size_t tail = 0;
@@ -346,6 +371,8 @@ int cmdb_graph_build(cmdb_db_t *db, const char *const *seed_ids,
     ctx.max_depth = depth;
     ctx.relationship_types = relationship_types;
     ctx.relationship_type_count = relationship_type_count;
+    ctx.impacts = impacts;
+    ctx.impact_count = impact_count;
     ctx.err = err;
 
     if ((direction == CMDB_DIRECTION_OUT || direction == CMDB_DIRECTION_BOTH) &&
@@ -365,6 +392,8 @@ int cmdb_graph_build(cmdb_db_t *db, const char *const *seed_ids,
     ctx.node_id = out->nodes[i].id;
     ctx.relationship_types = relationship_types;
     ctx.relationship_type_count = relationship_type_count;
+    ctx.impacts = impacts;
+    ctx.impact_count = impact_count;
 
     if (direction == CMDB_DIRECTION_OUT || direction == CMDB_DIRECTION_BOTH) {
       ctx.incoming = 0;
@@ -387,6 +416,16 @@ fail:
   free(queue);
   cmdb_graph_free(out);
   return -1;
+}
+
+int cmdb_graph_build(cmdb_db_t *db, const char *const *seed_ids,
+                     size_t seed_count, int depth, cmdb_direction_t direction,
+                     const char *const *relationship_types,
+                     size_t relationship_type_count, cmdb_graph_t *out,
+                     cmdb_error_t *err) {
+  return cmdb_graph_build_with_impacts(
+    db, seed_ids, seed_count, depth, direction, relationship_types,
+    relationship_type_count, NULL, 0, out, err);
 }
 
 void cmdb_graph_free(cmdb_graph_t *graph) {

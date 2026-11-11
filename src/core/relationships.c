@@ -33,7 +33,21 @@ static int read_rel_type_row(sqlite3_stmt *stmt, cmdb_relationship_type_t *out) 
   if (cmdb_str_copy(out->color, sizeof(out->color), (const char *)text) != 0) {
     return -1;
   }
+  text = sqlite3_column_text(stmt, 5);
+  if (cmdb_str_copy(out->default_impact, sizeof(out->default_impact),
+                    (const char *)text) != 0) {
+    return -1;
+  }
   return 0;
+}
+
+int cmdb_relationship_impact_valid(const char *impact) {
+  return impact != NULL &&
+         (strcmp(impact, "availability") == 0 ||
+          strcmp(impact, "degraded") == 0 ||
+          strcmp(impact, "management") == 0 ||
+          strcmp(impact, "monitoring") == 0 ||
+          strcmp(impact, "informational") == 0);
 }
 
 int cmdb_relationship_types_list(cmdb_db_t *db,
@@ -68,7 +82,8 @@ int cmdb_relationship_types_list(cmdb_db_t *db,
 
   types = cmdb_calloc(total, sizeof(*types));
   if (sqlite3_prepare_v2(cmdb_db_sqlite(db),
-                         "SELECT id, name, inverse_name, description, color "
+                         "SELECT id, name, inverse_name, description, color, "
+                         "default_impact "
                          "FROM relationship_types ORDER BY name COLLATE NOCASE;",
                          -1, &stmt, NULL) != SQLITE_OK) {
     free(types);
@@ -108,7 +123,8 @@ int cmdb_relationship_type_find(cmdb_db_t *db, const char *name,
   }
   memset(out, 0, sizeof(*out));
   if (sqlite3_prepare_v2(cmdb_db_sqlite(db),
-                         "SELECT id, name, inverse_name, description, color "
+                         "SELECT id, name, inverse_name, description, color, "
+                         "default_impact "
                          "FROM relationship_types WHERE name = ? COLLATE NOCASE;",
                          -1, &stmt, NULL) != SQLITE_OK) {
     cmdb_error_set(err, CMDB_ERR_DATABASE, "Cannot read relationship type");
@@ -148,7 +164,8 @@ int cmdb_relationship_type_get(cmdb_db_t *db, const char *id,
   }
   memset(out, 0, sizeof(*out));
   if (sqlite3_prepare_v2(cmdb_db_sqlite(db),
-                         "SELECT id, name, inverse_name, description, color "
+                         "SELECT id, name, inverse_name, description, color, "
+                         "default_impact "
                          "FROM relationship_types WHERE id = ?;",
                          -1, &stmt, NULL) != SQLITE_OK) {
     cmdb_error_set(err, CMDB_ERR_DATABASE, "Cannot read relationship type");
@@ -196,6 +213,7 @@ static int read_rel_row(sqlite3_stmt *stmt, cmdb_relationship_t *out) {
   READ_TEXT(type_id);
   READ_TEXT(type_name);
   READ_TEXT(description);
+  READ_TEXT(impact);
   READ_TEXT(created_at);
   READ_TEXT(updated_at);
 
@@ -205,7 +223,8 @@ static int read_rel_row(sqlite3_stmt *stmt, cmdb_relationship_t *out) {
 
 static int audit_relationship(cmdb_db_t *db, const char *action, const char *id,
                               const char *source_id, const char *target_id,
-                              const char *type_id, cmdb_error_t *err) {
+                              const char *type_id, const char *impact,
+                              cmdb_error_t *err) {
   cJSON *detail = cJSON_CreateObject();
   char *json;
   int rc;
@@ -217,6 +236,7 @@ static int audit_relationship(cmdb_db_t *db, const char *action, const char *id,
   cJSON_AddStringToObject(detail, "source_id", source_id);
   cJSON_AddStringToObject(detail, "target_id", target_id);
   cJSON_AddStringToObject(detail, "type_id", type_id);
+  cJSON_AddStringToObject(detail, "impact", impact != NULL ? impact : "");
   json = cJSON_PrintUnformatted(detail);
   cJSON_Delete(detail);
   if (json == NULL) {
@@ -230,11 +250,13 @@ static int audit_relationship(cmdb_db_t *db, const char *action, const char *id,
 
 int cmdb_relationship_create_ex(cmdb_db_t *db, const char *source_id,
                                 const char *target_id, const char *type_id,
-                                const char *description, int write_audit,
-                                char out_id[37], cmdb_error_t *err) {
+                                const char *description, const char *impact,
+                                int write_audit, char out_id[37],
+                                cmdb_error_t *err) {
   cmdb_ci_t source;
   cmdb_ci_t target;
   cmdb_relationship_type_t type;
+  const char *effective_impact;
   sqlite3_stmt *stmt = NULL;
   char id[37];
   char now[21];
@@ -282,7 +304,17 @@ int cmdb_relationship_create_ex(cmdb_db_t *db, const char *source_id,
   if (cmdb_relationship_type_get(db, type_id, &type, err) != 0) {
     return -1;
   }
-  (void)type;
+  effective_impact = impact != NULL && impact[0] != '\0'
+                       ? impact
+                       : (type.default_impact[0] != '\0'
+                            ? type.default_impact
+                            : "availability");
+  if (!cmdb_relationship_impact_valid(effective_impact)) {
+    cmdb_error_set(err, CMDB_ERR_VALIDATION,
+                   "Relationship impact must be availability, degraded, "
+                   "management, monitoring, or informational");
+    return -1;
+  }
 
   if (cmdb_random_uuid(id) != 0) {
     cmdb_error_set(err, CMDB_ERR_INTERNAL, "Cannot generate relationship ID");
@@ -296,7 +328,8 @@ int cmdb_relationship_create_ex(cmdb_db_t *db, const char *source_id,
   if (sqlite3_prepare_v2(cmdb_db_sqlite(db),
                          "INSERT INTO relationships"
                          "(id, source_id, target_id, type_id, description, "
-                         "created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?);",
+                         "impact, created_at, updated_at) "
+                         "VALUES(?, ?, ?, ?, ?, ?, ?, ?);",
                          -1, &stmt, NULL) != SQLITE_OK) {
     cmdb_error_set(err, CMDB_ERR_DATABASE, "Cannot prepare relationship insert");
     goto fail;
@@ -307,8 +340,9 @@ int cmdb_relationship_create_ex(cmdb_db_t *db, const char *source_id,
   sqlite3_bind_text(stmt, 4, type_id, -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(stmt, 5, description != NULL ? description : "",
                     -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(stmt, 6, now, -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 6, effective_impact, -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(stmt, 7, now, -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 8, now, -1, SQLITE_TRANSIENT);
   rc = sqlite3_step(stmt);
   sqlite3_finalize(stmt);
   stmt = NULL;
@@ -324,7 +358,7 @@ int cmdb_relationship_create_ex(cmdb_db_t *db, const char *source_id,
   }
   if (write_audit &&
       audit_relationship(db, "create", id, source_id, target_id, type_id,
-                         err) != 0) {
+                         effective_impact, err) != 0) {
     goto fail;
   }
   if (cmdb_db_savepoint_release(db, "rel_write", err) != 0) {
@@ -346,7 +380,7 @@ int cmdb_relationship_create(cmdb_db_t *db, const char *source_id,
                              const char *description, char out_id[37],
                              cmdb_error_t *err) {
   return cmdb_relationship_create_ex(db, source_id, target_id, type_id,
-                                     description, 1, out_id, err);
+                                     description, NULL, 1, out_id, err);
 }
 
 int cmdb_relationship_delete(cmdb_db_t *db, const char *id,
@@ -381,13 +415,71 @@ int cmdb_relationship_delete(cmdb_db_t *db, const char *id,
     goto fail;
   }
   if (audit_relationship(db, "delete", id, existing.source_id,
-                         existing.target_id, existing.type_id, err) != 0) {
+                         existing.target_id, existing.type_id,
+                         existing.impact, err) != 0) {
     goto fail;
   }
   if (cmdb_db_savepoint_release(db, "rel_write", err) != 0) {
     return -1;
   }
   return 0;
+
+fail:
+  if (stmt != NULL) {
+    sqlite3_finalize(stmt);
+  }
+  (void)cmdb_db_savepoint_rollback(db, "rel_write", NULL);
+  return -1;
+}
+
+int cmdb_relationship_set_impact(cmdb_db_t *db, const char *id,
+                                 const char *impact, cmdb_error_t *err) {
+  cmdb_relationship_t existing;
+  sqlite3_stmt *stmt = NULL;
+  char now[21];
+  int rc;
+
+  if (db == NULL || id == NULL || !cmdb_uuid_valid(id) ||
+      !cmdb_relationship_impact_valid(impact)) {
+    cmdb_error_set(err, CMDB_ERR_INVALID_ARGUMENT,
+                   "Invalid relationship impact");
+    return -1;
+  }
+  if (cmdb_relationship_get(db, id, &existing, err) != 0) {
+    return -1;
+  }
+  if (strcmp(existing.impact, impact) == 0) {
+    return 0;
+  }
+  cmdb_iso8601_now(now);
+  if (cmdb_db_savepoint_begin(db, "rel_write", err) != 0) {
+    return -1;
+  }
+  if (sqlite3_prepare_v2(cmdb_db_sqlite(db),
+                         "UPDATE relationships SET impact = ?, updated_at = ? "
+                         "WHERE id = ?;",
+                         -1, &stmt, NULL) != SQLITE_OK) {
+    cmdb_error_set(err, CMDB_ERR_DATABASE,
+                   "Cannot prepare relationship impact update");
+    goto fail;
+  }
+  sqlite3_bind_text(stmt, 1, impact, -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 2, now, -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 3, id, -1, SQLITE_TRANSIENT);
+  rc = sqlite3_step(stmt);
+  sqlite3_finalize(stmt);
+  stmt = NULL;
+  if (rc != SQLITE_DONE) {
+    cmdb_error_set(err, CMDB_ERR_DATABASE,
+                   "Cannot update relationship impact");
+    goto fail;
+  }
+  if (audit_relationship(db, "update", id, existing.source_id,
+                         existing.target_id, existing.type_id, impact,
+                         err) != 0) {
+    goto fail;
+  }
+  return cmdb_db_savepoint_release(db, "rel_write", err);
 
 fail:
   if (stmt != NULL) {
@@ -410,7 +502,8 @@ int cmdb_relationship_get(cmdb_db_t *db, const char *id,
   if (sqlite3_prepare_v2(cmdb_db_sqlite(db),
                          "SELECT r.id, r.source_id, s.name, r.target_id, "
                          "t.name, r.type_id, rt.name, r.description, "
-                         "r.created_at, r.updated_at FROM relationships r "
+                         "r.impact, r.created_at, r.updated_at "
+                         "FROM relationships r "
                          "JOIN cis s ON s.id = r.source_id "
                          "JOIN cis t ON t.id = r.target_id "
                          "JOIN relationship_types rt ON rt.id = r.type_id "
@@ -485,7 +578,8 @@ int cmdb_relationship_list(cmdb_db_t *db, const char *ci_id, size_t limit,
   if (sqlite3_prepare_v2(cmdb_db_sqlite(db),
                          "SELECT r.id, r.source_id, s.name, r.target_id, "
                          "t.name, r.type_id, rt.name, r.description, "
-                         "r.created_at, r.updated_at FROM relationships r "
+                         "r.impact, r.created_at, r.updated_at "
+                         "FROM relationships r "
                          "JOIN cis s ON s.id = r.source_id "
                          "JOIN cis t ON t.id = r.target_id "
                          "JOIN relationship_types rt ON rt.id = r.type_id "

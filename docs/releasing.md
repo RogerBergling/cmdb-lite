@@ -24,8 +24,8 @@ manual trigger required.
 ## Tag and publish
 
 ```bash
-git tag -a v0.5.0 -m "cmdb-lite v0.5.0"
-git push origin v0.5.0
+git tag -a v0.6.0 -m "cmdb-lite v0.6.0"
+git push origin v0.6.0
 ```
 
 The tag triggers `.github/workflows/ci.yml` for Linux, Fedora, Flatpak, and
@@ -42,8 +42,8 @@ No manual artifact assembly or `gh release create` step is required.
 ## Verify the release
 
 ```bash
-gh release view v0.5.0
-gh release download v0.5.0 --dir /tmp/cmdb-release
+gh release view v0.6.0
+gh release download v0.6.0 --dir /tmp/cmdb-release
 cd /tmp/cmdb-release
 sha256sum -c SHA256SUMS
 ```
@@ -54,11 +54,11 @@ The release job does not run unless all platform jobs pass. Fix the commit,
 delete the tag locally and remotely, then re-tag:
 
 ```bash
-git tag -d v0.5.0
-git push origin :refs/tags/v0.5.0
+git tag -d v0.6.0
+git push origin :refs/tags/v0.6.0
 # fix, commit, push main, wait for CI
-git tag -a v0.5.0 -m "cmdb-lite v0.5.0"
-git push origin v0.5.0
+git tag -a v0.6.0 -m "cmdb-lite v0.6.0"
+git push origin v0.6.0
 ```
 
 Do not move a published release tag. Publish a new patch version instead.

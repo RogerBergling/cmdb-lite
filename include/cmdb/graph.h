@@ -30,6 +30,7 @@ typedef struct {
   char source_id[37];
   char target_id[37];
   char type_name[CMDB_MAX_RELATIONSHIP_NAME];
+  char impact[16];
 } cmdb_graph_edge_t;
 
 typedef struct {
@@ -45,6 +46,11 @@ int cmdb_graph_build(cmdb_db_t *db, const char *const *seed_ids,
                      const char *const *relationship_types,
                      size_t relationship_type_count, cmdb_graph_t *out,
                      cmdb_error_t *err);
+int cmdb_graph_build_with_impacts(
+  cmdb_db_t *db, const char *const *seed_ids, size_t seed_count, int depth,
+  cmdb_direction_t direction, const char *const *relationship_types,
+  size_t relationship_type_count, const char *const *impacts,
+  size_t impact_count, cmdb_graph_t *out, cmdb_error_t *err);
 
 void cmdb_graph_free(cmdb_graph_t *graph);
 

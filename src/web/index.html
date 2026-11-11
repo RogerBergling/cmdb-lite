@@ -232,10 +232,21 @@
               <label for="rel-target">Target CI</label>
               <select id="rel-target" required></select>
             </div>
+            <div>
+              <label for="rel-impact">Impact if target is unavailable</label>
+              <select id="rel-impact" required>
+                <option value="availability">Availability — hard dependency</option>
+                <option value="degraded">Degraded — soft dependency</option>
+                <option value="management">Management only</option>
+                <option value="monitoring">Monitoring only</option>
+                <option value="informational">Informational only</option>
+              </select>
+            </div>
             <div class="wide-field">
               <label for="rel-description">Description</label>
               <input id="rel-description" type="text" maxlength="1023" placeholder="Optional context">
             </div>
+            <p id="rel-impact-hint" class="hint wide-field">Availability: the source stops working if the target is down.</p>
             <div class="form-actions">
               <button type="submit" class="primary">Add relationship</button>
             </div>
@@ -244,7 +255,7 @@
         <div class="table-wrap">
           <table>
             <thead>
-              <tr><th>Source</th><th>Relationship</th><th>Target</th><th>Description</th><th class="actions-col">Actions</th></tr>
+              <tr><th>Source</th><th>Relationship</th><th>Target</th><th>Impact</th><th>Description</th><th class="actions-col">Actions</th></tr>
             </thead>
             <tbody id="relationship-table"></tbody>
           </table>
@@ -510,6 +521,11 @@
             <fieldset class="filter-box">
               <legend>Relationship types</legend>
               <div id="map-rel-types" class="check-list compact"></div>
+            </fieldset>
+
+            <fieldset class="filter-box">
+              <legend>Impact classes</legend>
+              <div id="map-impacts" class="check-list compact"></div>
             </fieldset>
 
             <div class="button-row">

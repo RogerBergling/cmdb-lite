@@ -14,6 +14,7 @@ void test_types(void) {
   cmdb_ci_type_t *types = NULL;
   size_t count = 0;
   cmdb_ci_type_t linux_type;
+  cmdb_ci_type_t service_type;
   cmdb_ci_type_t new_type;
   cmdb_type_field_t *fields = NULL;
   cmdb_type_field_t got_field;
@@ -44,6 +45,29 @@ void test_types(void) {
   TEST_ASSERT(cmdb_types_find_by_name(db, "Linux Server", &linux_type, &err) == 0);
   TEST_ASSERT(strcmp(linux_type.name, "Linux Server") == 0);
   TEST_ASSERT(strcmp(linux_type.category, "Compute") == 0);
+
+  TEST_ASSERT(cmdb_types_find_by_name(db, "Service", &service_type, &err) == 0);
+  TEST_ASSERT(strcmp(service_type.category, "Services") == 0);
+  TEST_ASSERT(cmdb_type_fields_list(db, service_type.id, &fields, &field_count,
+                                    &err) == 0);
+  {
+    size_t i;
+    int seen_type = 0;
+    int seen_availability = 0;
+    for (i = 0; i < field_count; i++) {
+      if (strcmp(fields[i].key, "service_type") == 0) {
+        seen_type = 1;
+        TEST_ASSERT(strstr(fields[i].options_json, "DNS") != NULL);
+      }
+      if (strcmp(fields[i].key, "availability_mode") == 0) {
+        seen_availability = 1;
+      }
+    }
+    TEST_ASSERT(seen_type);
+    TEST_ASSERT(seen_availability);
+  }
+  cmdb_type_fields_free(fields);
+  fields = NULL;
 
   TEST_ASSERT(cmdb_categories_create(db, "Test", "Test category", "#123456", 10,
                                       category_id, &err) == 0);

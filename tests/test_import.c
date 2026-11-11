@@ -32,8 +32,14 @@ void test_import(void) {
     "ci_name,ci_type\n"
     "new-app,New Imported Type\n";
   const char *rel_csv =
-    "source_ci,relationship_type,target_ci,description\n"
-    "imp-app,runs_on,db01,Imported relationship\n";
+    "source_ci,relationship_type,target_ci,description,impact\n"
+    "imp-app,runs_on,db01,Imported relationship,management\n";
+  const char *rel_update_csv =
+    "source_ci,relationship_type,target_ci,description,impact\n"
+    "imp-app,runs_on,db01,Updated relationship,monitoring\n";
+  const char *rel_bad_csv =
+    "source_ci,relationship_type,target_ci,impact\n"
+    "imp-app,runs_on,db01,bogus\n";
   char ci_id[37];
   char db_id[37];
   cmdb_ci_t ci;
@@ -177,8 +183,40 @@ void test_import(void) {
     TEST_ASSERT(total == 1);
     TEST_ASSERT(count == 1);
     TEST_ASSERT(strcmp(rels[0].type_name, "runs_on") == 0);
+    TEST_ASSERT(strcmp(rels[0].impact, "management") == 0);
     cmdb_relationship_free_list(rels, count);
   }
+
+  options.duplicate_policy = CMDB_DUPLICATE_UPDATE;
+  memset(&table, 0, sizeof(table));
+  TEST_ASSERT(parse_table(rel_update_csv, ',', &table, &err) == 0);
+  memset(&report, 0, sizeof(report));
+  TEST_ASSERT(cmdb_import_rel_commit(db, &table, &options, &report, &err) == 0);
+  TEST_ASSERT(report.committed == 1);
+  TEST_ASSERT(report.update_count == 1);
+  cmdb_import_report_free(&report);
+  cmdb_csv_free(&table);
+  {
+    cmdb_relationship_t *rels = NULL;
+    size_t count = 0;
+    size_t total = 0;
+    TEST_ASSERT(cmdb_relationship_list(db, ci_id, 10, 0,
+                                       &rels, &count, &total, &err) == 0);
+    TEST_ASSERT(total == 1);
+    TEST_ASSERT(count == 1);
+    TEST_ASSERT(strcmp(rels[0].description, "Updated relationship") == 0);
+    TEST_ASSERT(strcmp(rels[0].impact, "monitoring") == 0);
+    cmdb_relationship_free_list(rels, count);
+  }
+
+  options.duplicate_policy = CMDB_DUPLICATE_ERROR;
+  memset(&table, 0, sizeof(table));
+  TEST_ASSERT(parse_table(rel_bad_csv, ',', &table, &err) == 0);
+  memset(&report, 0, sizeof(report));
+  TEST_ASSERT(cmdb_import_rel_preview(db, &table, &options, &report, &err) == 0);
+  TEST_ASSERT(report.error_count == 1);
+  cmdb_import_report_free(&report);
+  cmdb_csv_free(&table);
 
   {
     int valid = 0;

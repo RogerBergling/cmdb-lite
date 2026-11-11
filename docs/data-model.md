@@ -1,7 +1,7 @@
 # Data model
 
 The database is a single SQLCipher file. All tables live in the same encrypted
-file. Schema version 3 is created and migrated by `src/core/schema.c`.
+file. Schema version 4 is created and migrated by `src/core/schema.c`.
 
 ## `app_meta`
 
@@ -9,7 +9,7 @@ Key/value application metadata stored inside the encrypted database.
 
 | Key | Meaning |
 |---|---|
-| `schema_version` | Integer schema version; currently `3`. |
+| `schema_version` | Integer schema version; currently `4`. |
 | `created_at` | Database creation timestamp (UTC). |
 | `app_version` | Application version that created/updated the schema. |
 | `ui.theme` | Optional `system`, `light`, or `dark` preference. |
@@ -48,7 +48,9 @@ User-defined CI types assigned to a managed category.
 
 The application seeds editable examples: Linux Server, Windows Server, Virtual
 Machine, Router, Switch, Firewall, Web Application, Database, Business Service,
-Cloud Service, Network, and Other.
+Cloud Service, Network, Other, and Service. The `Service` type represents a
+technical function such as DNS, SMTP, or NTP and has fields for service type,
+endpoint, port, protocol, availability mode, and scope.
 
 ## `ci_type_fields`
 
@@ -115,10 +117,12 @@ Typed edges.
 | `inverse_name` | TEXT | Display name for the inverse direction. |
 | `description` | TEXT | Human-readable meaning. |
 | `color` | TEXT | Optional display colour. |
+| `default_impact` | TEXT | Default impact class for new relationships of this type. |
 | `created_at`, `updated_at` | TEXT | ISO 8601 UTC. |
 
 Seeded types: `runs_on`, `uses`, `hosted_in`, `supports`, `depends_on`,
-`connects_to`, `member_of`.
+`connects_to`, `member_of`, `manages`, `monitors`, and `provided_by`.
+See [`dependencies.md`](dependencies.md) for the impact defaults and semantics.
 
 ## `relationships`
 
@@ -129,6 +133,7 @@ Seeded types: `runs_on`, `uses`, `hosted_in`, `supports`, `depends_on`,
 | `target_id` | TEXT | FK to `cis.id`, cascade delete. |
 | `type_id` | TEXT | FK to `relationship_types.id`, restrict delete. |
 | `description` | TEXT | Maximum 1,023 bytes. |
+| `impact` | TEXT | `availability`, `degraded`, `management`, `monitoring`, or `informational`. |
 | `created_at`, `updated_at` | TEXT | ISO 8601 UTC. |
 
 Constraints:

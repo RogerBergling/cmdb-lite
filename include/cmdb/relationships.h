@@ -17,6 +17,7 @@ typedef struct {
   char inverse_name[CMDB_MAX_RELATIONSHIP_NAME];
   char description[512];
   char color[16];
+  char default_impact[16];
 } cmdb_relationship_type_t;
 
 typedef struct {
@@ -28,6 +29,7 @@ typedef struct {
   char type_id[37];
   char type_name[CMDB_MAX_RELATIONSHIP_NAME];
   char description[1024];
+  char impact[16];
   char created_at[21];
   char updated_at[21];
 } cmdb_relationship_t;
@@ -43,14 +45,19 @@ int cmdb_relationship_type_get(cmdb_db_t *db, const char *id,
                                cmdb_relationship_type_t *out,
                                cmdb_error_t *err);
 
+int cmdb_relationship_impact_valid(const char *impact);
+
 int cmdb_relationship_create(cmdb_db_t *db, const char *source_id,
                              const char *target_id, const char *type_id,
                              const char *description, char out_id[37],
                              cmdb_error_t *err);
 int cmdb_relationship_create_ex(cmdb_db_t *db, const char *source_id,
                                 const char *target_id, const char *type_id,
-                                const char *description, int write_audit,
-                                char out_id[37], cmdb_error_t *err);
+                                const char *description, const char *impact,
+                                int write_audit, char out_id[37],
+                                cmdb_error_t *err);
+int cmdb_relationship_set_impact(cmdb_db_t *db, const char *id,
+                                 const char *impact, cmdb_error_t *err);
 int cmdb_relationship_delete(cmdb_db_t *db, const char *id,
                              cmdb_error_t *err);
 int cmdb_relationship_get(cmdb_db_t *db, const char *id,

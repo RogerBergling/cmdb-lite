@@ -104,16 +104,22 @@ app01,Linux Server,10.20.0.11,SN-8891
 source_ci,relationship_type,target_ci
 ```
 
-Optional column: `description` (maximum 1,023 bytes).
+Optional columns:
+
+- `description` (maximum 1,023 bytes).
+- `impact` — `availability`, `degraded`, `management`, `monitoring`, or
+  `informational`. When omitted or empty, the relationship type's default is
+  used.
 
 ### Example `relationships.csv`
 
 ```csv
-source_ci,relationship_type,target_ci,description
-payments-api,runs_on,app01,Payments API runs on app01
-payments-api,uses,db01,Payments API uses the primary database
-payments-api,supports,payments-service,Payments API supports the Payments business service
-app01,depends_on,net01,App server depends on the network segment
+source_ci,relationship_type,target_ci,description,impact
+payments-api,runs_on,app01,Payments API runs on app01,availability
+payments-api,uses,db01,Payments API uses the primary database,availability
+payments-api,depends_on,payments-service,Payments API depends on the business service,availability
+vcenter01,manages,app01,Inventory and power operations,management
+app01,depends_on,net01,App server depends on the network segment,availability
 ```
 
 ### Resolving source and target
@@ -138,11 +144,15 @@ Relationship types are matched case-insensitively:
 - `depends_on` / `depended_on_by`
 - `connects_to` / `connects_to`
 - `member_of` / `contains`
+- `manages` / `managed_by`
+- `monitors` / `monitored_by`
+- `provided_by` / `provides`
 
 The inverse names are shown in the UI; the stored edge is always directed from
 source to target. A CI cannot relate to itself. Duplicate
 `(source, relationship_type, target)` triples are handled by the selected
-duplicate policy.
+duplicate policy. With the `update` policy, the relationship's description and
+impact are updated; the source, target, and type identify the existing row.
 
 ## Duplicate policy
 

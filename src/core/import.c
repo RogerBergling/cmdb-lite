@@ -1094,6 +1094,7 @@ int cmdb_import_rel_preview(cmdb_db_t *db, const cmdb_csv_table_t *table,
   int type_idx;
   int target_idx;
   int description_idx;
+  int impact_idx;
 
   if (db == NULL || table == NULL || options == NULL || report == NULL) {
     cmdb_error_set(err, CMDB_ERR_INVALID_ARGUMENT, "Invalid import arguments");
@@ -1108,6 +1109,7 @@ int cmdb_import_rel_preview(cmdb_db_t *db, const cmdb_csv_table_t *table,
   type_idx = cmdb_csv_column_index(table, "relationship_type");
   target_idx = cmdb_csv_column_index(table, "target_ci");
   description_idx = cmdb_csv_column_index(table, "description");
+  impact_idx = cmdb_csv_column_index(table, "impact");
 
   for (i = 0; i < table->row_count; i++) {
     cmdb_csv_row_t *row = &table->rows[i];
@@ -1115,6 +1117,7 @@ int cmdb_import_rel_preview(cmdb_db_t *db, const cmdb_csv_table_t *table,
     const char *type_name;
     const char *target;
     const char *description;
+    const char *impact;
     char source_id[37];
     char target_id[37];
     cmdb_relationship_type_t type;
@@ -1128,10 +1131,12 @@ int cmdb_import_rel_preview(cmdb_db_t *db, const cmdb_csv_table_t *table,
     trim_cell(row, type_idx);
     trim_cell(row, target_idx);
     trim_cell(row, description_idx);
+    trim_cell(row, impact_idx);
     source = cell(row, source_idx);
     type_name = cell(row, type_idx);
     target = cell(row, target_idx);
     description = cell(row, description_idx);
+    impact = cell(row, impact_idx);
 
     if (source[0] == '\0' || type_name[0] == '\0' || target[0] == '\0') {
       report_add_error(report, row->line, "",
@@ -1144,6 +1149,11 @@ int cmdb_import_rel_preview(cmdb_db_t *db, const cmdb_csv_table_t *table,
           cmdb_has_control_chars(description)))) {
       report_add_error(report, row->line, "description",
                        "Invalid relationship description");
+      continue;
+    }
+    if (impact[0] != '\0' && !cmdb_relationship_impact_valid(impact)) {
+      report_add_error(report, row->line, "impact",
+                       "Invalid relationship impact");
       continue;
     }
     if (cmdb_ci_resolve(db, source, source_id, &row_error) != 0) {
@@ -1185,25 +1195,43 @@ int cmdb_import_rel_preview(cmdb_db_t *db, const cmdb_csv_table_t *table,
   return 0;
 }
 
-static int update_relationship_description(cmdb_db_t *db, const char *id,
-                                           const char *description,
-                                           cmdb_error_t *err) {
+static int update_relationship_fields(cmdb_db_t *db, const char *id,
+                                      const char *description,
+                                      const char *impact,
+                                      cmdb_error_t *err) {
   sqlite3_stmt *stmt = NULL;
   char now[21];
   int rc;
 
   cmdb_iso8601_now(now);
-  if (sqlite3_prepare_v2(cmdb_db_sqlite(db),
-                         "UPDATE relationships SET description = ?, "
-                         "updated_at = ? WHERE id = ?;",
-                         -1, &stmt, NULL) != SQLITE_OK) {
-    cmdb_error_set(err, CMDB_ERR_DATABASE, "Cannot prepare relationship update");
-    return -1;
+  if (impact != NULL && impact[0] != '\0') {
+    if (sqlite3_prepare_v2(cmdb_db_sqlite(db),
+                           "UPDATE relationships SET description = ?, "
+                           "impact = ?, updated_at = ? WHERE id = ?;",
+                           -1, &stmt, NULL) != SQLITE_OK) {
+      cmdb_error_set(err, CMDB_ERR_DATABASE,
+                     "Cannot prepare relationship update");
+      return -1;
+    }
+    sqlite3_bind_text(stmt, 1, description != NULL ? description : "",
+                      -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, impact, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, now, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, id, -1, SQLITE_TRANSIENT);
+  } else {
+    if (sqlite3_prepare_v2(cmdb_db_sqlite(db),
+                           "UPDATE relationships SET description = ?, "
+                           "updated_at = ? WHERE id = ?;",
+                           -1, &stmt, NULL) != SQLITE_OK) {
+      cmdb_error_set(err, CMDB_ERR_DATABASE,
+                     "Cannot prepare relationship update");
+      return -1;
+    }
+    sqlite3_bind_text(stmt, 1, description != NULL ? description : "",
+                      -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, now, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, id, -1, SQLITE_TRANSIENT);
   }
-  sqlite3_bind_text(stmt, 1, description != NULL ? description : "",
-                    -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(stmt, 2, now, -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(stmt, 3, id, -1, SQLITE_TRANSIENT);
   rc = sqlite3_step(stmt);
   sqlite3_finalize(stmt);
   if (rc != SQLITE_DONE) {
@@ -1224,6 +1252,7 @@ int cmdb_import_rel_commit(cmdb_db_t *db, const cmdb_csv_table_t *table,
   int type_idx;
   int target_idx;
   int description_idx;
+  int impact_idx;
 
   if (db == NULL || table == NULL || options == NULL || report == NULL) {
     cmdb_error_set(err, CMDB_ERR_INVALID_ARGUMENT, "Invalid import arguments");
@@ -1243,6 +1272,7 @@ int cmdb_import_rel_commit(cmdb_db_t *db, const cmdb_csv_table_t *table,
   type_idx = cmdb_csv_column_index(table, "relationship_type");
   target_idx = cmdb_csv_column_index(table, "target_ci");
   description_idx = cmdb_csv_column_index(table, "description");
+  impact_idx = cmdb_csv_column_index(table, "impact");
   report_reset_counts(report);
 
   if (cmdb_db_begin(db, err) != 0) {
@@ -1255,6 +1285,7 @@ int cmdb_import_rel_commit(cmdb_db_t *db, const cmdb_csv_table_t *table,
     const char *type_name;
     const char *target;
     const char *description;
+    const char *impact;
     char source_id[37];
     char target_id[37];
     char existing_id[37];
@@ -1269,14 +1300,21 @@ int cmdb_import_rel_commit(cmdb_db_t *db, const cmdb_csv_table_t *table,
     trim_cell(row, type_idx);
     trim_cell(row, target_idx);
     trim_cell(row, description_idx);
+    trim_cell(row, impact_idx);
     source = cell(row, source_idx);
     type_name = cell(row, type_idx);
     target = cell(row, target_idx);
     description = cell(row, description_idx);
+    impact = cell(row, impact_idx);
 
     if (source[0] == '\0' || type_name[0] == '\0' || target[0] == '\0') {
       report_add_error(report, row->line, "",
                        "source_ci, relationship_type and target_ci are required");
+      goto rollback;
+    }
+    if (impact[0] != '\0' && !cmdb_relationship_impact_valid(impact)) {
+      report_add_error(report, row->line, "impact",
+                       "Invalid relationship impact");
       goto rollback;
     }
     if (cmdb_ci_resolve(db, source, source_id, &row_error) != 0) {
@@ -1311,8 +1349,8 @@ int cmdb_import_rel_commit(cmdb_db_t *db, const cmdb_csv_table_t *table,
       if (options->duplicate_policy == CMDB_DUPLICATE_SKIP) {
         report->skip_count++;
       } else {
-        if (update_relationship_description(db, existing_id,
-                                            description, &row_error) != 0) {
+        if (update_relationship_fields(db, existing_id, description,
+                                       impact, &row_error) != 0) {
           report_add_error(report, row->line, "", row_error.message);
           goto rollback;
         }
@@ -1320,7 +1358,7 @@ int cmdb_import_rel_commit(cmdb_db_t *db, const cmdb_csv_table_t *table,
       }
     } else {
       if (cmdb_relationship_create_ex(db, source_id, target_id, type.id,
-                                      description, 0, created_id,
+                                      description, impact, 0, created_id,
                                       &row_error) != 0) {
         report_add_error(report, row->line, "", row_error.message);
         goto rollback;

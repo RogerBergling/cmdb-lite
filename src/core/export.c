@@ -500,7 +500,8 @@ static int export_relationships_csv(cmdb_db_t *db, const char *path,
 
   cmdb_strbuf_init(&buffer);
   cmdb_strbuf_append(&buffer,
-                     "source_ci,relationship_type,target_ci,description\n");
+                     "source_ci,relationship_type,target_ci,description,"
+                     "impact\n");
   for (;;) {
     cmdb_relationship_t *items = NULL;
     size_t count = 0;
@@ -523,6 +524,8 @@ static int export_relationships_csv(cmdb_db_t *db, const char *path,
       export_csv_value(&buffer, items[i].target_name);
       export_csv_end(&buffer, 0);
       export_csv_value(&buffer, items[i].description);
+      export_csv_end(&buffer, 0);
+      export_csv_value(&buffer, items[i].impact);
       cmdb_strbuf_append(&buffer, "\n");
     }
     cmdb_relationship_free_list(items, count);
@@ -662,6 +665,7 @@ static int export_json(cmdb_db_t *db, const char *path, cmdb_error_t *err) {
       cJSON_AddStringToObject(item, "type_id", items[i].type_id);
       cJSON_AddStringToObject(item, "type_name", items[i].type_name);
       cJSON_AddStringToObject(item, "description", items[i].description);
+      cJSON_AddStringToObject(item, "impact", items[i].impact);
       cJSON_AddItemToArray(rels, item);
     }
     cmdb_relationship_free_list(items, count);

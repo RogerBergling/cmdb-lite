@@ -365,6 +365,7 @@ static cJSON *rel_to_json(const cmdb_relationship_t *rel) {
   cJSON_AddStringToObject(obj, "type_id", rel->type_id);
   cJSON_AddStringToObject(obj, "type_name", rel->type_name);
   cJSON_AddStringToObject(obj, "description", rel->description);
+  cJSON_AddStringToObject(obj, "impact", rel->impact);
   cJSON_AddStringToObject(obj, "created_at", rel->created_at);
   cJSON_AddStringToObject(obj, "updated_at", rel->updated_at);
   return obj;
@@ -380,6 +381,7 @@ static cJSON *rel_type_to_json(const cmdb_relationship_type_t *type) {
   cJSON_AddStringToObject(obj, "inverse_name", type->inverse_name);
   cJSON_AddStringToObject(obj, "description", type->description);
   cJSON_AddStringToObject(obj, "color", type->color);
+  cJSON_AddStringToObject(obj, "default_impact", type->default_impact);
   return obj;
 }
 
@@ -457,6 +459,7 @@ static cJSON *graph_to_json(const cmdb_graph_t *graph) {
     cJSON_AddStringToObject(edge, "source", graph->edges[i].source_id);
     cJSON_AddStringToObject(edge, "target", graph->edges[i].target_id);
     cJSON_AddStringToObject(edge, "type_name", graph->edges[i].type_name);
+    cJSON_AddStringToObject(edge, "impact", graph->edges[i].impact);
     cJSON_AddItemToArray(edges, edge);
   }
   cJSON_AddItemToObject(obj, "nodes", nodes);
@@ -1391,6 +1394,7 @@ static cJSON *handle_rel_create(cmdb_app_t *app, cJSON *params,
   const char *target_id = NULL;
   const char *type_id = NULL;
   const char *description = NULL;
+  const char *impact = NULL;
   char id[37];
   cJSON *result;
 
@@ -1398,16 +1402,39 @@ static cJSON *handle_rel_create(cmdb_app_t *app, cJSON *params,
       get_string(params, "source_id", &source_id, 1, err) != 0 ||
       get_string(params, "target_id", &target_id, 1, err) != 0 ||
       get_string(params, "type_id", &type_id, 1, err) != 0 ||
-      get_string(params, "description", &description, 0, err) != 0) {
+      get_string(params, "description", &description, 0, err) != 0 ||
+      get_string(params, "impact", &impact, 0, err) != 0) {
     return NULL;
   }
-  if (cmdb_relationship_create(app->db, source_id, target_id, type_id,
-                               description, id, err) != 0) {
+  if (cmdb_relationship_create_ex(app->db, source_id, target_id, type_id,
+                                  description, impact, 1, id, err) != 0) {
     return NULL;
   }
   result = cJSON_CreateObject();
   if (result != NULL) {
     cJSON_AddStringToObject(result, "id", id);
+  }
+  return result;
+}
+
+static cJSON *handle_rel_set_impact(cmdb_app_t *app, cJSON *params,
+                                    cmdb_error_t *err) {
+  const char *id = NULL;
+  const char *impact = NULL;
+  cJSON *result;
+
+  if (require_params(params, err) != 0 ||
+      get_string(params, "id", &id, 1, err) != 0 ||
+      get_string(params, "impact", &impact, 1, err) != 0) {
+    return NULL;
+  }
+  if (cmdb_relationship_set_impact(app->db, id, impact, err) != 0) {
+    return NULL;
+  }
+  result = cJSON_CreateObject();
+  if (result != NULL) {
+    cJSON_AddBoolToObject(result, "updated", 1);
+    cJSON_AddStringToObject(result, "impact", impact);
   }
   return result;
 }
@@ -1533,6 +1560,8 @@ typedef struct {
   size_t id_count;
   char **rel_types;
   size_t rel_type_count;
+  char **impacts;
+  size_t impact_count;
   int depth;
   cmdb_direction_t direction;
 } graph_params_t;
@@ -1540,6 +1569,7 @@ typedef struct {
 static void graph_params_free(graph_params_t *params) {
   cmdb_json_free_string_array(params->ids, params->id_count);
   cmdb_json_free_string_array(params->rel_types, params->rel_type_count);
+  cmdb_json_free_string_array(params->impacts, params->impact_count);
   memset(params, 0, sizeof(*params));
 }
 
@@ -1558,9 +1588,25 @@ static int parse_graph_params(cJSON *params, graph_params_t *out,
       get_string(params, "direction", &direction, 0, err) != 0 ||
       cmdb_json_string_array(params, "relationship_types",
                              &out->rel_types, &out->rel_type_count,
-                             err) != 0) {
+                             err) != 0 ||
+      cmdb_json_string_array(params, "impacts", &out->impacts,
+                             &out->impact_count, err) != 0) {
     graph_params_free(out);
     return -1;
+  }
+  {
+    size_t i;
+    for (i = 0; i < out->impact_count; i++) {
+      if (strcmp(out->impacts[i], "__none__") == 0) {
+        continue;
+      }
+      if (!cmdb_relationship_impact_valid(out->impacts[i])) {
+        graph_params_free(out);
+        cmdb_error_set(err, CMDB_ERR_VALIDATION,
+                       "Invalid relationship impact filter");
+        return -1;
+      }
+    }
   }
   if (out->id_count == 0) {
     graph_params_free(out);
@@ -1600,10 +1646,10 @@ static cJSON *handle_graph_dependencies(cmdb_app_t *app, cJSON *params,
   if (parse_graph_params(params, &gp, err) != 0) {
     return NULL;
   }
-  if (cmdb_graph_build(app->db, (const char *const *)gp.ids, gp.id_count,
-                       gp.depth, gp.direction,
-                       (const char *const *)gp.rel_types, gp.rel_type_count,
-                       &graph, err) != 0) {
+  if (cmdb_graph_build_with_impacts(
+        app->db, (const char *const *)gp.ids, gp.id_count, gp.depth,
+        gp.direction, (const char *const *)gp.rel_types, gp.rel_type_count,
+        (const char *const *)gp.impacts, gp.impact_count, &graph, err) != 0) {
     graph_params_free(&gp);
     return NULL;
   }
@@ -1662,10 +1708,10 @@ static cJSON *handle_graph_save_drawio(cmdb_app_t *app, cJSON *params,
     graph_params_free(&gp);
     return NULL;
   }
-  if (cmdb_graph_build(app->db, (const char *const *)gp.ids, gp.id_count,
-                       gp.depth, gp.direction,
-                       (const char *const *)gp.rel_types, gp.rel_type_count,
-                       &graph, err) != 0) {
+  if (cmdb_graph_build_with_impacts(
+        app->db, (const char *const *)gp.ids, gp.id_count, gp.depth,
+        gp.direction, (const char *const *)gp.rel_types, gp.rel_type_count,
+        (const char *const *)gp.impacts, gp.impact_count, &graph, err) != 0) {
     graph_params_free(&gp);
     return NULL;
   }
@@ -3138,6 +3184,10 @@ cJSON *cmdb_api_handle(cmdb_app_t *app, cJSON *request) {
   } else if (strcmp(method, "relationships.create") == 0) {
     if (require_db(app, &err) == 0) {
       result = handle_rel_create(app, params, &err);
+    }
+  } else if (strcmp(method, "relationships.set_impact") == 0) {
+    if (require_db(app, &err) == 0) {
+      result = handle_rel_set_impact(app, params, &err);
     }
   } else if (strcmp(method, "relationships.delete") == 0) {
     if (require_db(app, &err) == 0) {
