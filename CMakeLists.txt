@@ -37,6 +37,8 @@ option(CMDB_BUILD_FUZZERS "Build libFuzzer targets (Clang only)" OFF)
 option(CMDB_STATIC_CRYPTO
   "Link SQLCipher and libsodium statically on Unix when available" ON)
 
+set(CMDB_STATIC_CRYPTO_LINKED OFF)
+
 if(MSVC)
   set(CMDB_WARNINGS /W4)
   if(CMDB_WERROR)
@@ -140,6 +142,7 @@ else()
         Threads::Threads
         ${CMAKE_DL_LIBS}
         m)
+      set(CMDB_STATIC_CRYPTO_LINKED ON)
       message(STATUS "Linking SQLCipher/libsodium statically")
     else()
       message(STATUS
@@ -315,8 +318,12 @@ if(CMDB_BUILD_UI)
       DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/256x256/apps
       RENAME cmdb-lite.png)
   endif()
-  install(FILES README.md LICENSE THIRD_PARTY_NOTICES.md
+  install(FILES README.md LICENSE SECURITY.md THIRD_PARTY_NOTICES.md
     DESTINATION ${CMAKE_INSTALL_DOCDIR})
+  # Keep license notices outside share/doc: the Flatpak cleanup removes
+  # share/doc, but redistributed binaries still need their notices.
+  install(FILES LICENSE THIRD_PARTY_NOTICES.md
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/cmdb-lite)
 endif()
 
 if(CMDB_BUILD_TESTS)
@@ -395,14 +402,18 @@ if(CMDB_BUILD_UI)
     set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
     set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
 
-    # RPM packaging for Fedora/RHEL. Update the license when the project
-    # license is selected.
+    # RPM packaging for Fedora/RHEL. The project is MIT-licensed; third-party
+    # notices are installed alongside the binary.
     set(CPACK_RPM_PACKAGE_LICENSE "MIT")
     set(CPACK_RPM_PACKAGE_GROUP "Applications/System")
     set(CPACK_RPM_PACKAGE_DESCRIPTION
       "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}")
-    set(CPACK_RPM_PACKAGE_REQUIRES
-      "gtk3, webkit2gtk4.1, expat, openssl-libs, glib2, sqlcipher, libsodium")
+    set(CMDB_RPM_REQUIRES
+      "gtk3, webkit2gtk4.1, expat, openssl-libs, glib2")
+    if(NOT CMDB_STATIC_CRYPTO_LINKED)
+      string(APPEND CMDB_RPM_REQUIRES ", sqlcipher, libsodium")
+    endif()
+    set(CPACK_RPM_PACKAGE_REQUIRES "${CMDB_RPM_REQUIRES}")
     set(CPACK_RPM_PACKAGE_AUTOREQ ON)
     set(CPACK_RPM_FILE_NAME RPM-DEFAULT)
   endif()

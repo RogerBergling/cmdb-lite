@@ -80,10 +80,10 @@ From the portable package:
 
 The UI is embedded in `cmdb.exe`. No `web\` folder is required.
 
-For development, `CMDB_WEB_DIR` can point at `src\web` to load the external
-assets instead of the embedded bundle. This is not needed for a packaged build.
-If the embedded UI cannot be loaded, the application shows an error page rather
-than a blank window.
+For development, `CMDB_WEB_DIR` can point at `src\web` in a **Debug build** to
+load the external assets instead of the embedded bundle. Release builds always
+use the embedded UI. If the embedded UI cannot be loaded, the application shows
+an error page rather than a blank window.
 
 ## Install
 
@@ -180,8 +180,10 @@ Run this on a clean Windows VM before calling the Windows build supported:
 
 ## Code signing
 
-Unsigned Windows applications trigger SmartScreen warnings. The CI workflow
-supports Authenticode signing when these repository secrets are configured:
+Signing is **not used for the current rollout**. Unsigned Windows applications
+may trigger SmartScreen warnings. The CI workflow retains optional Authenticode
+support if that decision changes; it uses these repository secrets when
+configured:
 
 - `WINDOWS_CERT_PFX_BASE64` — base64-encoded `.pfx` code-signing certificate.
 - `WINDOWS_CERT_PASSWORD` — password for the `.pfx`.
@@ -217,8 +219,9 @@ some interactive WebView2 behaviour still require the manual clean-VM checklist.
 
 - The MSI is per-machine (administrator required); per-user MSI packaging is not
   implemented.
-- No code signing yet, so Windows SmartScreen may warn.
-- The MSI does not yet bundle the WebView2 Evergreen bootstrapper.
+- Windows artifacts are unsigned by rollout decision. SmartScreen may warn; use
+  `SHA256SUMS` for integrity verification.
+- The MSI does not bundle the WebView2 Evergreen bootstrapper.
 - No automatic update mechanism.
 - Database file ACLs inherit from the chosen folder; the POSIX `0600` logic does
   not apply on Windows. Use a per-user folder such as
@@ -226,8 +229,7 @@ some interactive WebView2 behaviour still require the manual clean-VM checklist.
 
 ## Next Windows tasks
 
-1. Verify the MSI and static package on a real Windows VM.
-2. Bundle/check the WebView2 Evergreen bootstrapper in the MSI.
-3. Add Authenticode signing and reproducible release artifacts.
-4. Add a clean-VM GUI smoke test, ideally with a dedicated Windows runner.
-5. Consider a per-user MSI or MSIX package.
+1. Verify the MSI and static package on a real clean Windows 10/11 VM.
+2. Bundle or check the WebView2 Evergreen bootstrapper in the MSI.
+3. Accept/record the unsigned-artifact SmartScreen behaviour for the release.
+4. Consider a per-user MSI or MSIX package.

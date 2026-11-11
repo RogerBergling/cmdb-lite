@@ -65,12 +65,33 @@ The **Audit** tab can verify the restored chain.
 If the backup was created with a different passphrase, the current passphrase
 will not open it. Use the passphrase that was active when the backup was taken.
 
+## Backup policy for the production rollout
+
+The current v0.6.0 release provides **manual in-app backup** and **automatic
+pre-migration backup**. It does not yet provide configured automatic or
+scheduled backups.
+
+The planned go-live requirement is configurable backup policy:
+
+- manual backup remains available;
+- automatic backup on a configurable interval;
+- optional backup on application lock/exit;
+- configurable destination directory;
+- retention count or age;
+- last-run status and failure visibility;
+- restore verification instructions.
+
+Until that is implemented, use the manual **Backup** action and an external
+scheduler or file-copy procedure. Do not describe v0.6.0 as having scheduled
+backups.
+
 ## What is not included
 
 - Passphrase recovery. A lost passphrase cannot be recovered.
 - Passphrase rotation. It is a future milestone; changing the passphrase
   requires a migration tool.
-- Automatic scheduled backups. The backup is manual.
+- Configurable automatic/scheduled backups. The v0.6.0 backup is manual, plus the
+  automatic pre-migration backup.
 - A plaintext export of the database. Exports such as `.drawio` are intentionally
   plaintext files chosen by the user.
 

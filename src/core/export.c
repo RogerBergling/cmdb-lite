@@ -14,10 +14,13 @@
 static void export_csv_field(cmdb_strbuf_t *buffer, const char *value) {
   const char *cursor;
   int quote = 0;
+  int neutralize = 0;
 
   if (value == NULL) {
     value = "";
   }
+  neutralize = value[0] == '=' || value[0] == '+' || value[0] == '-' ||
+               value[0] == '@';
   for (cursor = value; *cursor != '\0'; cursor++) {
     if (*cursor == ',' || *cursor == '"' || *cursor == '\n' ||
         *cursor == '\r') {
@@ -27,6 +30,9 @@ static void export_csv_field(cmdb_strbuf_t *buffer, const char *value) {
   }
   if (quote) {
     cmdb_strbuf_append(buffer, "\"");
+  }
+  if (neutralize) {
+    cmdb_strbuf_append(buffer, "'");
   }
   for (cursor = value; *cursor != '\0'; cursor++) {
     if (*cursor == '"') {

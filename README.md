@@ -3,15 +3,36 @@
 A local-first, encrypted Configuration Management Database (CMDB) for Linux and
 Windows.
 
-> **Status: v0.6.0 feature release.** The repository contains the C17 core,
-> SQLCipher storage layer, Argon2id key derivation, CI categories/types/custom
-> fields, impact-aware typed relationships, seeded infrastructure services,
-> CSV/TSV import, dependency graph builder, `.drawio` export, an embedded
-> diagram editor, persisted nmap discovery with matching/merge review,
-> encrypted database backup, and the desktop webview shell. Linux, Fedora,
-> Windows, and Flatpak CI builds are defined; the Windows job runs a real
-> WebView2 smoke test and produces the portable ZIP and MSI. A clean-Windows-VM
-> install/uninstall check is still recommended.
+> **Status: v0.6.0.** The repository contains the C17 core, SQLCipher storage
+> layer, Argon2id key derivation, CI categories/types/custom fields,
+> impact-aware typed relationships, seeded infrastructure services, CSV/TSV
+> import, dependency graph builder, `.drawio` export, an embedded diagram
+> editor, persisted nmap discovery with matching/merge review, encrypted
+> database backup, and the desktop webview shell. Linux, Fedora, Windows, and
+> Flatpak CI builds are defined; the Windows job runs a real WebView2 smoke test
+> and produces the portable ZIP and MSI. A clean-Windows-VM install/uninstall
+> check is still recommended.
+
+> **Release status:** v0.6.0 is the current release. Verify downloaded assets
+> against `SHA256SUMS`; see [`docs/releasing.md`](docs/releasing.md).
+
+## At a glance
+
+- **Deployment:** single-user desktop application, not a server or multi-user
+  service. The separate HIBP server provides the privileged patch-management
+  role with password + TOTP/passkey authentication; HIBP server support starts
+  with Debian and Fedora.
+- **Platforms built by CI:** Linux x86_64 (`.deb`, RPM, portable tarball,
+  Flatpak) and Windows x86_64 (portable ZIP, MSI).
+- **Not currently built:** macOS, ARM64, 32-bit, or a headless/server mode.
+- **Storage:** one user-selected SQLCipher database plus a required `.meta`
+  sidecar.
+- **Secrets:** the CMDB is not a password vault. Do not store passwords, API
+  keys, tokens, or private keys in it; store references instead.
+- **Network:** offline-first. The only network activity is an explicitly
+  authorised nmap scan. There is no telemetry, cloud sync, or update check.
+- **License:** MIT; third-party notices are in
+  [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 ## Screenshots
 
@@ -41,7 +62,7 @@ Release assets:
 | Platform | Files |
 |---|---|
 | Debian/Ubuntu | `cmdb-lite_0.6.0_amd64.deb` |
-| Fedora/RHEL | `cmdb-lite-0.6.0-*.rpm` |
+| Fedora (RHEL untested) | `cmdb-lite-0.6.0-*.rpm` |
 | Portable Linux | `cmdb-lite-0.6.0-linux-x86_64.tar.gz` |
 | Flatpak (Linux) | `cmdb-lite.flatpak` |
 | Windows portable | `cmdb-lite-windows-x64.zip` |
@@ -92,8 +113,9 @@ cmdb
 
 The `.deb` declares its runtime dependencies. SQLCipher and libsodium are
 linked statically when the build environment provides their `.a` archives;
-expat, GTK3, WebKitGTK, and OpenSSL remain system libraries. The Flatpak is the
-fully self-contained option.
+expat, GTK3, WebKitGTK, and OpenSSL remain system libraries. The published
+`.deb` targets Ubuntu 24.04 and newer; for Debian 12 or Ubuntu 22.04, use the
+Flatpak or build from source. The Flatpak is the fully self-contained option.
 
 ### Fedora / RHEL
 
@@ -105,7 +127,9 @@ cmdb
 ```
 
 Manual dependency installation is normally unnecessary. The RPM requires GTK3,
-WebKitGTK 4.1, expat, and the system OpenSSL libraries.
+WebKitGTK 4.1, expat, and the system OpenSSL libraries. It is built on current
+Fedora; RHEL compatibility is not tested. Build from source on RHEL if the RPM
+does not install.
 
 ### Windows
 
@@ -117,7 +141,9 @@ WebKitGTK 4.1, expat, and the system OpenSSL libraries.
    Edge WebView2 Evergreen Runtime. It is present on current Windows 10/11.
 
 No DLLs, `web/` folder, or additional runtime files are required. SQLCipher,
-libsodium, OpenSSL, expat, and the C/C++ runtime are linked statically.
+libsodium, OpenSSL, expat, and the C/C++ runtime are linked statically. Windows
+artifacts are unsigned by the current rollout decision and may trigger a
+SmartScreen warning.
 
 **MSI installer**
 
@@ -141,7 +167,8 @@ tar -xzf cmdb-lite-0.6.0-linux-x86_64.tar.gz
 
 The ELF requires GTK3, WebKitGTK 4.1, expat, and the system OpenSSL 3
 `libcrypto.so.3`. SQLCipher and libsodium are linked statically when the build
-environment provides their `.a` archives.
+environment provides their `.a` archives. The released tarball is built on
+Ubuntu 24.04 and is not guaranteed to run on older glibc distributions.
 
 ### First launch
 
@@ -155,6 +182,42 @@ environment provides their `.a` archives.
 
 The application never uploads data. The database remains at the path you chose.
 See [`docs/backup.md`](docs/backup.md) for backup and restore details.
+
+### Data locations
+
+| Data | Location | Contains secrets? |
+|---|---|---|
+| Inventory database | The `.cmdb` path you choose | Encrypted inventory, diagrams, audit log. The passphrase is never stored. |
+| KDF sidecar | `<database>.cmdb.meta` next to the database | Salt and KDF parameters only; required to open the database. |
+| Recent-database settings | Linux: `$XDG_CONFIG_HOME/cmdb-lite/config.json` (normally `~/.config/cmdb-lite/config.json`). Windows: `%APPDATA%\cmdb-lite\config.json` | Database paths only; no passphrase or key. |
+| Backups | The path you choose in **Backup** | An encrypted `.cmdb` plus matching `.meta` sidecar. |
+| Exports, `.drawio`, HIBP CSV | The path you choose | Plaintext. Store and delete according to your data-handling policy. |
+| Scan XML | Private temporary file (`0600` on POSIX), deleted after parsing | Discovery results before they enter encrypted staging. |
+| Application logs | None by default | The application does not maintain an inventory or access log outside the encrypted audit table. |
+
+Do not put the database or its sidecar in a world-writable directory. On
+Windows, use a per-user folder; the POSIX `0600` protection does not apply.
+
+### Backup, restore, and upgrade
+
+- Use **Backup** to create a consistent encrypted backup while the database is
+  open. The backup is a `.cmdb` plus matching `.meta` sidecar; keep them together.
+- **Restore a backup to a new database…** is available on the unlock screen. It
+  refuses to overwrite an existing database.
+- Before a schema migration, the application creates an automatic backup next to
+  the database and reports its path. If the backup cannot be created, the
+  migration is refused.
+- After a migration, do not open the database with an older application. Restore
+  both files from the pre-upgrade backup to roll back.
+- There is no passphrase recovery. A lost passphrase means the data is lost.
+
+**Not yet implemented:** configurable automatic and scheduled backups. The
+production rollout requires manual, automatic, and scheduled modes with
+destination/interval/retention settings. v0.6.0 has manual backup plus the
+automatic pre-migration backup only. See [`docs/backup.md`](docs/backup.md).
+
+Full procedures: [`docs/backup.md`](docs/backup.md) and
+[`docs/upgrading.md`](docs/upgrading.md).
 
 ### Network discovery prerequisite
 
@@ -273,8 +336,9 @@ password vault instead.
 - Linux `.deb`/RPM/TGZ, a **Flatpak using the GNOME runtime and bundling nmap**,
   and Windows portable ZIP plus WiX-generated MSI.
 - Core test suite, including a live nmap test in Linux/Fedora CI, parser
-  fixtures, asynchronous scan-manager cancellation, backup, category, theme,
-  and migration checks.
+  fixtures, asynchronous scan-manager cancellation, backup, export, impact, and
+  graph tests. Schema migration is exercised manually against the previous
+  release before tagging.
 - MIT license.
 
 ### Distribution model
@@ -288,14 +352,33 @@ The application ships as one executable per OS, with no `web/` asset folder:
 | Linux (Flatpak) | `cmdb-lite.flatpak` | Uses the GNOME runtime for GTK3/WebKitGTK and bundles SQLCipher, libsodium, and nmap. The GNOME runtime is installed separately by Flatpak. |
 
 The encrypted database and its `.meta` sidecar are intentionally separate files
-chosen by the user. During development, `CMDB_WEB_DIR=src/web` can load the
-external UI files instead of the embedded bundle. Set `CMDB_STATIC_CRYPTO=OFF`
-to link SQLCipher/libsodium dynamically on Linux.
+chosen by the user. In **Debug builds only**, `CMDB_WEB_DIR=src/web` can load
+the external UI files instead of the embedded bundle; release builds always use
+the embedded UI. Set `CMDB_STATIC_CRYPTO=OFF` to link SQLCipher/libsodium
+dynamically on Linux.
+
+CI builds on Ubuntu 24.04, a current Fedora container, the GNOME 48 Flatpak
+runtime, and Windows Server 2022. That is build coverage, not a formal support
+matrix. The Linux ELF requires GTK3, WebKitGTK 4.1, expat, and OpenSSL 3; the
+Windows build requires the WebView2 Evergreen Runtime.
+
+The `.deb` is built on Ubuntu 24.04 and therefore depends on the `t64` package
+names and glibc 2.38 (`libgtk-3-0t64`, `libssl3t64`, `libglib2.0-0t64`). It is
+not a Debian 12 or Ubuntu 22.04 artifact. The RPM is built on current Fedora;
+RHEL compatibility is not tested. Use the Flatpak or build from source for older
+or different distributions. Validate on the exact OS versions and desktop
+environments you intend to support.
 
 ### Next milestones
 
-- Passphrase rotation and automatic encrypted backups.
-- Windows code signing and signed release artifacts/SBOM publication.
+- Passphrase rotation/rekey and automatic or scheduled encrypted backups with
+  retention.
+- Auto-lock/idle timeout and a single-instance database guard.
+- Audit-log export and optional off-device forwarding.
+- Pin the vcpkg baseline and GitHub Actions SHAs; add dependency scanning,
+  CodeQL/cppcheck, ASan/UBSan, CSV/nmap fuzzing, and a Linux GUI smoke test to
+  CI. Signing and SBOM generation are **not required** for the current rollout;
+  `SHA256SUMS` is the published integrity check.
 - Optional official draw.io web editor bundle (the current editor uses
   `.drawio`-compatible XML and the built-in canvas).
 
@@ -335,6 +418,7 @@ dialog. The application seeds editable examples:
 - Linux Server, Windows Server, Virtual Machine
 - Router, Switch, Firewall, Network
 - Web Application, Database, Business Service, Cloud Service
+- Service (DNS, SMTP, NTP, DHCP, LDAP/AD, vCenter, monitoring, backup, other)
 - Other
 
 Each type can define custom fields with a key, label, data type (`text`,
@@ -356,20 +440,51 @@ Server      --depends_on-> Network
 
 Seeded relationship types:
 
-| Type | Meaning | Inverse |
-|---|---|---|
-| `runs_on` | Application or service runs on a host. | `hosts` |
-| `uses` | Component uses another component. | `used_by` |
-| `hosted_in` | CI is hosted in a location or platform. | `hosts` |
-| `supports` | CI supports a business service. | `supported_by` |
-| `depends_on` | CI depends on another CI. | `depended_on_by` |
-| `connects_to` | Network or physical connection. | `connects_to` |
-| `member_of` | CI is a member of a group/service. | `contains` |
+| Type | Meaning | Inverse | Default impact |
+|---|---|---|---|
+| `runs_on` | Application or service runs on a host. | `hosts` | `availability` |
+| `uses` | Component uses another component. | `used_by` | `availability` |
+| `hosted_in` | CI is hosted in a location or platform. | `hosts` | `availability` |
+| `supports` | CI supports a business service. | `supported_by` | `informational` |
+| `depends_on` | CI depends on another CI. | `depended_on_by` | `availability` |
+| `connects_to` | Network or physical connection. | `connects_to` | `informational` |
+| `member_of` | CI is a member of a group/service. | `contains` | `informational` |
+| `manages` | Management/control-plane relationship. | `managed_by` | `management` |
+| `monitors` | Observability relationship. | `monitored_by` | `monitoring` |
+| `provided_by` | Service is provided by a resource. | `provides` | `availability` |
+
+Each relationship also has an **impact class**:
+
+- `availability` — target down means source down;
+- `degraded` — source continues with reduced function;
+- `management` — vCenter-style control plane only;
+- `monitoring` — observability only;
+- `informational` — documentation or association only.
+
+The type provides a default, but the operator can change the impact per
+connection. The Dependency Map can filter by relationship type and impact class;
+the default impact view includes only `availability` and `degraded`. See
+[`docs/dependencies.md`](docs/dependencies.md) for the vCenter and DNS examples.
 
 The dependency map can traverse outgoing, incoming, or both directions, up to
 five levels deep, and can be filtered by relationship type. Cycles are handled
 safely. Selecting multiple CIs produces the union of their dependency
 neighbourhoods.
+
+### HIBP integration
+
+`cmdb-lite` can export Linux CIs as a HIBP-compatible CSV feed with a stable
+`cmdb_ci_id`, OS data, tags, and no secrets. HIBP is the separate privileged
+patch-management server for the rollout. It provides single-user login with a
+password plus TOTP and/or passkeys, owns its own encrypted database and SSH
+credentials, and starts with Debian and Fedora server support.
+
+The intended flow is one-way inventory onboarding: add the host once in
+`cmdb-lite`, export the HIBP CSV, import it into HIBP, then complete SSH/host-key
+setup once in HIBP. HIBP patch facts can be written back later. Do not share the
+encrypted databases or passphrases between the two applications. See
+[`docs/hibp.md`](docs/hibp.md) for current importer limitations and the
+onboarding flow.
 
 ## Import file formats
 
@@ -504,9 +619,11 @@ staged host remains pending. See [`docs/scanning.md`](docs/scanning.md).
 
 ### CSV injection
 
-Exports must neutralise cells that begin with `=`, `+`, `-`, or `@` because
-spreadsheet applications may interpret them as formulas. Imports treat all cell
-content as literal data; they never evaluate formulas or commands.
+CSV exports prefix a single quote (`'`) to cells beginning with `=`, `+`, `-`,
+or `@` so spreadsheet applications do not evaluate them as formulas. Imports
+treat all cell content as literal data; they never evaluate formulas or
+commands. The prefix is part of the exported text, so use the JSON export when a
+byte-exact round trip is required.
 
 ## Diagrams, dependency maps, and draw.io
 
@@ -624,11 +741,14 @@ remain encrypted and require the same passphrase. See
 - The JS-to-C bridge accepts validated JSON only. Request and response sizes are
   bounded.
 - All SQL uses prepared statements.
+- CSV exports prefix cells beginning with `=`, `+`, `-`, or `@` to prevent
+  spreadsheet formula execution. Use the JSON export for byte-exact round trips.
 - Passphrases are zeroized with `sodium_memzero` after key derivation. The
   JavaScript string and the webview's memory cannot be guaranteed to be
   zeroized; this is a documented limitation of webview-based UIs.
-- Release builds disable webview developer tools. Debug builds enable them only
-  when `CMDB_DEVTOOLS=1`.
+- Release builds disable webview developer tools and ignore `CMDB_WEB_DIR` and
+  `CMDB_UI_URL`; those overrides are compiled out with `NDEBUG`. Debug builds
+  enable developer tools only when `CMDB_DEVTOOLS=1`.
 - The application does not store secrets, and it does not log passphrases, keys,
   SQL parameters, or full database contents.
 
@@ -700,6 +820,21 @@ packaging/           Icons, embed script, Windows resources, Flatpak, installers
 
 ## Building on Linux
 
+### Build system and dependencies
+
+- **Build system:** CMake 3.20+ with Ninja or Visual Studio 2022; CTest for the
+  test suite; CPack for DEB/RPM/TGZ/WIX packages.
+- **Language:** C17 core, C++17 only for the pinned `webview/webview`
+  dependency.
+- **Required libraries:** SQLCipher 4, libsodium, libexpat, cJSON (vendored),
+  GTK3 + WebKitGTK 4.1 on Linux, WebView2 on Windows, OpenSSL 3 (SQLCipher
+  crypto backend).
+- **Optional runtime:** nmap for network discovery. The Flatpak bundles it.
+- **Pinned/fetched:** `webview/webview` is pinned to a commit and SHA-256 hash;
+  cJSON 1.7.18 is vendored. SQLCipher, libsodium, expat, GTK, WebKitGTK, and
+  OpenSSL come from the distribution or vcpkg and are not version-pinned by this
+  repository on every platform.
+
 ### Dependencies
 
 Ubuntu/Debian:
@@ -709,6 +844,7 @@ sudo apt update
 sudo apt install -y build-essential cmake ninja-build pkg-config \
   fakeroot dpkg-dev \
   libsqlcipher-dev libsodium-dev libexpat1-dev \
+  libssl-dev zlib1g-dev \
   libgtk-3-dev libwebkit2gtk-4.1-dev \
   nmap \
   clang lld valgrind cppcheck
@@ -741,11 +877,14 @@ cpack --config build/CPackConfig.cmake -G TGZ -B build/dist
 ```
 
 The RPM is per-machine and installs the single `cmdb` ELF, desktop entry, icon,
-and documentation. Its license field is currently `Proprietary` as a placeholder
-until the project license is selected.
+documentation, and license notices. The RPM license field is `MIT`; third-party
+components keep their own licenses, documented in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). The RPM requires the system
+GTK/WebKit/expat/OpenSSL libraries; SQLCipher and libsodium are required only
+when the build falls back to dynamic linking.
 
 The Windows and Linux GUI builds use the `webview/webview` library, which is
-fetched by CMake at configure time from a pinned 0.12.0 release tarball with a
+fetched by CMake at configure time from a pinned commit-specific tarball with a
 SHA-256 hash. The first configure therefore needs network access. For offline or
 Flatpak builds, pass
 `-DCMDB_FETCH_WEBVIEW=OFF -DCMDB_WEBVIEW_SOURCE_DIR=/path/to/webview-src`.
@@ -850,7 +989,11 @@ WebView2 Runtime bootstrapper.
 See [`docs/windows.md`](docs/windows.md) for the manual build, WebView2
 behaviour, packaging layout, and the clean-VM validation checklist.
 
-Release builds should be code-signed; see [`docs/security.md`](docs/security.md).
+Signing is not part of the current rollout decision. Windows artifacts will be
+unsigned and may trigger SmartScreen; `SHA256SUMS` is the published integrity
+check. The CI workflow retains optional Authenticode support if that decision
+changes. See [`docs/security.md`](docs/security.md) and
+[`docs/releasing.md`](docs/releasing.md).
 Cross-compiling the Windows GUI from Linux is not supported. Use Windows or the
 GitHub Actions Windows runner.
 
@@ -900,6 +1043,8 @@ GitHub Actions Windows runner.
   artifact verification.
 - [`docs/windows.md`](docs/windows.md) — Windows build, WebView2 behaviour,
   portable package layout, and clean-VM validation checklist.
+- [`SECURITY.md`](SECURITY.md) — supported versions and private vulnerability
+  reporting.
 
 ## Validation
 
@@ -945,6 +1090,7 @@ test_relationships               ok
 test_graph                       ok
 test_drawio                      ok
 test_import                      ok
+test_export                      ok
 test_api                         ok
 test_scan                        ok
 0 failure(s)
@@ -957,11 +1103,12 @@ file again. It also verifies that opening with a wrong passphrase returns an
 authentication error. SQLCipher intentionally logs HMAC
 failure lines to stderr during that negative test; they are expected.
 
-The HTML/JS UI was exercised in a headless DOM harness with a stubbed bridge:
-inventory rendering, CI modal/custom fields, type detail, import preview, and
-dependency-map SVG rendering all completed without JS errors. The Discovery
-screenshots in this README were rendered from the real embedded UI under
-WebKitGTK with a stubbed bridge and sample data.
+During development, the HTML/JS UI was exercised in a headless DOM harness with
+a stubbed bridge and in a real WebKitGTK smoke run. The screenshots in this
+README were rendered from the real embedded UI under WebKitGTK with a stubbed
+bridge and sample data. These UI checks are **not yet automated in CI**; the
+Windows CI job has a WebView2 launch/database smoke test, while Linux CI builds
+the GUI but does not launch it.
 
 The scanner tests cover IPv4/CIDR and port validation, nmap XML parsing
 (including service detection, DTD rejection, and malformed input), synchronous
@@ -971,10 +1118,12 @@ scan against a localhost listener (`CMDB_TEST_LIVE_NMAP=1`). The backup and
 diagram tests create a real encrypted database, copy it with the online backup
 API, reopen it, and verify data and `.meta` handling.
 
-A real system WebKitGTK smoke run (headless Broadway backend) also loaded the
-embedded UI, executed `app.js`, answered `app.info` through the C JSON bridge,
-and created an encrypted SQLCipher database through the bridge. The GTK3/WebKitGTK system build and test suite pass with GCC/CMake on
-the development host.
+The GTK3/WebKitGTK system build and core test suite pass with GCC/CMake on the
+development host. A Release build was also smoke-tested with an intentionally
+invalid `CMDB_WEB_DIR` to confirm that release builds ignore the development UI
+override and load the embedded bundle. `cppcheck` (warning, performance, and
+portability) completed without findings on the current tree. GUI smoke coverage
+on Linux still needs to be added to CI.
 
 The Debian/Ubuntu CI job builds the `.deb` and TGZ packages. A Fedora container
 job builds and tests the RPM and TGZ packages. A Flatpak job builds a
@@ -988,6 +1137,16 @@ Windows VM using the checklist in
 jobs and publishes the assets with `SHA256SUMS` automatically; see
 [`docs/releasing.md`](docs/releasing.md).
 
+Not yet enforced in CI:
+
+- ASan/UBSan and the CSV fuzz target;
+- cppcheck, clang-tidy, CodeQL, or dependency/OSV scanning;
+- Linux GUI smoke tests;
+- reproducible-build verification (signing and SBOMs are not required by the
+  current rollout decision).
+
+These are tracked in the production-readiness checklist below.
+
 ## Import examples
 
 Ready-to-use examples are in [`examples/`](examples/):
@@ -998,21 +1157,141 @@ Ready-to-use examples are in [`examples/`](examples/):
 
 ## Limitations and open decisions
 
+### Product and operations
+
 - Single-user local application. The schema, audit log, and API boundary are
   designed to allow a future server/RBAC version, but v1 has no authentication
   beyond the database passphrase.
 - No password/secret storage. Use references to an external vault.
+- No passphrase rotation/rekey. A compromised passphrase requires creating a new
+  database and re-importing/rebuilding it.
+- No automatic idle lock. The database remains open until **Lock** is pressed or
+  the application exits.
+- No single-instance guard. Two processes may attempt to open the same database;
+  use the application lock and avoid shared or network filesystems.
+- No configurable automatic or scheduled backups. **Backup** is manual; the
+  production rollout requires manual, automatic, and scheduled modes with
+  configurable destination/interval/retention.
+- No automatic update mechanism. Users must install new releases manually and
+  watch for security fixes.
+- No database integrity check on open. Corruption is detected through SQLCipher
+  authentication and SQLite errors, not a full `PRAGMA integrity_check` at every
+  launch.
+- No off-device audit export. The hash chain is local and can be rewritten by an
+  attacker who has the database key.
 - Discovery never merges automatically; the operator must choose every action.
-- The embedded diagram editor is a lightweight `.drawio`-compatible canvas, not
-  the official draw.io web application. The official draw.io bundle is not
-  included.
-- `nmap -O` needs root/administrator and is unavailable in the standard Flatpak
-  sandbox.
 - No multi-user concurrent access. Do not share the database file between
   machines while it is open.
 - The passphrase cannot be recovered. Back up the database and `.meta` sidecar
   together, or use the in-app backup.
+- No macOS, ARM64, 32-bit, or headless/server build is produced by CI.
+- The published `.deb` and RPM are tied to their build distributions (Ubuntu
+  24.04 and current Fedora); older Debian/Ubuntu/RHEL releases need the Flatpak
+  or a source build.
+- The embedded diagram editor is a lightweight `.drawio`-compatible canvas, not
+  the official draw.io web application.
+- `nmap -O` needs root/administrator and is unavailable in the standard Flatpak
+  sandbox.
+
+### Security and release engineering
+
 - The UI is webview-based; JavaScript/webview memory cannot be fully zeroized.
+- The derived key is held in process memory while the database is open. It is
+  zeroized on close but is not locked with `sodium_mlock`; swap and core dumps
+  remain an OS-level concern.
+- No passphrase attempt rate limiting. Argon2id is the only brute-force cost.
+- Signing, SBOMs, and build provenance are not used for the current rollout.
+  Windows artifacts are unsigned and may trigger SmartScreen; `SHA256SUMS` is the
+  only published integrity check. Reproducible-build verification is not yet
+  performed.
+- GitHub Actions are referenced by tag, not commit SHA; the repository allows
+  all actions and does not require SHA pinning. The vcpkg baseline is not
+  pinned. Dependabot security updates are disabled. The `main` branch and
+  release tags are not protected by rulesets. This is a supply-chain
+  reproducibility, release-integrity, and patch-latency gap.
+- The Flatpak grants broad home-directory and network access. Treat it as a
+  trusted local application, not a hardened multi-tenant sandbox.
+- The Flatpak bundles nmap under the Nmap Public Source License; redistribution
+  terms need legal review.
+- No independent security review or penetration test is documented in this
+  repository.
+- No FIPS 140, Common Criteria, HSM-backed key, or hardware-token support is
+  claimed.
+
+## Production readiness checklist
+
+This list is deliberately separate from “features implemented.” It answers what
+is still needed before a public or enterprise production rollout.
+
+### Release and distribution
+
+- [x] Tag and publish v0.6.0; verify all assets and `SHA256SUMS`.
+- [x] Signing and SBOMs are not required by the rollout decision. Windows
+      artifacts are unsigned and may trigger SmartScreen.
+- [ ] Pin the vcpkg baseline and GitHub Actions SHAs for reproducible builds.
+- [ ] Protect `main` and release tags with rulesets, required reviews/status
+      checks, and restricted action sources.
+- [ ] Run the clean-Windows-10/11 VM checklist in
+      [`docs/windows.md`](docs/windows.md).
+- [ ] Test the `.deb`, RPM, portable tarball, and Flatpak on the target Linux
+      distributions and desktop environments.
+- [ ] Confirm the target CPU architecture; current CI is x86_64 only.
+- [ ] Review the nmap NPSL and all third-party notices with legal.
+
+### Security and operations
+
+- [x] Enable GitHub private vulnerability reporting and publish `SECURITY.md`
+      with a monitored contact.
+- [ ] Define a supported-version and security-update policy.
+- [ ] Perform a threat-model review and, for high-assurance use, an independent
+      security review.
+- [ ] Decide whether auto-lock, passphrase rotation, and secure memory locking
+      are required for the target environment.
+- [ ] Implement and validate configurable manual, automatic, and scheduled
+      backups with destination, interval, retention, and failure visibility.
+- [ ] Perform a backup/restore and migration/rollback drill on a copy of a real
+      database.
+- [ ] Define database retention, export handling, and audit-retention policies.
+- [ ] Add dependency/vulnerability scanning and CodeQL/cppcheck/ASan/fuzzing to
+      CI.
+- [ ] Add a Linux GUI smoke test and a real-database UI regression suite.
+- [ ] Review the Flatpak permissions and confirm they match the deployment
+      policy.
+- [ ] Confirm that storing inventory on the chosen filesystem and backup target
+      meets the organisation’s data-classification rules.
+
+### Data and scope
+
+- [ ] Confirm that the CMDB will not contain passwords, tokens, private keys, or
+      other secrets.
+- [ ] Decide whether services (DNS, SMTP, NTP, vCenter, etc.) are modeled as
+      `Service` CIs with `provided_by` relationships.
+- [x] HIBP integration is in scope for the rollout. HIBP is the separate
+      single-user server with password + TOTP/passkey login; cmdb-lite remains
+      the desktop inventory source.
+- [ ] Harden the HIBP importer to match by `cmdb_ci_id`, preserve SSH settings
+      and patch facts, and support a one-time “needs setup” state. Current
+      limitations are documented in [`docs/hibp.md`](docs/hibp.md).
+- [ ] Confirm the expected inventory size and import sizes; the UI list is
+      paginated, but very large estates need performance testing.
+
+## Support and security updates
+
+There is no formal long-term support policy yet. The repository is validated on
+the CI platforms listed above, and only the latest release should be considered
+tested. Before production use, define:
+
+- which versions receive security fixes;
+- how users are notified of a security release;
+- the security-response target and disclosure expectations;
+- the supported OS/webview/runtime combinations.
+
+The security design and threat model are in
+[`docs/security.md`](docs/security.md). Private vulnerability reporting and the
+contact process are documented in [`SECURITY.md`](SECURITY.md).
+
+Do not open a public issue containing a working exploit or sensitive data. Use
+GitHub private vulnerability reporting or `github@bergling.net`.
 
 ## License
 

@@ -23,6 +23,10 @@ Exports are plaintext snapshots. Treat them like a printed CMDB: store them in a
 protected location and delete them when no longer needed. The application audits
 each export with the format and path.
 
+CSV cells beginning with `=`, `+`, `-`, or `@` are prefixed with a single quote
+so spreadsheet programs do not treat them as formulas. The prefix is part of the
+exported text; use the JSON export when you need a byte-exact round trip.
+
 ## Limits
 
 The export walks the database in pages of 200 CIs/relationships. It is intended

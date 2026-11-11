@@ -97,7 +97,9 @@ sudo apt install ./cmdb-lite_0.6.0_amd64.deb
 ```
 
 `apt` replaces `/usr/bin/cmdb` and leaves your database untouched. Your database
-is not in `/usr`; it is the file you selected when you created it.
+is not in `/usr`; it is the file you selected when you created it. The published
+`.deb` is built on Ubuntu 24.04 and uses the `t64` package names; Debian 12,
+Ubuntu 22.04, and older releases should use the Flatpak or build from source.
 
 Verify:
 
@@ -130,6 +132,9 @@ not touch your database. Verify with:
 ```bash
 rpm -q cmdb-lite
 ```
+
+The released RPM is built on current Fedora. RHEL compatibility is not tested;
+build from source if the RPM does not install.
 
 ## Portable Linux tarball
 

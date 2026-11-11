@@ -2,7 +2,10 @@
 
 `cmdb-lite` is built with the following third-party components. Their licenses
 apply to those components and their redistributions. This file is informational
-and does not replace the license text shipped with each dependency.
+and does not replace the license text shipped with each dependency. Before
+public redistribution, include the complete license text for every bundled or
+statically linked component, including SQLCipher, libsodium, OpenSSL, expat,
+cJSON, webview, GTK/WebKitGTK, and—for the Flatpak—nmap and libpcap.
 
 ## Vendored in this repository
 

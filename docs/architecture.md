@@ -42,7 +42,8 @@ scripts, frames, objects, and network connections.
 `packaging/embed_web.py` inlines the CSS and JavaScript into one HTML document,
 computes SHA-256 CSP hashes, and generates `src/web_bundle.c`. The executable
 loads that embedded document, so there is no separate `web/` folder to ship.
-`CMDB_WEB_DIR` can be set during development to load `src/web` from disk instead.
+In Debug builds, `CMDB_WEB_DIR` can be set to load `src/web` from disk instead
+of the embedded bundle. Release builds always use the embedded UI.
 
 The UI calls a single binding:
 
@@ -252,8 +253,12 @@ authentication, RBAC, connection pooling, and an audit actor model.
 - CMake 3.20+ with Ninja or Visual Studio.
 - C17 core; C++17 only as required by the pinned `webview/webview` dependency.
 - `pkg-config` for SQLCipher, libsodium, GTK3, and WebKitGTK on Linux.
-- CMake `FetchContent` pins `webview/webview` to tag `0.12.0`.
+- CMake `FetchContent` pins `webview/webview` to a specific commit and SHA-256
+  archive hash.
 - cJSON 1.7.18 is vendored under `third_party/cjson`.
+- SQLCipher, libsodium, expat, GTK/WebKitGTK, OpenSSL, and the vcpkg baseline
+  are supplied by the distribution or vcpkg and are not version-pinned on every
+  platform.
 - Tests use a small in-repo harness and CTest.
 
 ## Dependency choices

@@ -196,8 +196,9 @@ import** button disabled until a preview succeeds.
 
 Cells beginning with `=`, `+`, `-`, or `@` can be interpreted as formulas by
 spreadsheet software. `cmdb-lite` treats all imported cells as literal data and
-never executes them. When exporting CSV in a future version, such cells will be
-escaped or prefixed so spreadsheet applications do not evaluate them.
+never executes them. CSV exports prefix such cells with a single quote (`'`) so
+spreadsheet applications do not evaluate them. The prefix is part of the
+exported text; use the JSON export for a byte-exact round trip.
 
 ## Network discovery results
 

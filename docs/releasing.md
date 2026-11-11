@@ -18,8 +18,12 @@ manual trigger required.
    ```
 
 3. Test migrations against at least the previous schema version.
-4. Commit and push `main`.
-5. Wait for the normal `main` CI run to pass.
+4. Run the clean-Windows-VM checklist and a Linux GUI/Flatpak smoke test on the
+   target distributions.
+5. Signing and SBOMs are not required for the current rollout. Windows artifacts
+   are unsigned and may trigger SmartScreen; record that expectation.
+6. Commit and push `main`.
+7. Wait for the normal `main` CI run to pass.
 
 ## Tag and publish
 
@@ -47,6 +51,14 @@ gh release download v0.6.0 --dir /tmp/cmdb-release
 cd /tmp/cmdb-release
 sha256sum -c SHA256SUMS
 ```
+
+Windows artifacts are unsigned by the current rollout decision. Use
+`SHA256SUMS` and expect a possible SmartScreen warning.
+
+`SHA256SUMS` is generated from the release assets, but it is not itself signed.
+If the GitHub release or workflow is compromised, the checksums provide no
+independent trust anchor. Signing, SBOMs, and build provenance are not required
+for this rollout.
 
 ## If a job fails
 

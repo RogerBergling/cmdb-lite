@@ -46,6 +46,7 @@ void test_export(void) {
   char *dir = test_temp_dir();
   char db_path[4096];
   char csv_path[4096];
+  char ci_csv_path[4096];
   cmdb_db_t *db;
   cmdb_hibp_export_options_t options;
   cmdb_hibp_export_stats_t stats;
@@ -142,6 +143,29 @@ void test_export(void) {
   TEST_ASSERT(!test_file_contains(csv_path, "win01"));
   TEST_ASSERT(!test_file_contains(csv_path, "Database Server"));
   TEST_ASSERT(!test_file_contains(csv_path, "keyless"));
+
+  {
+    char formula_id[37];
+    TEST_ASSERT(create_ci(db, "Other", "=SUM(A1)", NULL, NULL, NULL, NULL,
+                          NULL, NULL, 0, formula_id) == 0);
+    {
+      cmdb_ci_t formula_ci;
+      cmdb_ci_input_t update;
+      memset(&update, 0, sizeof(update));
+      TEST_ASSERT(cmdb_ci_get(db, formula_id, &formula_ci, &err) == 0);
+      update.name = formula_ci.name;
+      update.type_id = formula_ci.type_id;
+      update.description = "@cmd";
+      TEST_ASSERT(cmdb_ci_update(db, formula_id, &update, &err) == 0);
+      cmdb_ci_free(&formula_ci);
+    }
+    test_path(ci_csv_path, sizeof(ci_csv_path), dir, "export-neutralized.csv");
+    TEST_ASSERT(cmdb_export_save(db, CMDB_EXPORT_CI_CSV, ci_csv_path,
+                                 &err) == 0);
+    TEST_ASSERT(test_file_contains(ci_csv_path, "'=SUM(A1)"));
+    TEST_ASSERT(test_file_contains(ci_csv_path, "'@cmd"));
+    (void)remove(ci_csv_path);
+  }
 
   cmdb_db_close(db);
   test_cleanup_db(dir, "export.cmdb");

@@ -39,7 +39,16 @@ flatpak build-bundle repo cmdb-lite.flatpak \
 
 The manifest downloads pinned SQLCipher 4.6.1, libsodium 1.0.20, libpcap
 1.10.5, nmap 7.95, and the webview source. The application links against the
-bundled libraries.
+bundled libraries. The Flatpak installs the application license and
+third-party notices under `share/licenses/cmdb-lite`; nmap is distributed under
+the Nmap Public Source License, so review its terms before redistribution.
+Flathub distribution is not planned for the current rollout, so AppStream
+`metainfo.xml` is not included.
+
+The sandbox grants broad home-directory and network access because the user may
+choose any database path and the scanner needs nmap. Flatpak's file portal is
+not used for arbitrary paths. Treat the sandbox as a trusted local application,
+not as a hardened multi-tenant boundary.
 
 ## Sandbox and nmap
 

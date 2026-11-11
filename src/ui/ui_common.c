@@ -33,19 +33,23 @@ static char *try_root(const char *root) {
 }
 
 char *ui_resolve_web_root(void) {
-  const char *env = getenv("CMDB_WEB_DIR");
   char *exe_dir;
   char *candidate;
   char *result;
 
-  result = try_root(env);
-  if (result != NULL) {
-    return result;
+#ifndef NDEBUG
+  {
+    const char *env = getenv("CMDB_WEB_DIR");
+    result = try_root(env);
+    if (result != NULL) {
+      return result;
+    }
   }
   result = try_root(CMDB_WEB_DIR);
   if (result != NULL) {
     return result;
   }
+#endif
 
   exe_dir = cmdb_executable_dir();
   if (exe_dir == NULL) {

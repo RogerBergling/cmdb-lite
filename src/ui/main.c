@@ -60,8 +60,9 @@ static const char error_page[] =
   "<body style=\"font-family:sans-serif;background:#0b141c;color:#e7f1f7;"
   "padding:2rem\"><h1>cmdb-lite</h1>"
   "<p>The application web assets could not be found.</p>"
-  "<p>Install the application or set <code>CMDB_WEB_DIR</code> to the "
-  "directory containing <code>index.html</code>.</p></body></html>";
+  "<p>Reinstall the application. Debug builds may instead set "
+  "<code>CMDB_WEB_DIR</code> to the directory containing "
+  "<code>index.html</code>.</p></body></html>";
 
 static int host_choose_file(void *userdata, int save, const char *title,
                             const char *filter_name, const char *pattern,
@@ -182,12 +183,14 @@ static int run_application(void) {
     }
   }
 #endif
+#ifndef NDEBUG
   if (url == NULL) {
     const char *web_dir = getenv("CMDB_WEB_DIR");
     if (web_dir != NULL && web_dir[0] != '\0') {
       url = ui_index_url();
     }
   }
+#endif
   if (shell.app == NULL) {
     fatal_message(err.message[0] != '\0' ? err.message
                                         : "Cannot initialize the application.");

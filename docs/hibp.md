@@ -1,8 +1,21 @@
 # HIBP Linux host export
 
-The **HIBP Linux hosts — CSV** export feeds Linux inventory from `cmdb-lite`
-into [HIBP](https://github.com/RogerBergling/HIBP) without sharing databases,
+HIBP integration is in scope for the planned production rollout. The
+**HIBP Linux hosts — CSV** export feeds Linux inventory from `cmdb-lite` into
+[HIBP](https://github.com/RogerBergling/HIBP) without sharing databases,
 passphrases, or credentials.
+
+## Deployment roles
+
+- **`cmdb-lite`** is the single-user desktop inventory source of truth. It does
+  not provide a server login, MFA, or passkeys; it does not store SSH
+  credentials or patch state.
+- **HIBP** is the separate privileged patch-management server. It provides
+  single-user account login with a password plus TOTP and/or passkeys, owns its
+  own encrypted database and SSH credentials, and starts with Debian and Fedora
+  server support.
+- The integration boundary is versioned file import/export. Do not share the
+  encrypted databases, passphrases, or keys between the applications.
 
 `cmdb-lite` remains the inventory source of truth. HIBP remains the privileged
 patch controller and owns SSH access, host keys, patch jobs, and patch facts.
@@ -77,3 +90,19 @@ HIBP, or verify the preview before choosing `update`. The intended end state is
 idempotent matching by `cmdb_ci_id`, inventory-only updates that preserve SSH
 configuration and patch facts, and a one-time "needs setup" state for imported
 hosts that do not have credentials yet.
+
+## Go-live prerequisites for the integrated deployment
+
+Before going live with both applications:
+
+- [ ] Create the HIBP administrator account and enroll TOTP and/or a passkey.
+- [ ] Confirm HIBP server support on the target Debian or Fedora release.
+- [ ] Harden the HIBP database passphrase, backups, and host-key approvals.
+- [ ] Harden the HIBP importer to match by `cmdb_ci_id` first and preserve SSH
+      configuration/patch facts on update.
+- [ ] Test the one-time onboarding flow on a staging host.
+- [ ] Test an inventory update (address/owner/tag change) without duplicating
+      the host or losing SSH credentials.
+- [ ] Define how HIBP patch facts will be written back to `cmdb-lite` (future
+      feed or documented API).
+- [ ] Keep the two encrypted databases and their passphrases separate.

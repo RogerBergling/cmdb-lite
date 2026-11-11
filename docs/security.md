@@ -66,6 +66,8 @@ sidecar without its database is useless.
   memory-only.
 - SQL injection through imported values, because all SQL uses prepared
   statements.
+- Spreadsheet formula injection in CSV exports: cells starting with `=`, `+`,
+  `-`, or `@` are prefixed with a single quote.
 - Malformed CSV causing unbounded memory use, because rows, columns, fields, and
   file size are bounded.
 - Accidental modification of the audit hash chain, which is detected by
@@ -120,8 +122,13 @@ append-only system.
 - User data is rendered with DOM `textContent`; the UI does not inject imported
   strings as HTML.
 - SQL uses prepared statements and bound parameters.
+- CSV exports prefix cells beginning with `=`, `+`, `-`, or `@` with a single
+  quote to prevent spreadsheet formula execution. The prefix is part of the
+  exported text.
 - File dialogs are native. The C core writes exports atomically.
-- Release builds do not enable webview developer tools by default.
+- Release builds do not enable webview developer tools and do not honor
+  `CMDB_WEB_DIR` or `CMDB_UI_URL`; those overrides are compiled out with
+  `NDEBUG`.
 - The application does not execute a shell. nmap is launched with a fixed argv
   vector, validated target/port arguments, a private XML output file, and a hard
   timeout.
@@ -140,9 +147,11 @@ The core is C17, which is memory-unsafe. The project compensates with:
 - bounded parsers and explicit length checks;
 - prepared SQL statements and no shell execution;
 - a libFuzzer target for the CSV importer, plus future fuzzing for nmap XML;
-- static analysis (clang-tidy, cppcheck, CodeQL) as part of the hardening
-  workflow and CI as it matures;
-- vendored/pinned third-party dependencies and a pinned webview tarball hash.
+- local cppcheck/clang-tidy/Valgrind workflows. CodeQL, cppcheck, ASan/UBSan,
+  and fuzzing are **not yet enforced in CI**;
+- a vendored cJSON tree and a pinned `webview/webview` tarball hash. SQLCipher,
+  libsodium, expat, GTK/WebKitGTK, OpenSSL, and the vcpkg baseline are not
+  version-pinned on every platform.
 
 This reduces risk but does not make C memory-safe. A security-critical
 deployment should include independent review and fuzzing of the import, API, and
@@ -195,11 +204,15 @@ penetration-testing tool.
 - Restrict the database directory to the application user.
 - Do not store the database on a world-writable share.
 - Use a unique passphrase and a password manager.
+- Lock the application when leaving the workstation; there is no idle auto-lock
+  yet.
 - Review imports before committing.
 - Authorise scans explicitly and keep scan scope tight.
 - Export audit events to an external log if required by policy.
-- Code-sign Windows release binaries and publish checksums/SBOM for Linux
-  packages.
+- Treat Windows CI artifacts as unsigned. Signing and SBOMs are not part of the
+  current rollout decision; verify `SHA256SUMS`.
+- Private vulnerability reporting and `SECURITY.md` are configured. Define a
+  supported-version and patch-response policy.
 
 ## Reporting a vulnerability
 
@@ -211,11 +224,24 @@ Contact the repository owner privately with:
 - reproduction steps or a proof of concept,
 - any suggested mitigation.
 
+GitHub private vulnerability reporting is enabled on the public repository.
+The monitored fallback contact is `github@bergling.net`. See
+[`SECURITY.md`](../SECURITY.md) for the current policy.
+
 ## Known limitations
 
 - Single-user local application; no RBAC or server-side authentication.
+- No passphrase rotation/rekey, auto-lock/idle timeout, or passphrase attempt
+  rate limiting.
+- No configurable automatic or scheduled backups; v0.6.0 has manual backup and
+  automatic pre-migration backup only.
+- The derived key is not `sodium_mlock`ed. Swap, hibernation, and core dumps are
+  OS-level concerns; zeroization happens on normal close, not on a crash.
 - Webview memory cannot be fully zeroized.
-- The audit chain is local and key-holder-rewritable.
+- The audit chain is local and key-holder-rewritable; there is no off-device
+  audit export or forwarding yet.
+- No single-instance guard; do not open the same database from two processes or
+  from a shared/network filesystem.
 - The embedded diagram editor is a lightweight `.drawio`-compatible canvas, not
   the official draw.io web application. Dependency-map exports are plaintext
   files chosen by the user.
@@ -223,4 +249,13 @@ Contact the repository owner privately with:
   yet part of continuous fuzzing.
 - `nmap -O` is unavailable without elevation and in the standard Flatpak
   sandbox.
-- Windows and Linux packaging/signing workflows are not yet complete.
+- Signing, SBOMs, and build provenance are not used for the current rollout.
+  Windows artifacts are unsigned and may trigger SmartScreen; `SHA256SUMS` is the
+  published integrity check.
+- The `main` branch and release tags are not protected by repository rulesets.
+  GitHub Actions are referenced by tag, the repository allows all actions, and
+  SHA pinning is not required. The vcpkg baseline is not pinned.
+- The Flatpak sandbox grants broad home-directory and network access.
+- No macOS, ARM64, 32-bit, or headless/server build is produced by CI.
+- No FIPS 140, Common Criteria, HSM-backed key, or hardware-token support is
+  claimed.

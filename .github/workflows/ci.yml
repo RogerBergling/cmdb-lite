@@ -7,6 +7,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   linux:
     name: Linux (GTK3 / WebKitGTK)
@@ -21,6 +24,7 @@ jobs:
             build-essential cmake ninja-build pkg-config \
             fakeroot dpkg-dev \
             libsqlcipher-dev libsodium-dev libexpat1-dev \
+            libssl-dev zlib1g-dev \
             libgtk-3-dev libwebkit2gtk-4.1-dev nmap
 
       - name: Check embedded web UI
