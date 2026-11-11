@@ -20,9 +20,9 @@ Windows.
 
 - **Deployment:** currently a single-user desktop application. The planned v0.7
   architecture adds server mode with multiple accounts, username/password login,
-  TOTP, recovery codes, and later passkeys. The separate HIBP server provides the
-  privileged patch-management role; HIBP server support starts with Debian and
-  Fedora.
+  TOTP, and recovery codes; passkeys are out of scope for this phase. The
+  separate HIBP server provides the privileged patch-management role; HIBP
+  server support starts with Debian and Fedora.
 - **Platforms built by CI:** Linux x86_64 (`.deb`, RPM, portable tarball,
   Flatpak) and Windows x86_64 (portable ZIP, MSI).
 - **Current limitation:** v0.6.0 has no application-level login. The login and
@@ -375,8 +375,9 @@ environments you intend to support.
 
 ### Next milestones
 
-- Server mode with multiple accounts, username/password login, TOTP, recovery
-  codes, and later passkeys. Linux first; Windows later.
+- Server mode with multiple accounts, username/password login, TOTP, and
+  recovery codes. Passkeys are out of scope for this phase. Linux first;
+  Windows later.
 - Passphrase rotation/rekey and automatic or scheduled encrypted backups with
   retention.
 - Auto-lock/idle timeout and a single-instance database guard.
@@ -497,9 +498,11 @@ onboarding flow.
 v0.6.0 has no application-level login. The planned v0.7 architecture adds:
 
 - a `cmdb-server` process that owns the database;
-- a thin desktop `cmdb` client and browser access through HAProxy/VPN;
+- a desktop `cmdb` client that can start a local server or connect to a remote
+  server, plus browser access through HAProxy/VPN;
 - multiple accounts with the same inventory privileges;
-- username/password login, TOTP first, passkeys later;
+- username/password login, TOTP, and recovery codes; passkeys are out of
+  scope for this phase;
 - ten one-time recovery codes per user and admin reset;
 - configurable 12-hour absolute / 30-minute idle sessions by default;
 - audit events for login, logout, MFA, recovery, user management, and host
@@ -1044,7 +1047,7 @@ GitHub Actions Windows runner.
 - [`docs/architecture.md`](docs/architecture.md) — layers, bridge, data flows,
   and dependency choices.
 - [`docs/authentication.md`](docs/authentication.md) — planned v0.7 server mode,
-  accounts, sessions, TOTP, recovery codes, passkeys, schema, and API.
+  accounts, sessions, TOTP, recovery codes, schema, and API.
 - [`docs/dependencies.md`](docs/dependencies.md) — impact classes, vCenter and
   DNS examples, service modeling, and redundancy.
 - [`docs/drawio.md`](docs/drawio.md) — dependency traversal and `.drawio` format.
@@ -1188,8 +1191,8 @@ Ready-to-use examples are in [`examples/`](examples/):
 - Single-user local application. The schema, audit log, and API boundary are
   designed to allow a future server/RBAC version, but v1 has no authentication
   beyond the database passphrase.
-- No application-level accounts, login page, TOTP, passkeys, recovery codes, or
-  server mode in v0.6.0. These are designed in
+- No application-level accounts, login page, TOTP, recovery codes, or server
+  mode in v0.6.0. These are designed in
   [`docs/authentication.md`](docs/authentication.md) and planned for v0.7.
 - No password/secret storage. Use references to an external vault.
 - No passphrase rotation/rekey. A compromised passphrase requires creating a new
@@ -1270,7 +1273,7 @@ is still needed before a public or enterprise production rollout.
 ### Security and operations
 
 - [ ] Implement the planned server-mode authentication: login, sessions, TOTP,
-      recovery codes, audit actor, and passkeys in the later phase.
+      recovery codes, and audit actor.
 - [x] Enable GitHub private vulnerability reporting and publish `SECURITY.md`
       with a monitored contact.
 - [ ] Define a supported-version and security-update policy.

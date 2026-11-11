@@ -2,7 +2,7 @@
 
 > **Status: design only.** This document defines the planned v0.7 authentication
 > and server architecture. v0.6.0 is still a desktop application with no
-> application-level login, TOTP, passkeys, or server mode.
+> application-level login, TOTP, or server mode.
 
 ## Decisions
 
@@ -16,8 +16,8 @@
   their own account and never receive the database key.
 - Several accounts with the same inventory privileges.
 - First-run admin, then admin-created accounts. No self-registration.
-- TOTP first; passkeys in a later phase.
-- Ten one-time recovery codes per user; admin reset is also available.
+- TOTP and ten one-time recovery codes per user; admin reset is also available.
+- Passkeys/WebAuthn are explicitly out of scope for this phase.
 - Configurable session lifetime; defaults are 12 hours absolute and 30 minutes
   idle.
 - Audit authentication events and all CI/host changes with the username as the
@@ -29,15 +29,16 @@
 ## Goals
 
 - Require a username and password before the inventory is visible.
-- Support TOTP and, later, multiple WebAuthn passkeys per user.
+- Support TOTP and recovery codes per user.
 - Keep the database encryption boundary separate from the login boundary.
 - Ensure every change is attributable to a named account.
-- Support a local desktop server and a headless Fedora/Ubuntu server from the
-  same package.
+- Support a local desktop server, a remote desktop client, and a headless
+  Fedora/Ubuntu server from the same package.
 - Recover access with one-time recovery codes or an admin reset.
 
 ## Non-goals
 
+- Passkeys/WebAuthn in this phase.
 - Fine-grained roles or per-CI permissions in the first release. All accounts
   have the same inventory privileges; the admin capability is limited to user
   and authentication management.
@@ -58,7 +59,7 @@ Desktop client (cmdb)                 Browser
                  cmdb-server (Go)
         ┌───────────────┴────────────────┐
         │ HTTP API, sessions, CSRF       │
-        │ users, TOTP, recovery, passkeys│
+        │ users, TOTP, recovery codes    │
         │ audit actor                    │
         └───────────────┬────────────────┘
                         │ CGO calls, serialized
@@ -72,10 +73,10 @@ Desktop client (cmdb)                 Browser
 
 ### Why Go for the server
 
-- Mature password hashing and WebAuthn libraries.
+- Mature password hashing, TOTP, and session libraries.
 - HIBP already uses this approach; the design can be reused without sharing
   accounts or the database.
-- Avoid implementing WebAuthn and session security in C.
+- Avoid implementing password/session security in C.
 
 ### C core ownership
 
@@ -92,12 +93,16 @@ a single connection and UI thread.
 
 ### Desktop mode
 
-- `cmdb` starts `cmdb-server` on `127.0.0.1` with a random port, or connects to a
-  configured server URL.
-- The desktop UI loads from `http://localhost:<port>` so WebAuthn can work.
-- The local server prompts for the database passphrase when started.
-- Users still log in with their account, even in desktop mode.
-- The desktop client never opens the database directly.
+The desktop client supports both modes:
+
+- **Local:** `cmdb` starts `cmdb-server` on `127.0.0.1` with a random port,
+  prompts for the database passphrase, and opens the UI from
+  `http://localhost:<port>`.
+- **Remote:** `cmdb` connects to a configured `cmdb-server` URL instead of
+  starting a local server.
+
+In both modes, users log in with their account. The desktop client never opens
+the database directly.
 
 ### Server mode
 
@@ -155,21 +160,6 @@ CREATE TABLE sessions (
 
 CREATE INDEX idx_sessions_user ON sessions(user_id, revoked_at);
 CREATE INDEX idx_sessions_expiry ON sessions(idle_expires_at, absolute_expires_at);
-
-CREATE TABLE webauthn_credentials (
-    id TEXT PRIMARY KEY NOT NULL,
-    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    credential_id BLOB NOT NULL UNIQUE,
-    public_key BLOB NOT NULL,
-    sign_count INTEGER NOT NULL DEFAULT 0,
-    transports TEXT NOT NULL DEFAULT '',
-    aaguid TEXT NOT NULL DEFAULT '',
-    name TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL,
-    last_used_at TEXT NOT NULL DEFAULT ''
-);
-
-CREATE INDEX idx_webauthn_user ON webauthn_credentials(user_id);
 ```
 
 `app_meta` additions:
@@ -187,8 +177,6 @@ CREATE INDEX idx_webauthn_user ON webauthn_credentials(user_id);
   database key can read them; that is the same trust boundary as the password
   hashes.
 - Session tokens are random 256-bit values. Only their hashes are stored.
-- WebAuthn private keys never leave the authenticator; only public keys and
-  credential metadata are stored.
 
 ## First-run admin
 
@@ -239,16 +227,6 @@ The UI must clearly warn that an admin without MFA is less protected.
 - Using a code to sign in can reset the password and/or MFA according to policy.
 - Generating new codes invalidates the previous set after confirmation.
 
-### Passkeys (phase 2)
-
-- WebAuthn registration and authentication.
-- Multiple passkeys per user.
-- Stable relying-party ID and origin configured at deployment.
-- Sign-counter regression is rejected.
-- A passkey can be removed only from a completed session or by admin reset.
-- If the webview does not support WebAuthn, open the system browser for
-  enrollment/authentication.
-
 ## Sessions and transport security
 
 - Session cookie: random 256-bit token, `HttpOnly`, `SameSite=Strict`, `Secure`
@@ -276,7 +254,6 @@ Authentication events are written to the existing hash-chained `audit_log` with
 - session revoked;
 - TOTP enrolled/confirmed/reset;
 - recovery code generated/used;
-- passkey added/removed;
 - password changed/reset;
 - user created/disabled/enabled/deleted;
 - admin reset performed.
@@ -299,10 +276,6 @@ POST /api/v1/auth/password
 POST /api/v1/auth/totp/setup
 POST /api/v1/auth/totp/confirm
 POST /api/v1/auth/recovery/generate
-POST /api/v1/auth/passkeys/register/begin
-POST /api/v1/auth/passkeys/register/finish
-POST /api/v1/auth/passkeys/login/begin
-POST /api/v1/auth/passkeys/login/finish
 GET  /api/v1/users
 POST /api/v1/users
 POST /api/v1/users/{id}/disable
@@ -339,8 +312,7 @@ authenticated username into the C core audit actor.
 - One package containing `cmdb` and `cmdb-server`.
 - Fedora and Ubuntu server packaging first:
   - systemd unit for `cmdb-server`;
-  - config file for bind address, proxy CIDR, session timeouts, and WebAuthn
-    origin;
+  - config file for bind address, proxy CIDR, and session timeouts;
   - server data directory and file permissions;
   - log/journal guidance without secrets.
 - Desktop package includes the thin client and can start a local server.
@@ -358,19 +330,16 @@ authenticated username into the C core audit actor.
 - disabled user/session revocation;
 - admin reset authorization;
 - auth bypass attempts on inventory endpoints;
-- passkey origin/RP mismatch, sign-counter regression, duplicate credential;
 - audit completeness for auth and host changes;
 - migration from a v0.6.0 database;
 - backup/restore of the authentication state.
 
 ## Open decisions
 
-- The final WebAuthn relying-party ID and canonical HTTPS hostname. Passkeys are
-  bound to that origin; changing it later invalidates existing passkeys.
-- Whether the desktop client starts a local server automatically or only
-  connects to a configured server URL.
 - The first release uses an interactive database-passphrase prompt on server
   start. A systemd credential/root-only key file can follow.
 - TOTP is optional, including for the first admin, with a prominent warning.
 - Recovery-code use can reset both password and MFA; the exact UX is still to be
   finalized.
+- The desktop client supports both starting a local server and connecting to a
+  configured server URL. The default mode and switch UI still need design.

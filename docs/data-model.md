@@ -160,8 +160,7 @@ UUID and may carry a relationship type; connecting nodes creates a real row in
 
 ## Planned authentication schema
 
-Schema v5 is planned to add `users`, `sessions`, `user_recovery_codes`, and
-`webauthn_credentials` to the same encrypted database. The planned DDL, session
+Schema v5 is planned to add `users`, `sessions`, and `user_recovery_codes` to the same encrypted database. The planned DDL, session
 model, TOTP/recovery rules, admin flow, and migration from v4 are documented in
 [`authentication.md`](authentication.md). These tables are **not present in
 v0.6.0**.

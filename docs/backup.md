@@ -22,10 +22,9 @@ so backup does not ask for the passphrase again. It is zeroized on close and is
 never written to disk.
 
 When the planned server-mode authentication lands, user accounts, session
-metadata, TOTP secrets, recovery-code hashes, and passkey public keys will live in
-the same encrypted database. A database backup will therefore include
-authentication state. Restore tests must include login, TOTP, recovery-code, and
-passkey validation.
+metadata, TOTP secrets, and recovery-code hashes will live in the same
+encrypted database. A database backup will therefore include authentication
+state. Restore tests must include login, TOTP, and recovery-code validation.
 
 ## Manual backup while the application is closed
 

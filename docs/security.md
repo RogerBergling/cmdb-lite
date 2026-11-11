@@ -140,7 +140,7 @@ v0.7 server mode moves the database behind a Go server with:
 
 - username/password accounts and Argon2id password hashes;
 - session tokens stored only as hashes;
-- TOTP first, then WebAuthn/passkeys;
+- TOTP and recovery codes; passkeys are out of scope for this phase;
 - ten one-time recovery-code hashes per user;
 - admin user management and MFA reset;
 - per-request audit actor;

@@ -279,7 +279,7 @@ cmdb desktop client / browser
         │
         ▼
 cmdb-server (Go)
-  accounts · sessions · TOTP · recovery · passkeys · audit actor
+  accounts · sessions · TOTP · recovery codes · audit actor
         │
         ▼
 C core (inventory · graph · import · audit · SQLCipher)
@@ -288,7 +288,7 @@ C core (inventory · graph · import · audit · SQLCipher)
 - The server owns the database; the desktop client never opens it directly.
 - Multiple accounts share inventory privileges; the first account is an admin
   for user management.
-- TOTP comes first; passkeys follow in a later phase.
+- TOTP and recovery codes are in scope; passkeys are excluded for this phase.
 - HAProxy terminates TLS; the service binds loopback or a private address.
 - The database passphrase is known only to the server, not to users.
 
