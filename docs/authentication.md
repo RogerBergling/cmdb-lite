@@ -86,16 +86,18 @@ has full access.
 
 ### Desktop server mode
 
-Set `CMDB_SERVER_URL` to a running server URL:
+Choose **Connect to server** on the desktop unlock screen and enter the server
+URL, or set `CMDB_SERVER_URL`:
 
 ```bash
 CMDB_SERVER_URL=http://127.0.0.1:8080 cmdb
 ```
 
-The desktop client loads the server UI in its webview, skips the local bridge,
+The desktop client loads the server UI in its webview, unbinds the local bridge,
 and uses the same login/session flow as a browser. It does not start the server
-automatically yet; start `cmdb-server` first. If the server uses a self-signed
-certificate, configure the operating system trust store.
+automatically yet; start `cmdb-server` first. Use HTTPS for any non-loopback
+server. If the server uses a self-signed certificate, configure the operating
+system trust store.
 
 ### Server mode
 

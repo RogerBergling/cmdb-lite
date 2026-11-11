@@ -116,7 +116,10 @@ append-only system.
 - Desktop-local mode is offline. There is no remote content, telemetry, or
   update check.
 - Server mode is same-origin. The UI loads only from the configured server and
-  uses its authenticated RPC proxy.
+  uses its authenticated RPC proxy. When the desktop client switches from a
+  local database to a server through **Connect to server**, it unbinds the local
+  database bridge before navigating, so the remote page cannot reach the local
+  C core.
 - The Content-Security-Policy blocks remote scripts, frames, objects, and
   arbitrary network connections.
 - The JS bridge accepts JSON only. Request size is capped at 64 MiB. Import

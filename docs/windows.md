@@ -95,8 +95,9 @@ an error page rather than a blank window.
 
 ## Remote server mode
 
-Set `CMDB_SERVER_URL` before launching the EXE to use the desktop client against
-a Linux `cmdb-server` instead of a local database:
+On the unlock screen, choose **Connect to server**, enter the URL, and press
+**Connect to server**. The URL is remembered locally. For a non-interactive
+launch, set `CMDB_SERVER_URL` before starting the EXE:
 
 ```powershell
 $env:CMDB_SERVER_URL = "https://cmdb.example.internal"

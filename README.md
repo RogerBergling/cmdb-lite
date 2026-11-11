@@ -249,11 +249,17 @@ the server prints a new one. TOTP enrollment and at least one unused recovery
 code are mandatory before inventory access; the Security page guides this. After
 setup, create additional accounts from the **Users** page if needed.
 
-To use the desktop client against a server instead of opening a local file:
+To use the desktop client against a server instead of opening a local file,
+choose **Connect to server** on the unlock screen, enter the server URL, and
+press **Connect to server**. The URL is remembered in local storage. The
+equivalent non-interactive launch is:
 
 ```bash
-CMDB_SERVER_URL=http://127.0.0.1:8080 cmdb
+CMDB_SERVER_URL=https://cmdb.example.internal cmdb
 ```
+
+The native client unbinds the local database bridge before loading the remote
+page, so the server UI cannot call into the local C core.
 
 The client does not start the server automatically. Server sessions default to
 12 hours absolute and 30 minutes idle; change them with `--session-idle` and
@@ -294,7 +300,7 @@ Windows, use a per-user folder; the POSIX `0600` protection does not apply.
 | Variable | Applies to | Purpose |
 |---|---|---|
 | `CMDB_DB_PASSPHRASE` | `cmdb-server` | Database passphrase for non-interactive start. The server unsets it after reading. Prefer a root-only environment file/systemd `EnvironmentFile`, never a command line or shell history. |
-| `CMDB_SERVER_URL` | desktop `cmdb` | Load the authenticated UI from a running server instead of a local database. Use HTTPS for anything except loopback. |
+| `CMDB_SERVER_URL` | desktop `cmdb` | Non-interactive alternative to **Connect to server**. Use HTTPS for anything except loopback. |
 | `CMDB_NMAP` | scanner | Full path to `nmap`/`nmap.exe` when it is not on `PATH`. |
 | `CMDB_CONFIG_DIR` | desktop-local | Override the per-user config directory used for recent database paths. |
 | `CMDB_WEB_DIR` | Debug desktop; server | Debug desktop: load `src/web` instead of the embedded UI. Server: override the installed web asset directory. |

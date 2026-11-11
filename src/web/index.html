@@ -20,6 +20,7 @@
       <div class="segmented" role="tablist" aria-label="Database action">
         <button id="mode-open" class="segment active" type="button" role="tab" aria-selected="true">Open database</button>
         <button id="mode-create" class="segment" type="button" role="tab" aria-selected="false">Create database</button>
+        <button id="mode-server" class="segment" type="button" role="tab" aria-selected="false">Connect to server</button>
       </div>
 
       <form id="unlock-form" autocomplete="off">
@@ -46,6 +47,15 @@
 
         <p id="unlock-error" class="error" role="alert"></p>
         <button id="unlock-submit" type="submit" class="primary wide">Open encrypted database</button>
+      </form>
+
+      <form id="server-form" class="hidden" autocomplete="off">
+        <label for="server-url">Server URL</label>
+        <input id="server-url" type="url" spellcheck="false"
+               placeholder="https://cmdb.example.internal">
+        <p class="hint">Use HTTPS for any remote host. Plain HTTP is unencrypted and is only suitable for a loopback test or a trusted private network.</p>
+        <p id="server-error" class="error" role="alert"></p>
+        <button id="server-connect" type="submit" class="primary wide">Connect to server</button>
       </form>
 
       <div class="security-note">

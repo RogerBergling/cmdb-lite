@@ -109,6 +109,119 @@ static void smoke_callback(const char *id, const char *request_json,
   webview_terminate(shell->webview);
 }
 
+static int starts_with_ci(const char *value, const char *prefix) {
+  size_t i;
+  for (i = 0; prefix[i] != '\0'; i++) {
+    char a = value[i];
+    char b = prefix[i];
+    if (a >= 'A' && a <= 'Z') {
+      a = (char)(a - 'A' + 'a');
+    }
+    if (b >= 'A' && b <= 'Z') {
+      b = (char)(b - 'A' + 'a');
+    }
+    if (a != b) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+static int valid_server_url(const char *url) {
+  size_t len;
+  size_t i;
+  const char *host;
+  if (url == NULL) {
+    return 0;
+  }
+  len = strlen(url);
+  if (len < 8 || len > 2048) {
+    return 0;
+  }
+  if (starts_with_ci(url, "https://")) {
+    host = url + 8;
+  } else if (starts_with_ci(url, "http://")) {
+    host = url + 7;
+  } else {
+    return 0;
+  }
+  if (*host == '\0' || *host == '/' || *host == '?' || *host == '#') {
+    return 0;
+  }
+  for (i = 0; i < len; i++) {
+    unsigned char c = (unsigned char)url[i];
+    if (c <= 0x20 || c == 0x7f || c == '"' || c == '\\' || c == '<' ||
+        c == '>' || c == '@') {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+/* Native-only bridge request used by the local unlock screen. The local
+ * webview bridge is unbound before navigating to the server so remote content
+ * can never call into the local C core. Returns 1 when handled. */
+static int bridge_connect_server(shell_t *shell, const char *id,
+                                 const char *request_json) {
+  cJSON *request;
+  cJSON *method;
+  cJSON *params;
+  cJSON *url_item;
+  const char *url;
+  char *url_copy;
+
+  request = cJSON_Parse(request_json);
+  if (!cJSON_IsObject(request)) {
+    cJSON_Delete(request);
+    return 0;
+  }
+  method = cJSON_GetObjectItemCaseSensitive(request, "method");
+  if (!cJSON_IsString(method) || method->valuestring == NULL ||
+      strcmp(method->valuestring, "app.connect_server") != 0) {
+    cJSON_Delete(request);
+    return 0;
+  }
+  params = cJSON_GetObjectItemCaseSensitive(request, "params");
+  url_item = cJSON_IsObject(params)
+    ? cJSON_GetObjectItemCaseSensitive(params, "url")
+    : NULL;
+  url = cJSON_IsString(url_item) ? url_item->valuestring : NULL;
+  if (!valid_server_url(url)) {
+    webview_return(shell->webview, id, 0,
+                   "{\"ok\":false,\"error\":{\"code\":\"validation\","
+                   "\"message\":\"Enter a valid http:// or https:// server URL\"}}");
+    cJSON_Delete(request);
+    return 1;
+  }
+  url_copy = cmdb_strdup(url);
+  if (url_copy == NULL) {
+    webview_return(shell->webview, id, 0,
+                   "{\"ok\":false,\"error\":{\"code\":\"internal\","
+                   "\"message\":\"Cannot connect to the server\"}}");
+    cJSON_Delete(request);
+    return 1;
+  }
+
+  /* Never leave the local core reachable from the remote page. */
+  if (webview_unbind(shell->webview, "__cmdb_bridge") != WEBVIEW_ERROR_OK) {
+    webview_return(shell->webview, id, 0,
+                   "{\"ok\":false,\"error\":{\"code\":\"internal\","
+                   "\"message\":\"Cannot detach the local database bridge\"}}");
+    free(url_copy);
+    cJSON_Delete(request);
+    return 1;
+  }
+  (void)webview_unbind(shell->webview, "__cmdb_smoke");
+  webview_return(shell->webview, id, 0,
+                 "{\"ok\":true,\"result\":{\"navigating\":true}}");
+  if (webview_navigate(shell->webview, url_copy) != WEBVIEW_ERROR_OK) {
+    (void)webview_set_html(shell->webview, error_page);
+  }
+  free(url_copy);
+  cJSON_Delete(request);
+  return 1;
+}
+
 static void bridge_callback(const char *id, const char *request_json,
                             void *arg) {
   shell_t *shell = arg;
@@ -122,6 +235,12 @@ static void bridge_callback(const char *id, const char *request_json,
     webview_return(shell->webview, id, 0,
                    "{\"ok\":false,\"error\":{\"code\":\"invalid_argument\","
                    "\"message\":\"Invalid bridge request\"}}");
+    cJSON_Delete(args);
+    return;
+  }
+
+  if (bridge_connect_server(shell, id, first->valuestring)) {
+    cmdb_crypto_wipe(first->valuestring, strlen(first->valuestring));
     cJSON_Delete(args);
     return;
   }

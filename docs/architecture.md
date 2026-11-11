@@ -42,9 +42,10 @@ direct C calls with `cmdb-server` → `cmdb-rpc` over stdio; see
 ### UI
 
 `src/web` is a dependency-free single-page application. Desktop-local mode
-loads it from the embedded bundle and uses the webview bridge. Server mode loads
-the same files from `cmdb-server` and uses the authenticated HTTP RPC proxy
-instead. A strict Content-Security-Policy blocks remote scripts, frames,
+loads it from the embedded bundle and uses the webview bridge. The unlock screen
+can switch to a server: the native shell validates the URL, unbinds the local
+bridge, and navigates the same webview to `cmdb-server`, which serves the same
+files and uses the authenticated HTTP RPC proxy. A strict Content-Security-Policy blocks remote scripts, frames,
 objects, and arbitrary network connections.
 
 `packaging/embed_web.py` inlines the CSS and JavaScript into one HTML document,

@@ -281,15 +281,53 @@ async function loadSettings() {
   }
 }
 
-function setUnlockMode(mode) {  state.unlockMode = mode;
+function setUnlockMode(mode) {
+  state.unlockMode = mode;
+  const serverMode = mode === "server";
   $("mode-open").classList.toggle("active", mode === "open");
   $("mode-create").classList.toggle("active", mode === "create");
+  $("mode-server").classList.toggle("active", serverMode);
   $("mode-open").setAttribute("aria-selected", mode === "open" ? "true" : "false");
   $("mode-create").setAttribute("aria-selected", mode === "create" ? "true" : "false");
+  $("mode-server").setAttribute("aria-selected", serverMode ? "true" : "false");
   $("confirm-wrap").classList.toggle("hidden", mode !== "create");
+  $("unlock-form").classList.toggle("hidden", serverMode);
+  $("server-form").classList.toggle("hidden", !serverMode);
   $("unlock-submit").textContent = mode === "create"
     ? "Create encrypted database"
     : "Open encrypted database";
+  if (serverMode) {
+    $("server-url").focus();
+  }
+}
+
+async function connectServer(event) {
+  event.preventDefault();
+  setError($("server-error"), "");
+  const url = $("server-url").value.trim();
+  if (!/^https?:\/\//i.test(url)) {
+    setError($("server-error"), "Enter an http:// or https:// server URL.");
+    return;
+  }
+  try {
+    localStorage.setItem("cmdb.serverUrl", url);
+  } catch (error) {
+    /* The webview may not expose localStorage. */
+  }
+  try {
+    const response = await window.__cmdb_bridge(
+      JSON.stringify({ method: "app.connect_server", params: { url } })
+    );
+    if (!response || response.ok !== true) {
+      throw new Error(
+        response && response.error && response.error.message
+          ? response.error.message
+          : "Cannot connect to the server."
+      );
+    }
+  } catch (error) {
+    setError($("server-error"), formatError(error));
+  }
 }
 
 async function browseDatabase() {
@@ -2766,6 +2804,8 @@ function closeModal(id) {
 function bindEvents() {
   $("mode-open").addEventListener("click", () => setUnlockMode("open"));
   $("mode-create").addEventListener("click", () => setUnlockMode("create"));
+  $("mode-server").addEventListener("click", () => setUnlockMode("server"));
+  $("server-form").addEventListener("submit", connectServer);
   $("browse-db").addEventListener("click", browseDatabase);
   $("restore-backup").addEventListener("click", restoreBackup);
   $("unlock-form").addEventListener("submit", submitUnlock);
@@ -2929,6 +2969,14 @@ async function serverInit() {
 async function init() {
   applyTheme(storedTheme() || "system");
   bindEvents();
+  try {
+    const savedServer = window.localStorage.getItem("cmdb.serverUrl");
+    if (savedServer) {
+      $("server-url").value = savedServer;
+    }
+  } catch (error) {
+    /* The webview may not expose localStorage. */
+  }
   if (typeof window.__cmdb_bridge !== "function") {
     await serverInit();
     window.__CMDB_READY__ = true;
