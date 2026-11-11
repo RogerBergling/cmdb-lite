@@ -145,6 +145,42 @@ function formatError(error) {
   return text;
 }
 
+function buildInfoText(info) {
+  if (!info) {
+    return "";
+  }
+  const parts = [];
+  if (info.version) parts.push(`v${info.version}`);
+  if (info.build_number) parts.push(`build ${info.build_number}`);
+  if (info.build_commit) parts.push(`commit ${info.build_commit}`);
+  if (info.build_date) parts.push(info.build_date);
+  if (info.build_target) parts.push(info.build_target);
+  if (info.build_type) parts.push(info.build_type);
+  return parts.join(" \u00b7 ");
+}
+
+function renderBuildInfo(info) {
+  const full = buildInfoText(info);
+  if (!full) {
+    return;
+  }
+  for (const id of ["app-version", "build-label"]) {
+    const node = $(id);
+    if (node) {
+      node.textContent = full;
+      node.title = full;
+    }
+  }
+  const compact = [];
+  if (info.version) compact.push(`v${info.version}`);
+  if (info.build_number) compact.push(`build ${info.build_number}`);
+  if (info.build_commit) compact.push(info.build_commit);
+  const label = $("build-label");
+  if (label && compact.length) {
+    label.textContent = compact.join(" \u00b7 ");
+  }
+}
+
 async function api(method, params = {}) {
   let response;
   if (typeof window.__cmdb_bridge === "function") {
@@ -2951,6 +2987,7 @@ async function serverInit() {
     state.serverMode = true;
     state.csrfToken = session.csrf || "";
     state.authUser = session.user || null;
+    renderBuildInfo(session.server);
     if (
       state.authUser &&
       (state.authUser.must_change_password ||
@@ -2986,6 +3023,7 @@ async function init() {
   await loadSettings();
   try {
     const info = await api("app.info");
+    renderBuildInfo(info);
     if (info.database_open) {
       state.dbPath = info.database_path;
       await enterApplication();

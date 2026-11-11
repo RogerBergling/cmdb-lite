@@ -43,6 +43,12 @@ sudo apt install ./cmdb-lite-server_0.7.0_amd64.deb
 sudo dnf install ./cmdb-lite-server-0.7.0-*.rpm
 ```
 
+Check the installed server build with:
+
+```bash
+cmdb-server --version
+```
+
 The package installs the systemd unit at
 `/usr/lib/systemd/system/cmdb-server.service`, the passphrase example at
 `/usr/share/doc/cmdb-lite/server.env.example`, and creates the `cmdb` service

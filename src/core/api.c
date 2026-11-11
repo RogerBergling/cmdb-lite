@@ -24,6 +24,21 @@
 #ifndef CMDB_VERSION
 #define CMDB_VERSION "0.0.0"
 #endif
+#ifndef CMDB_BUILD_NUMBER
+#define CMDB_BUILD_NUMBER "dev"
+#endif
+#ifndef CMDB_BUILD_COMMIT
+#define CMDB_BUILD_COMMIT "unknown"
+#endif
+#ifndef CMDB_BUILD_DATE
+#define CMDB_BUILD_DATE "unknown"
+#endif
+#ifndef CMDB_BUILD_TARGET
+#define CMDB_BUILD_TARGET "unknown"
+#endif
+#ifndef CMDB_BUILD_CONFIG
+#define CMDB_BUILD_CONFIG "unknown"
+#endif
 
 static cJSON *api_error_response(cJSON *id, cmdb_error_t *err) {
   cJSON *response = cJSON_CreateObject();
@@ -616,6 +631,11 @@ static cJSON *handle_app_info(cmdb_app_t *app) {
     return NULL;
   }
   cJSON_AddStringToObject(result, "version", CMDB_VERSION);
+  cJSON_AddStringToObject(result, "build_number", CMDB_BUILD_NUMBER);
+  cJSON_AddStringToObject(result, "build_commit", CMDB_BUILD_COMMIT);
+  cJSON_AddStringToObject(result, "build_date", CMDB_BUILD_DATE);
+  cJSON_AddStringToObject(result, "build_target", CMDB_BUILD_TARGET);
+  cJSON_AddStringToObject(result, "build_type", CMDB_BUILD_CONFIG);
   cJSON_AddBoolToObject(result, "database_open", app->db != NULL);
   cJSON_AddStringToObject(result, "database_path",
                           app->db != NULL ? cmdb_db_path(app->db) : "");

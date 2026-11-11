@@ -40,6 +40,64 @@ set(CMDB_PACKAGE_VARIANT "" CACHE STRING
 option(CMDB_STATIC_CRYPTO
   "Link SQLCipher and libsodium statically on Unix when available" ON)
 
+# Build identity shown by the client and server. Override the cache values for
+# official/CI builds; otherwise infer a useful local build number and commit.
+set(CMDB_BUILD_NUMBER "" CACHE STRING
+  "Build number shown in the client (CI run number or git commit count)")
+set(CMDB_BUILD_COMMIT "" CACHE STRING
+  "Build commit shown in the client (defaults to short git HEAD)")
+if(NOT CMDB_BUILD_NUMBER)
+  if(DEFINED ENV{GITHUB_RUN_NUMBER} AND NOT "$ENV{GITHUB_RUN_NUMBER}" STREQUAL "")
+    set(CMDB_BUILD_NUMBER "$ENV{GITHUB_RUN_NUMBER}")
+  else()
+    find_package(Git QUIET)
+    if(GIT_EXECUTABLE)
+      execute_process(
+        COMMAND "${GIT_EXECUTABLE}" rev-list --count HEAD
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        OUTPUT_VARIABLE _cmdb_git_count
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+      if(_cmdb_git_count MATCHES "^[0-9]+$")
+        set(CMDB_BUILD_NUMBER "${_cmdb_git_count}")
+      endif()
+    endif()
+  endif()
+  if(NOT CMDB_BUILD_NUMBER)
+    set(CMDB_BUILD_NUMBER "dev")
+  endif()
+endif()
+if(NOT CMDB_BUILD_COMMIT)
+  if(DEFINED ENV{GITHUB_SHA} AND NOT "$ENV{GITHUB_SHA}" STREQUAL "")
+    string(SUBSTRING "$ENV{GITHUB_SHA}" 0 12 CMDB_BUILD_COMMIT)
+  else()
+    find_package(Git QUIET)
+    if(GIT_EXECUTABLE)
+      execute_process(
+        COMMAND "${GIT_EXECUTABLE}" rev-parse --short=12 HEAD
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        OUTPUT_VARIABLE _cmdb_git_commit
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+      if(_cmdb_git_commit MATCHES "^[0-9a-fA-F]+$")
+        set(CMDB_BUILD_COMMIT "${_cmdb_git_commit}")
+      endif()
+    endif()
+  endif()
+  if(NOT CMDB_BUILD_COMMIT)
+    set(CMDB_BUILD_COMMIT "unknown")
+  endif()
+endif()
+string(TIMESTAMP CMDB_BUILD_DATE "%Y-%m-%dT%H:%M:%SZ" UTC)
+if(CMAKE_BUILD_TYPE)
+  set(CMDB_BUILD_CONFIG "${CMAKE_BUILD_TYPE}")
+else()
+  set(CMDB_BUILD_CONFIG "multi")
+endif()
+set(CMDB_BUILD_TARGET "${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR}")
+set(CMDB_SERVER_LDFLAGS
+  "-X main.version=${PROJECT_VERSION} -X main.buildNumber=${CMDB_BUILD_NUMBER} -X main.buildCommit=${CMDB_BUILD_COMMIT} -X main.buildDate=${CMDB_BUILD_DATE} -X main.buildTarget=${CMDB_BUILD_TARGET} -X main.buildType=${CMDB_BUILD_CONFIG}")
+
 set(CMDB_STATIC_CRYPTO_LINKED OFF)
 
 if(MSVC)
@@ -214,7 +272,12 @@ endif()
 set_target_properties(cmdb_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_options(cmdb_core PRIVATE ${CMDB_WARNINGS})
 target_compile_definitions(cmdb_core PRIVATE
-  CMDB_VERSION="${PROJECT_VERSION}")
+  CMDB_VERSION="${PROJECT_VERSION}"
+  CMDB_BUILD_NUMBER="${CMDB_BUILD_NUMBER}"
+  CMDB_BUILD_COMMIT="${CMDB_BUILD_COMMIT}"
+  CMDB_BUILD_DATE="${CMDB_BUILD_DATE}"
+  CMDB_BUILD_TARGET="${CMDB_BUILD_TARGET}"
+  CMDB_BUILD_CONFIG="${CMDB_BUILD_CONFIG}")
 target_compile_definitions(cmdb_core PUBLIC SQLITE_HAS_CODEC)
 target_link_libraries(cmdb_core PUBLIC
   ${CMDB_CRYPTO_LIBS}
@@ -361,7 +424,9 @@ if(NOT WIN32)
       add_custom_command(
         OUTPUT "${CMAKE_BINARY_DIR}/cmdb-server"
         COMMAND "${CMAKE_COMMAND}" -E env CGO_ENABLED=0
-          "${GO_EXECUTABLE}" build -trimpath -o "${CMAKE_BINARY_DIR}/cmdb-server" .
+          "${GO_EXECUTABLE}" build -trimpath
+          "-ldflags=${CMDB_SERVER_LDFLAGS}"
+          -o "${CMAKE_BINARY_DIR}/cmdb-server" .
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/server"
         DEPENDS ${CMDB_SERVER_SOURCES}
           "${CMAKE_CURRENT_SOURCE_DIR}/server/go.mod"

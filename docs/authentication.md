@@ -122,6 +122,7 @@ Flags:
 | `--proxy` | `127.0.0.1/32,::1/128` | Trusted proxy CIDRs for `X-Forwarded-*`. |
 | `--session-idle` | `30m` | Idle session timeout. |
 | `--session-absolute` | `12h` | Absolute session timeout. |
+| `--version` | off | Print version, build number, commit, date, target, and build type, then exit. |
 | `--reset-auth` | off | Break-glass: clear accounts/TOTP/recovery state, write an audit entry, and exit. Requires the database passphrase and a stopped server. |
 
 The database passphrase is read from `CMDB_DB_PASSPHRASE` or prompted on a TTY.

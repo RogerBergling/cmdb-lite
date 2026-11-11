@@ -25,6 +25,28 @@ import (
 //go:embed login.html security.html users.html
 var pageFiles embed.FS
 
+// These are overridden at build time with -ldflags by CMake. The defaults keep
+// a plain `go build` usable for development.
+var (
+	version     = "0.0.0"
+	buildNumber = "dev"
+	buildCommit = "unknown"
+	buildDate   = "unknown"
+	buildTarget = "unknown"
+	buildType   = "unknown"
+)
+
+func serverBuildInfo() map[string]any {
+	return map[string]any{
+		"version":      version,
+		"build_number": buildNumber,
+		"build_commit": buildCommit,
+		"build_date":   buildDate,
+		"build_target": buildTarget,
+		"build_type":   buildType,
+	}
+}
+
 const (
 	sessionCookieName = "cmdb_session"
 	defaultIdle       = 30 * time.Minute
@@ -120,11 +142,23 @@ func main() {
 		idleFlag  = flag.Duration("session-idle", defaultIdle, "idle session timeout")
 		absolute  = flag.Duration("session-absolute", defaultAbsolute, "absolute session timeout")
 		resetAuth = flag.Bool("reset-auth", false, "clear accounts/TOTP/recovery state and exit (break-glass)")
+		showVer   = flag.Bool("version", false, "print version and build information")
 	)
 	flag.Parse()
+	if *showVer {
+		fmt.Printf("cmdb-server %s\n", version)
+		fmt.Printf("build:  %s\n", buildNumber)
+		fmt.Printf("commit: %s\n", buildCommit)
+		fmt.Printf("date:   %s\n", buildDate)
+		fmt.Printf("target: %s\n", buildTarget)
+		fmt.Printf("type:   %s\n", buildType)
+		return
+	}
 	if *dbPath == "" {
 		log.Fatal("--db is required")
 	}
+	log.Printf("cmdb-server %s build %s commit %s date %s target %s type %s",
+		version, buildNumber, buildCommit, buildDate, buildTarget, buildType)
 	if *idleFlag <= 0 || *absolute <= 0 || *idleFlag > *absolute {
 		log.Fatal("invalid session timeouts")
 	}
@@ -770,6 +804,7 @@ func (s *server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 	response := map[string]any{
 		"setup_required": len(s.state.Users) == 0,
 		"authenticated":  false,
+		"server":         serverBuildInfo(),
 	}
 	sess := s.sessionFromRequest(r)
 	if sess != nil {
@@ -1064,6 +1099,7 @@ func (s *server) handleSession(w http.ResponseWriter, r *http.Request) {
 		"authenticated": true,
 		"user":          userView(user),
 		"csrf":          sess.csrf,
+		"server":        serverBuildInfo(),
 	})
 }
 

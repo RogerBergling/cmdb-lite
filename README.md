@@ -74,6 +74,45 @@ The detailed runbook is in [`docs/server.md`](docs/server.md). The decisions
 above are the reference profile; if the deployment changes, update this table
 and the checklist before go-live.
 
+### Version and build information
+
+The desktop client shows its build identity on the unlock screen and in the top
+bar after opening a database or connecting to a server:
+
+```text
+v0.7.0 · build 29 · commit 9333922e6176 · 2026-11-11T21:04:38Z · Linux/x86_64 · Debug
+```
+
+The server exposes the same information:
+
+```bash
+cmdb-server --version
+```
+
+It is also returned by `/api/v1/auth/status` and `/api/v1/auth/session`, so the
+server UI shows the server build in its top bar.
+
+Build metadata is generated when CMake configures the build:
+
+- **version**: the semantic project version from `CMakeLists.txt`;
+- **build number**: the CI run number (`GITHUB_RUN_NUMBER`) when present,
+  otherwise the local git commit count;
+- **commit**: short `HEAD` or CI `GITHUB_SHA`;
+- **date**: UTC configure time;
+- **target**: OS/architecture;
+- **type**: `Debug`, `Release`, or `multi` for multi-config generators.
+
+Override the inferred values when producing a controlled build:
+
+```bash
+cmake -S . -B build -G Ninja \
+  -DCMDB_BUILD_NUMBER=1234 \
+  -DCMDB_BUILD_COMMIT=9333922e6176
+```
+
+The build label is the reliable way to tell two packages with the same semantic
+version apart.
+
 ## Screenshots
 
 | Inventory | Network discovery |
@@ -1130,6 +1169,8 @@ packaging/           Icons, embed script, Windows resources, Flatpak, installers
 | `CMDB_WERROR` | `OFF` | Treat compiler warnings as errors for project targets. |
 | `CMDB_BUILD_FUZZERS` | `OFF` | Build the libFuzzer CSV target (Clang only). |
 | `CMDB_PACKAGE_VARIANT` | empty | Optional suffix for Linux package filenames, for example `fedora`; CI uses it to keep Fedora tarballs distinct from Ubuntu builds. |
+| `CMDB_BUILD_NUMBER` | inferred | Build number shown in the client/server. Defaults to `GITHUB_RUN_NUMBER` or the local git commit count. |
+| `CMDB_BUILD_COMMIT` | inferred | Build commit shown in the client/server. Defaults to short `HEAD` or `GITHUB_SHA`. |
 
 ### Dependencies
 

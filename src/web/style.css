@@ -334,7 +334,7 @@ legend {
 
 .segmented {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.35rem;
   padding: 0.3rem;
   margin-bottom: 1rem;
@@ -369,6 +369,28 @@ legend {
 }
 
 .security-note strong { color: var(--accent); }
+
+.build-version {
+  margin-top: 0.75rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.build-readout {
+  max-width: 24rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-family: ui-monospace, "Cascadia Code", "Ubuntu Mono", monospace;
+}
+
+@media (max-width: 900px) {
+  .build-readout { display: none; }
+}
 
 /* App shell */
 
@@ -1237,4 +1259,5 @@ html[data-theme="light"] {
   .panel-heading { flex-direction: column; }
   .scan-import-bar { flex-direction: column; align-items: stretch; }
   .unlock-card { padding: 1.4rem; }
+  .segmented { grid-template-columns: 1fr; }
 }
