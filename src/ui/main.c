@@ -148,6 +148,7 @@ static int run_application(void) {
   cmdb_error_t err;
   char *url;
   int debug = 0;
+  int server_mode = 0;
 
 #ifndef NDEBUG
   {
@@ -175,15 +176,20 @@ static int run_application(void) {
   shell.app = cmdb_app_new(&host, &err);
 
   url = NULL;
-#ifndef NDEBUG
   {
+    const char *server_url = getenv("CMDB_SERVER_URL");
+    if (server_url != NULL && server_url[0] != '\0') {
+      url = cmdb_strdup(server_url);
+      server_mode = 1;
+    }
+  }
+#ifndef NDEBUG
+  if (url == NULL) {
     const char *url_override = getenv("CMDB_UI_URL");
     if (url_override != NULL && url_override[0] != '\0') {
       url = cmdb_strdup(url_override);
     }
   }
-#endif
-#ifndef NDEBUG
   if (url == NULL) {
     const char *web_dir = getenv("CMDB_WEB_DIR");
     if (web_dir != NULL && web_dir[0] != '\0') {
@@ -201,8 +207,9 @@ static int run_application(void) {
     return 1;
   }
 
-  if (webview_bind(webview, "__cmdb_bridge", bridge_callback, &shell) !=
-      WEBVIEW_ERROR_OK) {
+  if (!server_mode &&
+      webview_bind(webview, "__cmdb_bridge", bridge_callback, &shell) !=
+        WEBVIEW_ERROR_OK) {
     fatal_message("Cannot bind the application bridge.");
     free(url);
     cmdb_app_free(shell.app);
@@ -210,7 +217,7 @@ static int run_application(void) {
     return 1;
   }
 
-  {
+  if (!server_mode) {
     const char *smoke = getenv("CMDB_SMOKE_TEST");
     if (smoke != NULL && strcmp(smoke, "1") == 0) {
       if (webview_bind(webview, "__cmdb_smoke", smoke_callback, &shell) !=

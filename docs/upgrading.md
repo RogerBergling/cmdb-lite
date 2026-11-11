@@ -44,6 +44,18 @@ wrong.
 
 ## Database compatibility
 
+v0.7.0 does **not** change the schema. It stays at version 4. Server-mode
+accounts, TOTP secrets, and recovery-code hashes are stored as JSON in the
+existing `app_meta` table under `auth.state`, so upgrading preserves inventory,
+relationships, diagrams, scans, and audit rows without a migration. The database
+passphrase is unchanged.
+
+If you start using `cmdb-server`, the first admin account is separate from the
+database passphrase and is created through a one-time setup token. Backups
+already include `auth.state`; no additional authentication file is needed.
+Opening a server-managed database in local desktop mode bypasses application
+logins.
+
 v0.6.0 migrates the schema from version 3 to version 4. It adds relationship
 impact classes, new management/monitoring/provider relationship types, and the
 seeded `Service` CI type. Existing relationships receive their relationship
@@ -81,11 +93,6 @@ the same passphrase.
 
 For future releases:
 
-- The planned v0.7 server mode adds schema version 5 authentication tables to the
-  same encrypted database. The existing passphrase remains the database
-  encryption passphrase; the first admin account is separate and is created
-  through a one-time setup token. See
-  [`authentication.md`](authentication.md).
 - Schema changes are forward migrations. A newer application can open an older
   database and upgrades it in place.
 - Backward compatibility is not guaranteed. After a newer application has
@@ -98,7 +105,7 @@ For future releases:
 
 ```bash
 # Stop any running instance, then install the new package over the old one.
-sudo apt install ./cmdb-lite_0.6.0_amd64.deb
+sudo apt install ./cmdb-lite_0.7.0_amd64.deb
 ```
 
 `apt` replaces `/usr/bin/cmdb` and leaves your database untouched. Your database
@@ -122,7 +129,7 @@ dpkg -s cmdb-lite | grep '^Version:'
 ## Fedora / RHEL (`.rpm`)
 
 ```bash
-sudo dnf upgrade ./cmdb-lite-0.6.0-1.x86_64.rpm
+sudo dnf upgrade ./cmdb-lite-0.7.0-1.x86_64.rpm
 ```
 
 or, if the RPM is in a repository:
@@ -147,8 +154,8 @@ The portable archive contains a single `cmdb` ELF. Keep the old binary until the
 new one starts successfully:
 
 ```bash
-tar -xzf cmdb-lite-0.6.0-linux-x86_64.tar.gz
-./cmdb-lite-0.6.0-linux-x86_64/bin/cmdb
+tar -xzf cmdb-lite-0.7.0-linux-x86_64.tar.gz
+./cmdb-lite-0.7.0-linux-x86_64/bin/cmdb
 ```
 
 The database is opened from the path you choose in the application. File paths
@@ -175,7 +182,7 @@ executable does not store the database next to itself.
 ## Windows MSI
 
 ```powershell
-msiexec /i .\cmdb-lite-0.6.0-windows-x64.msi
+msiexec /i .\cmdb-lite-0.7.0-windows-x64.msi
 ```
 
 The per-machine MSI upgrades the installed executable and Start Menu shortcut.
@@ -185,7 +192,7 @@ required.
 To uninstall:
 
 ```powershell
-msiexec /x .\cmdb-lite-0.6.0-windows-x64.msi
+msiexec /x .\cmdb-lite-0.7.0-windows-x64.msi
 ```
 
 Uninstalling removes the application only. Back up your database first if you

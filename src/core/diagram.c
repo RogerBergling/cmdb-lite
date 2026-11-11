@@ -253,7 +253,7 @@ int cmdb_diagram_save(cmdb_db_t *db, const char *id, const char *name,
       cJSON_Delete(detail);
     }
     if (json != NULL) {
-      (void)cmdb_audit_add(db, "local", create ? "create" : "update",
+      (void)cmdb_audit_add(db, cmdb_audit_actor(), create ? "create" : "update",
                            "diagram", uuid, json, NULL);
       free(json);
     }
@@ -290,7 +290,7 @@ int cmdb_diagram_delete(cmdb_db_t *db, const char *id, cmdb_error_t *err) {
     cmdb_error_set(err, CMDB_ERR_DATABASE, "Cannot delete diagram");
     return -1;
   }
-  (void)cmdb_audit_add(db, "local", "delete", "diagram", id, "{}", NULL);
+  (void)cmdb_audit_add(db, cmdb_audit_actor(), "delete", "diagram", id, "{}", NULL);
   return 0;
 }
 

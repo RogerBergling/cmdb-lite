@@ -29,8 +29,8 @@ before publishing details.
 
 ## Scope
 
-This policy covers the `cmdb-lite` desktop application, its core, build scripts,
-packaging, and documentation.
+This policy covers the `cmdb-lite` desktop application, the `cmdb-server` and
+`cmdb-rpc` components, the core, build scripts, packaging, and documentation.
 
 The separate HIBP patch-management server has its own security policy and
 threat model. Do not share cmdb-lite databases, passphrases, or SSH credentials

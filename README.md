@@ -3,38 +3,45 @@
 A local-first, encrypted Configuration Management Database (CMDB) for Linux and
 Windows.
 
-> **Status: v0.6.0.** The repository contains the C17 core, SQLCipher storage
-> layer, Argon2id key derivation, CI categories/types/custom fields,
-> impact-aware typed relationships, seeded infrastructure services, CSV/TSV
-> import, dependency graph builder, `.drawio` export, an embedded diagram
-> editor, persisted nmap discovery with matching/merge review, encrypted
-> database backup, and the desktop webview shell. Linux, Fedora, Windows, and
-> Flatpak CI builds are defined; the Windows job runs a real WebView2 smoke test
-> and produces the portable ZIP and MSI. A clean-Windows-VM install/uninstall
-> check is still recommended.
+> **Status: v0.7.0 development.** The repository contains the C17 core,
+> SQLCipher storage layer, Argon2id key derivation, CI categories/types/custom
+> fields, impact-aware typed relationships, seeded infrastructure services,
+> CSV/TSV import, dependency graph builder, `.drawio` export, an embedded
+> diagram editor, persisted nmap discovery with matching/merge review, encrypted
+> database backup, the desktop webview shell, and the Go `cmdb-server` with
+> first-run setup, password login, TOTP, recovery codes, sessions, and admin
+> account management. Linux, Fedora, Windows, and Flatpak CI builds are defined;
+> the Windows job runs a real WebView2 smoke test and produces the portable ZIP
+> and MSI. A clean-Windows-VM install/uninstall check is still recommended.
 
-> **Release status:** v0.6.0 is the current release. Verify downloaded assets
-> against `SHA256SUMS`; see [`docs/releasing.md`](docs/releasing.md).
+> **Release status:** v0.6.0 is the latest published release. v0.7.0, which adds
+> authenticated server mode, is not tagged yet. Verify downloaded assets against
+> `SHA256SUMS`; see [`docs/releasing.md`](docs/releasing.md) and
+> [`docs/authentication.md`](docs/authentication.md).
 
 ## At a glance
 
-- **Deployment:** currently a single-user desktop application. The planned v0.7
-  architecture adds server mode with multiple accounts, username/password login,
-  TOTP, and recovery codes; passkeys are out of scope for this phase. The
-  separate HIBP server provides the privileged patch-management role; HIBP
-  server support starts with Debian and Fedora.
+- **Deployment:** one package with two Linux modes. `cmdb` is a desktop client
+  for a local encrypted database or for connecting to a server. `cmdb-server`
+  owns the database and adds multiple accounts, username/password login, TOTP,
+  recovery codes, and per-user audit actors. Passkeys are out of scope for this
+  phase. The separate HIBP server provides the privileged patch-management role;
+  HIBP server support starts with Debian and Fedora.
 - **Platforms built by CI:** Linux x86_64 (`.deb`, RPM, portable tarball,
-  Flatpak) and Windows x86_64 (portable ZIP, MSI).
-- **Current limitation:** v0.6.0 has no application-level login. The login and
-  server-mode design is in [`docs/authentication.md`](docs/authentication.md) and
-  is not implemented yet.
-- **Not currently built:** macOS, ARM64, 32-bit, or a headless/server mode.
-- **Storage:** one user-selected SQLCipher database plus a required `.meta`
-  sidecar.
+  Flatpak) and Windows x86_64 (portable ZIP, MSI). The Windows package is a
+  desktop client only.
+- **Current limitation:** desktop-local mode has no application-level login
+  beyond the database passphrase, and the desktop client does not start the
+  server automatically. Server mode is Linux-only for now.
+- **Not currently built:** macOS, ARM64, 32-bit, or a Windows server.
+- **Storage:** one SQLCipher database plus a required `.meta` sidecar. Desktop
+  local mode opens a user-selected file; server mode owns a server-side file.
 - **Secrets:** the CMDB is not a password vault. Do not store passwords, API
   keys, tokens, or private keys in it; store references instead.
-- **Network:** offline-first. The only network activity is an explicitly
-  authorised nmap scan. There is no telemetry, cloud sync, or update check.
+- **Network:** desktop-local mode is offline-first; its only network activity is
+  an explicitly authorised nmap scan. Server mode listens on the configured
+  loopback/private address and should be reached through HAProxy/VPN. There is
+  no telemetry, cloud sync, or update check.
 - **License:** MIT; third-party notices are in
   [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
@@ -61,7 +68,8 @@ latest release from:
 
 <https://github.com/RogerBergling/cmdb-lite/releases/latest>
 
-Release assets:
+Release assets (the latest published release is v0.6.0; substitute the version
+you download):
 
 | Platform | Files |
 |---|---|
@@ -187,6 +195,43 @@ Ubuntu 24.04 and is not guaranteed to run on older glibc distributions.
 The application never uploads data. The database remains at the path you chose.
 See [`docs/backup.md`](docs/backup.md) for backup and restore details.
 
+### Server mode
+
+The Linux package also installs `cmdb-server` and the `cmdb-rpc` bridge. The
+server owns the database; users log in with their own accounts and never receive
+the database passphrase.
+
+```bash
+CMDB_DB_PASSPHRASE='your database passphrase' \
+  cmdb-server --db /var/lib/cmdb-lite/inventory.cmdb --listen 127.0.0.1:8080
+```
+
+On first start the server prints a one-time setup token. Open
+`http://127.0.0.1:8080/login`, enter the token, and create the first
+administrator. The token expires after 24 hours; while no users exist, restarting
+the server prints a new one. After setup, create additional accounts from the
+**Users** page. TOTP and recovery codes are managed from **Security**.
+
+To use the desktop client against a server instead of opening a local file:
+
+```bash
+CMDB_SERVER_URL=http://127.0.0.1:8080 cmdb
+```
+
+The client does not start the server automatically. Server sessions default to
+12 hours absolute and 30 minutes idle; change them with `--session-idle` and
+`--session-absolute`. The service has no TLS listener: terminate TLS at
+HAProxy/VPN, bind to loopback or a private address, and add the proxy CIDR to
+`--proxy`.
+
+Authentication state lives inside the encrypted database under `app_meta`, so a
+normal database backup includes accounts and MFA material. The server has no
+backup API yet: stop it before copying the `.cmdb` and `.meta` files. Sessions are
+memory-only and are lost on restart. Opening a server-managed database in local
+desktop mode bypasses application logins. See
+[`docs/authentication.md`](docs/authentication.md) for the full design and
+[`docs/backup.md`](docs/backup.md) for backup implications.
+
 ### Data locations
 
 | Data | Location | Contains secrets? |
@@ -194,6 +239,8 @@ See [`docs/backup.md`](docs/backup.md) for backup and restore details.
 | Inventory database | The `.cmdb` path you choose | Encrypted inventory, diagrams, audit log. The passphrase is never stored. |
 | KDF sidecar | `<database>.cmdb.meta` next to the database | Salt and KDF parameters only; required to open the database. |
 | Recent-database settings | Linux: `$XDG_CONFIG_HOME/cmdb-lite/config.json` (normally `~/.config/cmdb-lite/config.json`). Windows: `%APPDATA%\cmdb-lite\config.json` | Database paths only; no passphrase or key. |
+| Server authentication state | Inside the server database under `app_meta` (`auth.state`) | Account records, Argon2id hashes, TOTP secrets, recovery-code hashes. Encrypted by SQLCipher. |
+| Server sessions | Server process memory only | Session and CSRF tokens. Lost on restart. |
 | Backups | The path you choose in **Backup** | An encrypted `.cmdb` plus matching `.meta` sidecar. |
 | Exports, `.drawio`, HIBP CSV | The path you choose | Plaintext. Store and delete according to your data-handling policy. |
 | Scan XML | Private temporary file (`0600` on POSIX), deleted after parsing | Discovery results before they enter encrypted staging. |
@@ -217,8 +264,8 @@ Windows, use a per-user folder; the POSIX `0600` protection does not apply.
 
 **Not yet implemented:** configurable automatic and scheduled backups. The
 production rollout requires manual, automatic, and scheduled modes with
-destination/interval/retention settings. v0.6.0 has manual backup plus the
-automatic pre-migration backup only. See [`docs/backup.md`](docs/backup.md).
+destination/interval/retention settings. The current release has manual backup
+plus the automatic pre-migration backup only. See [`docs/backup.md`](docs/backup.md).
 
 Full procedures: [`docs/backup.md`](docs/backup.md) and
 [`docs/upgrading.md`](docs/upgrading.md).
@@ -251,20 +298,26 @@ Application upgrades replace the executable only. Your database and `.meta`
 sidecar stay where they are. The application remembers the last database and
 shows recent databases on the unlock screen.
 
-v0.6.0 migrates the database from schema version 3 to version 4. It adds
+v0.7.0 does not change the database schema. It adds the Go `cmdb-server`,
+`cmdb-rpc`, and optional authenticated server mode. Existing databases open
+normally and keep the same passphrase. Server accounts are stored inside the
+same encrypted database under `app_meta`; a normal backup includes them. The
+desktop client remains local unless `CMDB_SERVER_URL` is set.
+
+v0.6.0 migrated the database from schema version 3 to version 4. It added
 relationship impact classes, new management/monitoring/provider relationship
-types, and the seeded `Service` CI type. Review existing `supports`,
-`connects_to`, and `member_of` relationships after the upgrade; they default to
-`informational` and should be changed if they represent real runtime
-dependencies. The automatic pre-upgrade backup is created first and its path is
-shown after opening. You can also use the in-app **Backup** button at any time.
+types, and the seeded `Service` CI type. If you are upgrading from v0.5.0 or
+earlier, review existing `supports`, `connects_to`, and `member_of`
+relationships after the upgrade; they default to `informational` and should be
+changed if they represent real runtime dependencies. The automatic pre-upgrade
+backup is created first and its path is shown after opening.
 
 ```bash
 # Debian/Ubuntu
-sudo apt install ./cmdb-lite_0.6.0_amd64.deb
+sudo apt install ./cmdb-lite_0.7.0_amd64.deb
 
 # Fedora
-sudo dnf upgrade ./cmdb-lite-0.6.0-*.rpm
+sudo dnf upgrade ./cmdb-lite-0.7.0-*.rpm
 ```
 
 On Windows, install the new MSI or replace the portable executable and open the
@@ -375,9 +428,9 @@ environments you intend to support.
 
 ### Next milestones
 
-- Server mode with multiple accounts, username/password login, TOTP, and
-  recovery codes. Passkeys are out of scope for this phase. Linux first;
-  Windows later.
+- Windows server support and a one-click local-server launcher for the desktop
+  client.
+- Role-based access control and per-CI permissions.
 - Passphrase rotation/rekey and automatic or scheduled encrypted backups with
   retention.
 - Auto-lock/idle timeout and a single-instance database guard.
@@ -493,25 +546,30 @@ encrypted databases or passphrases between the two applications. See
 [`docs/hibp.md`](docs/hibp.md) for current importer limitations and the
 onboarding flow.
 
-### Authentication and server mode (planned)
+### Authentication and server mode
 
-v0.6.0 has no application-level login. The planned v0.7 architecture adds:
+The Linux package provides a Go `cmdb-server` and the C `cmdb-rpc` bridge:
 
-- a `cmdb-server` process that owns the database;
-- a desktop `cmdb` client that can start a local server or connect to a remote
-  server, plus browser access through HAProxy/VPN;
-- multiple accounts with the same inventory privileges;
-- username/password login, TOTP, and recovery codes; passkeys are out of
-  scope for this phase;
-- ten one-time recovery codes per user and admin reset;
-- configurable 12-hour absolute / 30-minute idle sessions by default;
-- audit events for login, logout, MFA, recovery, user management, and host
-  changes;
-- first-run admin creation protected by a one-time setup token.
+- the server owns the encrypted database and keeps the database passphrase;
+- browser and desktop clients authenticate with their own accounts;
+- the desktop `cmdb` client opens a local database directly, or connects to a
+  server when `CMDB_SERVER_URL` is set;
+- several accounts share inventory privileges; administrators manage accounts
+  and credential resets;
+- username/password login, TOTP, and ten one-time recovery codes per user;
+  passkeys are out of scope for this phase;
+- sessions default to 12 hours absolute and 30 minutes idle and are configurable
+  at server start;
+- login, logout, MFA, recovery, user-management, and inventory changes are
+  audited with the account name as actor;
+- first-run admin creation is protected by a one-time setup token printed by the
+  server.
 
-The full threat model, schema, API, and phased plan are in
-[`docs/authentication.md`](docs/authentication.md). This is design-only until the
-server implementation lands.
+Authentication state is JSON in `app_meta`; schema v4 is unchanged. Sessions are
+memory-only. The desktop client does not start the server automatically, and
+Windows server support is future work. See
+[`docs/authentication.md`](docs/authentication.md) for architecture, flags,
+storage, API, and known gaps.
 
 ## Import file formats
 
@@ -760,22 +818,25 @@ remain encrypted and require the same passphrase. See
 
 ### Application security
 
-- The UI is an offline HTML/CSS/JS document embedded in the executable. No
-  remote content, analytics, or telemetry is loaded.
+- Desktop-local mode uses an offline HTML/CSS/JS document embedded in the
+  executable. Server mode loads the same UI from `cmdb-server`. No analytics or
+  telemetry is loaded.
 - A strict Content-Security-Policy blocks remote scripts, frames, objects, and
-  network connections. The UI uses DOM `textContent`, not untrusted
+  arbitrary network connections. The UI uses DOM `textContent`, not untrusted
   `innerHTML`, for data rendering.
 - The JS-to-C bridge accepts validated JSON only. Request and response sizes are
   bounded.
 - All SQL uses prepared statements.
 - CSV exports prefix cells beginning with `=`, `+`, `-`, or `@` to prevent
   spreadsheet formula execution. Use the JSON export for byte-exact round trips.
-- Passphrases are zeroized with `sodium_memzero` after key derivation. The
-  JavaScript string and the webview's memory cannot be guaranteed to be
-  zeroized; this is a documented limitation of webview-based UIs.
+- Passphrases are zeroized with `sodium_memzero` after key derivation in the C
+  core. The JavaScript string, the webview's memory, and the Go server's
+  passphrase string cannot be guaranteed to be zeroized; this is a documented
+  limitation.
 - Release builds disable webview developer tools and ignore `CMDB_WEB_DIR` and
   `CMDB_UI_URL`; those overrides are compiled out with `NDEBUG`. Debug builds
-  enable developer tools only when `CMDB_DEVTOOLS=1`.
+  enable developer tools only when `CMDB_DEVTOOLS=1`. `CMDB_SERVER_URL` is a
+  supported release-mode setting for desktop server mode.
 - The application does not store secrets, and it does not log passphrases, keys,
   SQL parameters, or full database contents.
 
@@ -826,16 +887,18 @@ dependencies.
   protects indexes, metadata, and relationships, not just selected columns.
 - **Explicit import previews.** Imports never write silently, and discovery will
   never auto-merge.
-- **Data model ready for a future server.** UUID domain IDs, an audit actor
-  column, and a JSON API boundary keep a future multi-user server practical.
+- **Server-ready data model.** UUID domain IDs, an audit actor column, and a
+  JSON API boundary made the authenticated `cmdb-server` practical without a
+  schema rewrite.
 
 ### Repository layout
 
 ```text
 include/cmdb/        Public C headers for the core
 src/core/            Crypto, database, domain, import, graph, scan, diagrams, API
-src/ui/              Native webview shell and native file dialogs
-src/web/             Offline HTML/CSS/JS UI source
+src/ui/              Native webview shell, native file dialogs, cmdb-rpc bridge
+server/              Go cmdb-server: HTTP, auth, sessions, TOTP, admin API
+src/web/             HTML/CSS/JS UI source (embedded in local mode)
 src/web_bundle.c     Generated embedded UI (do not edit)
 tests/               C unit and integration tests
 docs/                Data model, import, security, architecture, scanning, backup
@@ -851,8 +914,9 @@ packaging/           Icons, embed script, Windows resources, Flatpak, installers
 
 - **Build system:** CMake 3.20+ with Ninja or Visual Studio 2022; CTest for the
   test suite; CPack for DEB/RPM/TGZ/WIX packages.
-- **Language:** C17 core, C++17 only for the pinned `webview/webview`
-  dependency.
+- **Languages:** C17 core, C++17 only for the pinned `webview/webview`
+  dependency, and Go 1.22+ for `cmdb-server`. `cmdb-rpc` is the C stdio bridge
+  between the server and the core.
 - **Required libraries:** SQLCipher 4, libsodium, libexpat, cJSON (vendored),
   GTK3 + WebKitGTK 4.1 on Linux, WebView2 on Windows, OpenSSL 3 (SQLCipher
   crypto backend).
@@ -871,7 +935,7 @@ sudo apt update
 sudo apt install -y build-essential cmake ninja-build pkg-config \
   fakeroot dpkg-dev \
   libsqlcipher-dev libsodium-dev libexpat1-dev \
-  libssl-dev zlib1g-dev \
+  libssl-dev zlib1g-dev golang-go \
   libgtk-3-dev libwebkit2gtk-4.1-dev \
   nmap \
   clang lld valgrind cppcheck
@@ -890,7 +954,7 @@ sudo dnf install -y \
   gcc gcc-c++ cmake ninja-build pkgconf-pkg-config git python3 \
   rpm-build findutils \
   sqlcipher-devel libsodium-devel libsodium-static \
-  openssl-devel zlib-devel expat-devel \
+  openssl-devel zlib-devel expat-devel golang \
   gtk3-devel webkit2gtk4.1-devel nmap
 
 cmake -S . -B build -G Ninja \
@@ -995,7 +1059,7 @@ It installs the static vcpkg dependencies, builds, tests, and creates:
 
 ```text
 dist\cmdb-lite-windows-x64.zip
-dist\cmdb-lite-0.6.0-windows-x64.msi
+dist\cmdb-lite-0.7.0-windows-x64.msi
 dist\cmdb-lite-windows-x64\bin\cmdb.exe
 ```
 
@@ -1041,13 +1105,13 @@ GitHub Actions Windows runner.
 - [`docs/import-format.md`](docs/import-format.md) — CSV/TSV contracts, examples,
   duplicate policy, and error reports.
 - [`docs/data-model.md`](docs/data-model.md) — tables, constraints, and the
-  future multi-user path.
+  authentication-state storage model.
 - [`docs/security.md`](docs/security.md) — encryption, threat model, audit log,
   hardening, and limitations.
 - [`docs/architecture.md`](docs/architecture.md) — layers, bridge, data flows,
   and dependency choices.
-- [`docs/authentication.md`](docs/authentication.md) — planned v0.7 server mode,
-  accounts, sessions, TOTP, recovery codes, schema, and API.
+- [`docs/authentication.md`](docs/authentication.md) — server mode,
+  `cmdb-rpc`, accounts, sessions, TOTP, recovery codes, storage, and API.
 - [`docs/dependencies.md`](docs/dependencies.md) — impact classes, vCenter and
   DNS examples, service modeling, and redundancy.
 - [`docs/drawio.md`](docs/drawio.md) — dependency traversal and `.drawio` format.
@@ -1188,17 +1252,18 @@ Ready-to-use examples are in [`examples/`](examples/):
 
 ### Product and operations
 
-- Single-user local application. The schema, audit log, and API boundary are
-  designed to allow a future server/RBAC version, but v1 has no authentication
-  beyond the database passphrase.
-- No application-level accounts, login page, TOTP, recovery codes, or server
-  mode in v0.6.0. These are designed in
-  [`docs/authentication.md`](docs/authentication.md) and planned for v0.7.
+- Desktop-local mode is single-user and has no application-level login beyond
+  the database passphrase. Server mode adds accounts, login, TOTP, recovery
+  codes, and per-user audit actors, but has no RBAC beyond the admin flag.
+- Server mode is Linux-only. The desktop client does not start a local server
+  automatically; set `CMDB_SERVER_URL` to connect to a separately started
+  server.
 - No password/secret storage. Use references to an external vault.
 - No passphrase rotation/rekey. A compromised passphrase requires creating a new
   database and re-importing/rebuilding it.
-- No automatic idle lock. The database remains open until **Lock** is pressed or
-  the application exits.
+- No automatic idle lock in desktop-local mode. The database remains open until
+  **Lock** is pressed or the application exits. Server sessions do have idle
+  and absolute expiry.
 - No single-instance guard. Two processes may attempt to open the same database;
   use the application lock and avoid shared or network filesystems.
 - No configurable automatic or scheduled backups. **Backup** is manual; the
@@ -1212,11 +1277,14 @@ Ready-to-use examples are in [`examples/`](examples/):
 - No off-device audit export. The hash chain is local and can be rewritten by an
   attacker who has the database key.
 - Discovery never merges automatically; the operator must choose every action.
-- No multi-user concurrent access. Do not share the database file between
-  machines while it is open.
+- Do not share a database file between a running server and a desktop-local
+  process. Server mode supports multiple users through one server process, not
+  through a shared file.
 - The passphrase cannot be recovered. Back up the database and `.meta` sidecar
   together, or use the in-app backup.
-- No macOS, ARM64, 32-bit, or headless/server build is produced by CI.
+- No macOS, ARM64, 32-bit, or Windows server build is produced by CI. Linux
+  packages include `cmdb-server` and `cmdb-rpc`; Flatpak and Windows packages
+  are desktop-only.
 - The published `.deb` and RPM are tied to their build distributions (Ubuntu
   24.04 and current Fedora); older Debian/Ubuntu/RHEL releases need the Flatpak
   or a source build.
@@ -1231,7 +1299,8 @@ Ready-to-use examples are in [`examples/`](examples/):
 - The derived key is held in process memory while the database is open. It is
   zeroized on close but is not locked with `sodium_mlock`; swap and core dumps
   remain an OS-level concern.
-- No passphrase attempt rate limiting. Argon2id is the only brute-force cost.
+- No rate limiting on the database passphrase itself; Argon2id is the only
+  brute-force cost. Server login, TOTP, and recovery endpoints are rate-limited.
 - Signing, SBOMs, and build provenance are not used for the current rollout.
   Windows artifacts are unsigned and may trigger SmartScreen; `SHA256SUMS` is the
   only published integrity check. Reproducible-build verification is not yet
@@ -1258,6 +1327,8 @@ is still needed before a public or enterprise production rollout.
 ### Release and distribution
 
 - [x] Tag and publish v0.6.0; verify all assets and `SHA256SUMS`.
+- [ ] Tag and publish v0.7.0 with `cmdb-server`, `cmdb-rpc`, and server-mode
+      documentation; verify package contents and `SHA256SUMS`.
 - [x] Signing and SBOMs are not required by the rollout decision. Windows
       artifacts are unsigned and may trigger SmartScreen.
 - [ ] Pin the vcpkg baseline and GitHub Actions SHAs for reproducible builds.
@@ -1272,8 +1343,10 @@ is still needed before a public or enterprise production rollout.
 
 ### Security and operations
 
-- [ ] Implement the planned server-mode authentication: login, sessions, TOTP,
-      recovery codes, and audit actor.
+- [x] Implement server-mode authentication: first-run setup, login, sessions,
+      TOTP, recovery codes, admin user management, and per-request audit actor.
+- [ ] Add RBAC/per-CI permissions, a systemd unit, and non-interactive passphrase
+      provisioning for server deployments.
 - [x] Enable GitHub private vulnerability reporting and publish `SECURITY.md`
       with a monitored contact.
 - [ ] Define a supported-version and security-update policy.

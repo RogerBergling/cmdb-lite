@@ -27,7 +27,7 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
   build-essential cmake ninja-build pkg-config \
   fakeroot dpkg-dev \
   libsqlcipher-dev libsodium-dev libexpat1-dev \
-  libssl-dev zlib1g-dev \
+  libssl-dev zlib1g-dev golang-go \
   libgtk-3-dev libwebkit2gtk-4.1-dev \
   nmap \
   clang lld valgrind cppcheck

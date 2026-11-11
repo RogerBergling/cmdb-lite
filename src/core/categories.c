@@ -102,7 +102,7 @@ static int category_audit(cmdb_db_t *db, const char *action,
     cmdb_error_set(err, CMDB_ERR_INTERNAL, "Cannot create category audit");
     return -1;
   }
-  rc = cmdb_audit_add(db, "local", action, "ci_category", id, json, err);
+  rc = cmdb_audit_add(db, cmdb_audit_actor(), action, "ci_category", id, json, err);
   free(json);
   return rc;
 }
@@ -419,7 +419,7 @@ int cmdb_categories_delete(cmdb_db_t *db, const char *id,
   if (cmdb_db_savepoint_release(db, "category_write", err) != 0) {
     return -1;
   }
-  (void)cmdb_audit_add(db, "local", "delete", "ci_category", id, "{}", NULL);
+  (void)cmdb_audit_add(db, cmdb_audit_actor(), "delete", "ci_category", id, "{}", NULL);
   return 0;
 
 fail:

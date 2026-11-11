@@ -163,6 +163,33 @@ void test_api(void) {
   }
   TEST_ASSERT(cmdb_app_db(app) != NULL);
 
+  response = api_call(app, "{\"id\":50,\"actor\":\"alice\",\"method\":\"auth.state.set\",\"params\":{\"state\":\"auth-test-state\"}}");
+  TEST_ASSERT(response != NULL);
+  if (response != NULL) {
+    ok = cJSON_GetObjectItemCaseSensitive(response, "ok");
+    TEST_ASSERT(cJSON_IsTrue(ok));
+    cJSON_Delete(response);
+  }
+  response = api_call(app, "{\"id\":51,\"method\":\"auth.state.get\",\"params\":{}}");
+  TEST_ASSERT(response != NULL);
+  if (response != NULL) {
+    result = cJSON_GetObjectItemCaseSensitive(response, "result");
+    if (cJSON_IsObject(result)) {
+      cJSON *state = cJSON_GetObjectItemCaseSensitive(result, "state");
+      TEST_ASSERT(cJSON_IsString(state));
+      TEST_ASSERT(state != NULL &&
+                  strcmp(state->valuestring, "auth-test-state") == 0);
+    }
+    cJSON_Delete(response);
+  }
+  response = api_call(app, "{\"id\":52,\"actor\":\"alice\",\"method\":\"auth.audit\",\"params\":{\"actor\":\"alice\",\"action\":\"login-test\",\"entity_type\":\"auth\",\"entity_id\":\"\",\"detail\":\"{}\"}}");
+  TEST_ASSERT(response != NULL);
+  if (response != NULL) {
+    ok = cJSON_GetObjectItemCaseSensitive(response, "ok");
+    TEST_ASSERT(cJSON_IsTrue(ok));
+    cJSON_Delete(response);
+  }
+
   response = api_call(app, "{\"id\":3,\"method\":\"types.list\",\"params\":{}}");
   TEST_ASSERT(response != NULL);
   if (response != NULL) {

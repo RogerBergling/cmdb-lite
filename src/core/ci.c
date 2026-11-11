@@ -230,7 +230,7 @@ static int audit_ci(cmdb_db_t *db, const char *action, const char *id,
     cmdb_error_set(err, CMDB_ERR_INTERNAL, "Cannot create audit detail");
     return -1;
   }
-  rc = cmdb_audit_add(db, "local", action, "ci", id, json, err);
+  rc = cmdb_audit_add(db, cmdb_audit_actor(), action, "ci", id, json, err);
   free(json);
   return rc;
 }
@@ -523,7 +523,7 @@ int cmdb_ci_delete(cmdb_db_t *db, const char *id, cmdb_error_t *err) {
     cmdb_error_set(err, CMDB_ERR_NOT_FOUND, "CI not found");
     goto fail;
   }
-  if (cmdb_audit_add(db, "local", "delete", "ci", id, "", err) != 0) {
+  if (cmdb_audit_add(db, cmdb_audit_actor(), "delete", "ci", id, "", err) != 0) {
     goto fail;
   }
   if (cmdb_db_savepoint_release(db, "ci_write", err) != 0) {

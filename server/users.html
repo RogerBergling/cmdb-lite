@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cmdb-lite users</title>
+<style>
+:root { color-scheme: dark; --bg:#0b141c; --panel:#122330; --line:#284956; --text:#e7f1f7; --muted:#9bb4c5; --accent:#2dd4bf; --error:#fca5a5; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font-family:system-ui,sans-serif; }
+main { max-width:56rem; margin:0 auto; padding:2rem 1rem; }
+a { color:var(--accent); }
+.card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:1rem; margin:.8rem 0; }
+h1 { margin:0 0 .3rem; font-size:1.4rem; }
+h2 { margin:0 0 .5rem; font-size:1rem; }
+p, label, td, th { color:var(--muted); font-size:.9rem; }
+label { display:block; margin:.6rem 0 .2rem; }
+input,button { font:inherit; padding:.5rem .6rem; border-radius:7px; border:1px solid var(--line); background:#0e1c26; color:var(--text); }
+button { margin:.2rem .2rem 0 0; background:var(--accent); color:#04110f; border:0; font-weight:700; cursor:pointer; }
+button.secondary { background:transparent; color:var(--text); border:1px solid var(--line); }
+button.danger { background:#b91c1c; color:#fff; }
+table { width:100%; border-collapse:collapse; }
+th, td { text-align:left; padding:.5rem; border-bottom:1px solid var(--line); }
+.error { color:var(--error); min-height:1.2em; font-size:.85rem; }
+.hidden { display:none !important; }
+.row { display:flex; gap:.5rem; flex-wrap:wrap; align-items:end; }
+.row > label { flex:1 1 12rem; }
+.secret { padding:.6rem; border:1px solid var(--line); border-radius:8px; font-family:ui-monospace,monospace; word-break:break-all; }
+</style>
+</head>
+<body>
+<main>
+  <p><a href="/">← Back to inventory</a></p>
+  <h1>User accounts</h1>
+  <p>All accounts have the same inventory privileges. Administrators can manage accounts and reset credentials.</p>
+  <p id="error" class="error" role="alert"></p>
+
+  <section class="card">
+    <h2>Create user</h2>
+    <form id="create-form">
+      <div class="row">
+        <label>Username <input id="new-username" autocomplete="off" required></label>
+        <label>Temporary password <input id="new-password" type="password" autocomplete="new-password" required></label>
+        <button type="submit">Create</button>
+      </div>
+    </form>
+    <div id="created-password" class="secret hidden"></div>
+  </section>
+
+  <section class="card">
+    <h2>Users</h2>
+    <table>
+      <thead><tr><th>Username</th><th>Admin</th><th>Disabled</th><th>TOTP</th><th>Actions</th></tr></thead>
+      <tbody id="user-table"></tbody>
+    </table>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let csrf = "";
+async function api(url, options = {}) {
+  const headers = Object.assign({ "Content-Type": "application/json" }, options.headers || {});
+  if (csrf) headers["X-CSRF-Token"] = csrf;
+  const response = await fetch(url, { ...options, headers });
+  let data = {};
+  try { data = await response.json(); } catch (_) {}
+  if (!response.ok) throw new Error((data.error && data.error.message) || "Request failed");
+  return data;
+}
+function button(text, action, danger) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.textContent = text;
+  if (danger) b.className = "danger";
+  b.addEventListener("click", action);
+  return b;
+}
+async function loadUsers() {
+  try {
+    const session = await api("/api/v1/auth/session");
+    csrf = session.csrf;
+    if (!session.user.is_admin) { location.href = "/"; return; }
+    const data = await api("/api/v1/users");
+    const table = $("user-table");
+    table.replaceChildren();
+    for (const user of data.users) {
+      const row = document.createElement("tr");
+      for (const value of [user.username, user.is_admin ? "yes" : "no", user.disabled ? "yes" : "no", user.totp_enabled ? "yes" : "no"]) {
+        const cell = document.createElement("td");
+        cell.textContent = value;
+        row.append(cell);
+      }
+      const actions = document.createElement("td");
+      actions.append(button(user.disabled ? "Enable" : "Disable", async () => {
+        try { await api(`/api/v1/users/${encodeURIComponent(user.id)}/${user.disabled ? "enable" : "disable"}`, { method: "POST", body: "{}" }); await loadUsers(); } catch (error) { $("error").textContent = error.message; }
+      }, !user.disabled));
+      actions.append(button("Reset password", async () => {
+        if (!confirm(`Reset password for ${user.username}?`)) return;
+        try { const result = await api(`/api/v1/users/${encodeURIComponent(user.id)}/reset-password`, { method: "POST", body: "{}" }); $("created-password").textContent = `Temporary password for ${user.username}: ${result.password}`; $("created-password").classList.remove("hidden"); } catch (error) { $("error").textContent = error.message; }
+      }));
+      actions.append(button("Reset MFA", async () => {
+        if (!confirm(`Reset TOTP and recovery codes for ${user.username}?`)) return;
+        try { await api(`/api/v1/users/${encodeURIComponent(user.id)}/reset-mfa`, { method: "POST", body: "{}" }); await loadUsers(); } catch (error) { $("error").textContent = error.message; }
+      }, true));
+      row.append(actions);
+      table.append(row);
+    }
+  } catch (error) {
+    $("error").textContent = error.message;
+  }
+}
+$("create-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  $("error").textContent = "";
+  try {
+    const result = await api("/api/v1/users", { method: "POST", body: JSON.stringify({ username: $("new-username").value.trim(), password: $("new-password").value }) });
+    $("created-password").textContent = `Created ${result.user.username}.`;
+    $("created-password").classList.remove("hidden");
+    $("new-username").value = "";
+    $("new-password").value = "";
+    await loadUsers();
+  } catch (error) { $("error").textContent = error.message; }
+});
+loadUsers();
+</script>
+</body>
+</html>

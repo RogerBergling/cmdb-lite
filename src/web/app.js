@@ -18,6 +18,9 @@ const IMPACT_HINTS = {
 
 const state = {
   dbPath: "",
+  serverMode: false,
+  csrfToken: "",
+  authUser: null,
   lastDatabase: "",
   recentDatabases: [],
   theme: "system",
@@ -143,10 +146,32 @@ function formatError(error) {
 }
 
 async function api(method, params = {}) {
-  if (typeof window.__cmdb_bridge !== "function") {
-    throw new Error("The application bridge is unavailable.");
+  let response;
+  if (typeof window.__cmdb_bridge === "function") {
+    response = await window.__cmdb_bridge(JSON.stringify({ method, params }));
+  } else {
+    const http = await fetch("/api/v1/rpc", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRF-Token": state.csrfToken
+      },
+      body: JSON.stringify({ method, params })
+    });
+    try {
+      response = await http.json();
+    } catch (error) {
+      throw new Error("The server returned an invalid response.");
+    }
+    if (http.status === 401) {
+      window.location.href = "/login";
+      throw new Error("The session has expired. Sign in again.");
+    }
+    if (!http.ok && (!response || response.ok !== false)) {
+      response = { ok: false, error: { message: "Request failed" } };
+    }
   }
-  const response = await window.__cmdb_bridge(JSON.stringify({ method, params }));
   if (!response || response.ok !== true) {
     const error = new Error(
       response && response.error && response.error.message
@@ -331,8 +356,16 @@ async function submitUnlock(event) {
 async function enterApplication() {
   hide($("unlock-screen"));
   show($("main-app"));
-  $("db-path-label").textContent = state.dbPath;
-  $("db-path-label").title = state.dbPath;
+  $("db-path-label").textContent = state.serverMode ? "server" : state.dbPath;
+  $("db-path-label").title = state.serverMode ? "Connected to cmdb-server" : state.dbPath;
+  if (state.serverMode) {
+    hide($("backup-db"));
+    hide($("export-data"));
+    hide($("map-export"));
+    show($("security-button"));
+    $("users-button").classList.toggle("hidden", !(state.authUser && state.authUser.is_admin));
+    $("lock-button").textContent = "Sign out";
+  }
   await loadAll();
   await loadThemePreference();
 }
@@ -375,7 +408,8 @@ async function restoreBackup() {
   }
 }
 
-async function backupDatabase() {  try {
+async function backupDatabase() {
+  try {
     const result = await api("db.backup");
     if (result && result.saved) {
       toast(`Backup written to ${result.path}`, "success");
@@ -387,7 +421,21 @@ async function backupDatabase() {  try {
   }
 }
 
-async function lockApplication() {  try {
+async function lockApplication() {
+  if (state.serverMode) {
+    try {
+      await fetch("/api/v1/auth/logout", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "X-CSRF-Token": state.csrfToken }
+      });
+    } catch (error) {
+      /* Redirect to login even if the request fails. */
+    }
+    window.location.href = "/login";
+    return;
+  }
+  try {
     await api("db.lock");
   } catch (error) {
     toast(formatError(error), "error");
@@ -2734,6 +2782,12 @@ function bindEvents() {
   $("export-data").addEventListener("click", openExportModal);
   $("export-format").addEventListener("change", updateExportFormat);
   $("export-form").addEventListener("submit", runExport);
+  $("security-button").addEventListener("click", () => {
+    window.location.href = "/security";
+  });
+  $("users-button").addEventListener("click", () => {
+    window.location.href = "/users";
+  });
   $("ci-search").addEventListener("input", () => {
     window.clearTimeout(state.searchTimer);
     state.searchTimer = window.setTimeout(loadCis, 250);
@@ -2844,9 +2898,33 @@ function activateTab(name) {
   }
 }
 
+async function serverInit() {
+  try {
+    const response = await fetch("/api/v1/auth/session", {
+      credentials: "same-origin"
+    });
+    if (!response.ok) {
+      window.location.href = "/login";
+      return;
+    }
+    const session = await response.json();
+    state.serverMode = true;
+    state.csrfToken = session.csrf || "";
+    state.authUser = session.user || null;
+    await enterApplication();
+  } catch (error) {
+    window.location.href = "/login";
+  }
+}
+
 async function init() {
   applyTheme(storedTheme() || "system");
   bindEvents();
+  if (typeof window.__cmdb_bridge !== "function") {
+    await serverInit();
+    window.__CMDB_READY__ = true;
+    return;
+  }
   setUnlockMode("open");
   await loadSettings();
   try {

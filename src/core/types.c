@@ -274,7 +274,7 @@ static int audit_type(cmdb_db_t *db, const char *action, const char *id,
     cmdb_error_set(err, CMDB_ERR_INTERNAL, "Cannot create audit detail");
     return -1;
   }
-  rc = cmdb_audit_add(db, "local", action, "ci_type", id, json, err);
+  rc = cmdb_audit_add(db, cmdb_audit_actor(), action, "ci_type", id, json, err);
   free(json);
   return rc;
 }
@@ -784,7 +784,7 @@ int cmdb_type_field_add(cmdb_db_t *db, const char *type_id,
     }
     goto fail;
   }
-  if (cmdb_audit_add(db, "local", "create", "ci_type_field", id,
+  if (cmdb_audit_add(db, cmdb_audit_actor(), "create", "ci_type_field", id,
                      input->key, err) != 0) {
     goto fail;
   }
@@ -850,7 +850,7 @@ int cmdb_type_field_update(cmdb_db_t *db, const char *id,
     }
     goto fail;
   }
-  if (cmdb_audit_add(db, "local", "update", "ci_type_field", id,
+  if (cmdb_audit_add(db, cmdb_audit_actor(), "update", "ci_type_field", id,
                      input->key, err) != 0) {
     goto fail;
   }
@@ -897,7 +897,7 @@ int cmdb_type_field_delete(cmdb_db_t *db, const char *id,
     cmdb_error_set(err, CMDB_ERR_DATABASE, "Cannot delete field");
     goto fail;
   }
-  if (cmdb_audit_add(db, "local", "delete", "ci_type_field", id,
+  if (cmdb_audit_add(db, cmdb_audit_actor(), "delete", "ci_type_field", id,
                      existing.key, err) != 0) {
     goto fail;
   }

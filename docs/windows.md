@@ -47,7 +47,7 @@ The script:
 5. Creates:
    - `dist\cmdb-lite-windows-x64\bin\cmdb.exe`
    - `dist\cmdb-lite-windows-x64.zip`
-   - `dist\cmdb-lite-0.6.0-windows-x64.msi` when WiX Toolset v3 is installed
+   - `dist\cmdb-lite-0.7.0-windows-x64.msi` when WiX Toolset v3 is installed
 
 ## Manual build
 
@@ -92,7 +92,7 @@ elevation. It installs under `Program Files\cmdb-lite`, creates a Start Menu
 shortcut, and registers the application for uninstall.
 
 ```powershell
-msiexec /i .\dist\cmdb-lite-0.6.0-windows-x64.msi
+msiexec /i .\dist\cmdb-lite-0.7.0-windows-x64.msi
 ```
 
 The portable ZIP is also supported:
@@ -124,7 +124,7 @@ cmdb-lite-windows-x64/
 
 dist/
   cmdb-lite-windows-x64.zip
-  cmdb-lite-0.6.0-windows-x64.msi
+  cmdb-lite-0.7.0-windows-x64.msi
 ```
 
 There should be **no** `sqlcipher.dll`, `libsodium.dll`, `libcrypto-*.dll`,
@@ -200,7 +200,7 @@ signtool sign /f your-cert.pfx /p your-password `
   build\Release\cmdb.exe
 signtool sign /f your-cert.pfx /p your-password `
   /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
-  dist\cmdb-lite-0.6.0-windows-x64.msi
+  dist\cmdb-lite-0.7.0-windows-x64.msi
 ```
 
 Never commit the certificate or password.

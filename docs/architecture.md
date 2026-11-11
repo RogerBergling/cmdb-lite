@@ -3,10 +3,12 @@
 ## Goals
 
 - One codebase that runs on Linux and Windows.
-- One encrypted database file at a user-selected path.
-- No server, cloud dependency, telemetry, or remote content.
+- One encrypted database file at a user-selected path in desktop-local mode.
+- No cloud dependency, telemetry, or remote content; server mode is optional and
+  self-hosted.
 - A clear boundary between the UI and the security-sensitive core.
-- A path from single-user local storage to a future server/RBAC deployment.
+- A path from single-user local storage to authenticated server mode, with RBAC
+  still future work.
 
 ## Layers
 
@@ -33,11 +35,17 @@
                  + KDF sidecar (.meta)
 ```
 
+The diagram shows desktop-local mode. Server mode replaces the native shell's
+direct C calls with `cmdb-server` → `cmdb-rpc` over stdio; see
+[Authenticated server mode](#authenticated-server-mode).
+
 ### UI
 
-`src/web` is a dependency-free single-page application. It uses DOM APIs and
-does not load remote resources. A strict Content-Security-Policy blocks remote
-scripts, frames, objects, and network connections.
+`src/web` is a dependency-free single-page application. Desktop-local mode
+loads it from the embedded bundle and uses the webview bridge. Server mode loads
+the same files from `cmdb-server` and uses the authenticated HTTP RPC proxy
+instead. A strict Content-Security-Policy blocks remote scripts, frames,
+objects, and arbitrary network connections.
 
 `packaging/embed_web.py` inlines the CSS and JavaScript into one HTML document,
 computes SHA-256 CSP hashes, and generates `src/web_bundle.c`. The executable
@@ -245,13 +253,15 @@ The application is single-user with one UI thread and one scan worker:
   across threads.
 - `BEGIN IMMEDIATE` is used for imports; row-level operations use savepoints.
 
-A future multi-user server would introduce a real request/transaction boundary,
-authentication, RBAC, connection pooling, and an audit actor model.
+The implemented server adds a request boundary, authentication, per-request
+audit actors, and a serialized RPC bridge. RBAC, per-CI permissions, and
+connection pooling remain future work.
 
 ## Build system
 
 - CMake 3.20+ with Ninja or Visual Studio.
 - C17 core; C++17 only as required by the pinned `webview/webview` dependency.
+- Go 1.22+ for `cmdb-server`; the C bridge `cmdb-rpc` is built with the core.
 - `pkg-config` for SQLCipher, libsodium, GTK3, and WebKitGTK on Linux.
 - CMake `FetchContent` pins `webview/webview` to a specific commit and SHA-256
   archive hash.
@@ -270,9 +280,10 @@ authentication, RBAC, connection pooling, and an audit actor model.
 | cJSON | Small, permissively licensed JSON parser/serializer for the local bridge. |
 | webview/webview | Thin C API over WebKitGTK and WebView2; avoids maintaining two browser shells. |
 
-## Planned authenticated server mode
+## Authenticated server mode
 
-The next architecture is a Go server with the C core linked through CGO:
+Server mode is a Go process that owns the database and keeps the C core in a
+separate child process:
 
 ```text
 cmdb desktop client / browser
@@ -280,31 +291,37 @@ cmdb desktop client / browser
         ▼
 cmdb-server (Go)
   accounts · sessions · TOTP · recovery codes · audit actor
-        │
+        │  JSON lines over stdio, serialized
         ▼
-C core (inventory · graph · import · audit · SQLCipher)
+cmdb-rpc (C) → cmdb_core
+  inventory · graph · import · audit · SQLCipher
 ```
 
-- The server owns the database; the desktop client never opens it directly.
+- The server owns the database; the browser and the desktop client do not open
+  the file directly.
+- One `cmdb-rpc` child and one open database connection exist per server
+  process. The server and the bridge both serialize calls.
 - Multiple accounts share inventory privileges; the first account is an admin
-  for user management.
+  for user and credential management.
 - TOTP and recovery codes are in scope; passkeys are excluded for this phase.
 - HAProxy terminates TLS; the service binds loopback or a private address.
 - The database passphrase is known only to the server, not to users.
+- Authentication state is JSON in `app_meta`; sessions are memory-only.
 
-The full design, schema, API, and security tests are in
+The CGO design in earlier drafts was replaced by the child-process boundary.
+The full design, storage format, API, and security tests are in
 [`authentication.md`](authentication.md).
 
 ## Future: multi-user
 
-The intended evolution is a small server that reuses the domain/API layer:
+The small server exists and reuses the domain/API layer:
 
-- authentication (local accounts or OIDC),
-- role-based access control,
-- per-user audit actors,
-- encrypted server-side storage with key management,
-- concurrent transactions,
-- a client that can run against either the local file or the server.
+- local accounts with TOTP and recovery codes (implemented);
+- per-user audit actors (implemented);
+- encrypted server-side storage with interactive passphrase unlock (implemented);
+- role-based access control (future);
+- per-CI permissions (future);
+- concurrent transactions (future).
 
 The current schema avoids auto-increment domain IDs and keeps the API
-serializable, which makes that migration practical.
+serializable, which made the server migration practical.

@@ -6,6 +6,20 @@
 #include <stdlib.h>
 #include <string.h>
 
+static char audit_actor[256] = "local";
+
+void cmdb_audit_set_actor(const char *actor) {
+  if (actor == NULL || actor[0] == '\0') {
+    (void)cmdb_str_copy(audit_actor, sizeof(audit_actor), "local");
+    return;
+  }
+  (void)cmdb_str_copy(audit_actor, sizeof(audit_actor), actor);
+}
+
+const char *cmdb_audit_actor(void) {
+  return audit_actor;
+}
+
 static int get_previous_hash(cmdb_db_t *db, char out[65], cmdb_error_t *err) {
   sqlite3_stmt *stmt = NULL;
   int rc;

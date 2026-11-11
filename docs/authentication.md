@@ -1,59 +1,41 @@
 # Authentication and server mode
 
-> **Status: design only.** This document defines the planned v0.7 authentication
-> and server architecture. v0.6.0 is still a desktop application with no
-> application-level login, TOTP, or server mode.
+> **Status: implemented in v0.7.0 (unreleased).** The Go `cmdb-server`, the
+> `cmdb-rpc` bridge, first-run setup, password login, TOTP, recovery codes,
+> sessions, admin user management, and server-mode audit actors are in the
+> codebase. v0.6.0 remains the latest published release.
 
 ## Decisions
 
-- One package with two entry points:
+- One source tree with two Linux entry points:
   - `cmdb`: desktop client;
-  - `cmdb-server`: Linux server, Fedora and Ubuntu first.
-- One Go server process with the existing C core linked through CGO.
-- The server owns the encrypted SQLCipher database. The desktop client never
-  opens the database directly.
+  - `cmdb-server`: headless Linux server for Fedora and Ubuntu.
+- The Go server owns the encrypted SQLCipher database. Browsers and the desktop
+  client never open the database file when they use server mode.
+- The server talks to the C core through the `cmdb-rpc` child process over
+  standard input/output. There is no CGO link and no shared C library ABI.
 - The database passphrase is known only to the server. Users authenticate with
   their own account and never receive the database key.
-- Several accounts with the same inventory privileges.
+- Several accounts have the same inventory privileges. Administrators can only
+  manage accounts and reset credentials.
 - First-run admin, then admin-created accounts. No self-registration.
-- TOTP and ten one-time recovery codes per user; admin reset is also available.
+- TOTP and ten one-time recovery codes per user; admins can reset both.
 - Passkeys/WebAuthn are explicitly out of scope for this phase.
-- Configurable session lifetime; defaults are 12 hours absolute and 30 minutes
-  idle.
-- Audit authentication events and all CI/host changes with the username as the
-  actor.
+- Session defaults are 12 hours absolute and 30 minutes idle, configurable at
+  server start.
+- Authentication events and inventory changes use the authenticated username as
+  the audit actor.
 - HAProxy terminates TLS; the service binds loopback or a private address and is
   never directly internet-facing.
-- Linux first, Windows later.
-
-## Goals
-
-- Require a username and password before the inventory is visible.
-- Support TOTP and recovery codes per user.
-- Keep the database encryption boundary separate from the login boundary.
-- Ensure every change is attributable to a named account.
-- Support a local desktop server, a remote desktop client, and a headless
-  Fedora/Ubuntu server from the same package.
-- Recover access with one-time recovery codes or an admin reset.
-
-## Non-goals
-
-- Passkeys/WebAuthn in this phase.
-- Fine-grained roles or per-CI permissions in the first release. All accounts
-  have the same inventory privileges; the admin capability is limited to user
-  and authentication management.
-- Self-registration.
-- Email-based password reset.
-- SSO with HIBP. HIBP accounts and cmdb-lite accounts remain separate.
-- Direct internet exposure of the cmdb-lite service. HAProxy/VPN is the ingress.
-- FIPS/HSM-backed authentication or database keys.
+- Windows server support is future work. The Windows desktop build remains a
+  local client.
 
 ## Architecture
 
 ```text
 Desktop client (cmdb)                 Browser
         │                                │
-        │ localhost                      │ HTTPS via HAProxy/VPN
+        │ CMDB_SERVER_URL                │ HTTPS via HAProxy/VPN
         └───────────────┬────────────────┘
                         ▼
                  cmdb-server (Go)
@@ -62,7 +44,10 @@ Desktop client (cmdb)                 Browser
         │ users, TOTP, recovery codes    │
         │ audit actor                    │
         └───────────────┬────────────────┘
-                        │ CGO calls, serialized
+                        │ JSON lines over stdio, serialized
+                        ▼
+                 cmdb-rpc (C)
+                        │
                         ▼
                  C core (cmdb_core)
         inventory · graph · import · audit · SQLCipher
@@ -71,204 +56,231 @@ Desktop client (cmdb)                 Browser
                  encrypted .cmdb + .meta
 ```
 
-### Why Go for the server
+Why the child process instead of CGO:
 
-- Mature password hashing, TOTP, and session libraries.
-- HIBP already uses this approach; the design can be reused without sharing
-  accounts or the database.
-- Avoid implementing password/session security in C.
+- the C core is single-threaded and assumes one open database connection;
+- a process boundary makes the serialization explicit;
+- the server can be built with the normal Go toolchain and no cgo headers;
+- a crash in the database layer does not take down the HTTP listener silently.
 
-### C core ownership
-
-The C core remains the only code that opens the SQLCipher database and owns the
-schema. Authentication tables are part of the same encrypted database.
-
-The Go server calls a narrow C authentication API for user/session/credential
-persistence, or uses the existing `cmdb_app_handle` JSON boundary with new
-authentication methods. The C core must **not** be called concurrently: the Go
-server serializes every C-core call with a mutex because the current core assumes
-a single connection and UI thread.
+`cmdb-server` serializes HTTP API requests and `cmdb-rpc` serializes every
+C-core call. Do not run two `cmdb-rpc` processes against the same database.
 
 ## Process modes
 
-### Desktop mode
+### Local desktop mode
 
-The desktop client supports both modes:
+`cmdb` without `CMDB_SERVER_URL` is the original local application:
 
-- **Local:** `cmdb` starts `cmdb-server` on `127.0.0.1` with a random port,
-  prompts for the database passphrase, and opens the UI from
-  `http://localhost:<port>`.
-- **Remote:** `cmdb` connects to a configured `cmdb-server` URL instead of
-  starting a local server.
+- the user chooses a `.cmdb` database and enters the database passphrase;
+- the C core opens SQLCipher directly in-process;
+- there is no application-level login, TOTP, or per-user audit actor.
 
-In both modes, users log in with their account. The desktop client never opens
-the database directly.
+This mode remains useful for offline/single-user use. It cannot enforce
+per-user accountability because anyone with the database file and passphrase
+has full access.
+
+### Desktop server mode
+
+Set `CMDB_SERVER_URL` to a running server URL:
+
+```bash
+CMDB_SERVER_URL=http://127.0.0.1:8080 cmdb
+```
+
+The desktop client loads the server UI in its webview, skips the local bridge,
+and uses the same login/session flow as a browser. It does not start the server
+automatically yet; start `cmdb-server` first. If the server uses a self-signed
+certificate, configure the operating system trust store.
 
 ### Server mode
 
-- `cmdb-server` runs headless on Fedora or Ubuntu.
-- It binds `127.0.0.1` or a configured private address.
-- HAProxy terminates TLS and forwards to the loopback/private listener.
-- The service requires a database passphrase at startup:
-  - interactive start is acceptable for the first implementation;
-  - a systemd credential or root-only key file can be added later.
-- Browser clients use the same account/TOTP login.
-
-## Data model
-
-Schema v5 adds the following tables to the encrypted database. All timestamps
-are ISO 8601 UTC.
-
-```sql
-CREATE TABLE users (
-    id TEXT PRIMARY KEY NOT NULL,
-    username TEXT NOT NULL COLLATE NOCASE UNIQUE,
-    password_hash TEXT NOT NULL,          -- Argon2id PHC string
-    is_admin INTEGER NOT NULL DEFAULT 0, -- user management only
-    disabled INTEGER NOT NULL DEFAULT 0,
-    totp_secret TEXT NOT NULL DEFAULT '', -- protected by SQLCipher
-    totp_confirmed INTEGER NOT NULL DEFAULT 0,
-    totp_last_step INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    password_changed_at TEXT NOT NULL DEFAULT ''
-);
-
-CREATE TABLE user_recovery_codes (
-    id TEXT PRIMARY KEY NOT NULL,
-    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    code_hash TEXT NOT NULL,              -- Argon2id PHC string
-    created_at TEXT NOT NULL,
-    used_at TEXT NOT NULL DEFAULT ''
-);
-
-CREATE INDEX idx_recovery_user ON user_recovery_codes(user_id, used_at);
-
-CREATE TABLE sessions (
-    id TEXT PRIMARY KEY NOT NULL,
-    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    token_hash TEXT NOT NULL UNIQUE,      -- SHA-256/BLAKE2b of cookie token
-    csrf_hash TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    last_seen_at TEXT NOT NULL,
-    idle_expires_at TEXT NOT NULL,
-    absolute_expires_at TEXT NOT NULL,
-    ip TEXT NOT NULL DEFAULT '',
-    user_agent TEXT NOT NULL DEFAULT '',
-    revoked_at TEXT NOT NULL DEFAULT ''
-);
-
-CREATE INDEX idx_sessions_user ON sessions(user_id, revoked_at);
-CREATE INDEX idx_sessions_expiry ON sessions(idle_expires_at, absolute_expires_at);
+```bash
+CMDB_DB_PASSPHRASE='…' cmdb-server \
+  --db /var/lib/cmdb-lite/inventory.cmdb \
+  --listen 127.0.0.1:8080
 ```
 
-`app_meta` additions:
+Flags:
 
-- `auth.setup_token_hash`: hash of the one-time first-run setup token.
-- `auth.setup_token_created_at`: creation time.
-- `auth.setup_token_expires_at`: expiry time.
-- `auth.schema_version`: optional authentication migration marker.
+| Flag | Default | Purpose |
+|---|---|---|
+| `--db` | required | Encrypted database path. |
+| `--listen` | `127.0.0.1:8080` | HTTP listen address. |
+| `--rpc` | beside `cmdb-server` | Path to `cmdb-rpc`. |
+| `--web-dir` | auto-detected | Directory with `index.html`, `app.js`, `style.css`. |
+| `--proxy` | `127.0.0.1/32,::1/128` | Trusted proxy CIDRs for `X-Forwarded-*`. |
+| `--session-idle` | `30m` | Idle session timeout. |
+| `--session-absolute` | `12h` | Absolute session timeout. |
 
-### Notes
+The database passphrase is read from `CMDB_DB_PASSPHRASE` or prompted on a TTY.
+The variable is unset after reading. An interactive start is acceptable for the
+first implementation; a systemd credential or root-only key file can follow.
 
-- Password and recovery-code hashes use Argon2id with versioned parameters in the
-  PHC string.
-- TOTP secrets are inside the SQLCipher-encrypted database. An attacker with the
-  database key can read them; that is the same trust boundary as the password
-  hashes.
-- Session tokens are random 256-bit values. Only their hashes are stored.
+Installed layout:
+
+```text
+/usr/bin/cmdb
+/usr/bin/cmdb-server
+/usr/bin/cmdb-rpc
+/usr/share/cmdb-lite/web/{index.html,app.js,style.css}
+```
+
+`cmdb-server` resolves the web directory relative to its executable:
+`web`, then `../share/cmdb-lite/web`, then the source-tree fallback.
+
+## Storage model
+
+Authentication state is **not** a schema version 5 set of SQL tables. Schema v4
+stays unchanged. The server stores one JSON document in the existing `app_meta`
+table under the key `auth.state`:
+
+```json
+{
+  "version": 1,
+  "users": [
+    {
+      "id": "uuid",
+      "username": "admin",
+      "password_hash": "$argon2id$…",
+      "is_admin": true,
+      "disabled": false,
+      "totp_secret": "BASE32",
+      "totp_confirmed": true,
+      "totp_last_step": 12345678,
+      "recovery_codes": [
+        {"hash": "$argon2id$…", "used_at": ""}
+      ],
+      "created_at": "2026-11-11T17:27:33Z",
+      "updated_at": "2026-11-11T17:27:33Z"
+    }
+  ]
+}
+```
+
+Because `auth.state` is inside SQLCipher, a normal `.cmdb` + `.meta` backup
+contains accounts, password hashes, TOTP secrets, and recovery-code hashes.
+Sessions are **memory-only** and are lost on server restart. A restart logs
+everyone out but does not remove accounts.
+
+The JSON blob is deliberately simple for this phase. It is bounded to 1 MiB by
+the C API. If account counts or audit requirements grow, replace it with typed
+tables and a schema migration.
+
+### Credential details
+
+- Passwords: Argon2id, 64 MiB, 3 iterations, 2 lanes, 32-byte key, random
+  16-byte salt, PHC-encoded parameters. Minimum 12 characters, maximum 1024
+  bytes. Verifier parameters are bounded to reject a tampered hash.
+- Recovery codes: 10 codes, 12 Base32 characters, Argon2id-hashed like
+  passwords, single use.
+- TOTP: 30-second period, 6 digits, SHA-1, 20-byte secret, one step of clock
+  skew. The last accepted step is persisted to prevent replay.
+- Session tokens: 256-bit random values. Only SHA-256 hashes are kept in memory.
+- CSRF tokens: 256-bit random values, required on state-changing API requests.
 
 ## First-run admin
 
-1. On first start, `cmdb-server` detects that `users` is empty.
-2. It generates a random setup token, stores only its hash in `app_meta`, and
-   prints the token and setup URL to the server console.
-3. The setup page requires the token and creates the first admin with a
-   username/password.
-4. The setup token is single-use and expires (default: 24 hours).
-5. After the first admin exists, the setup endpoint is permanently disabled.
-6. If the token is lost before the admin is created, a host-local command
-   (`cmdb-server setup-token --reset`) generates a new one. This command requires
-   access to the server console/filesystem.
+1. On first start with no users, `cmdb-server` generates a random setup token,
+   prints it and the setup URL to the console, and keeps only its SHA-256 hash
+   in memory.
+2. The token expires after 24 hours.
+3. Open `/login`, enter the token, username, and password. The first account is
+   an administrator.
+4. The setup endpoint is permanently disabled once a user exists.
+5. If the token is lost before setup, restart the server. While no users exist,
+   a new token is printed on every start.
 
-Desktop mode follows the same flow. Because a desktop app may not have a visible
-console, the local server displays the one-time token in a local-only dialog and
-the desktop UI opens the setup page. The token must never be written to a
-world-readable file or logged after first use.
-
-TOTP enrollment is offered during setup but is not forced in the first release.
-The UI must clearly warn that an admin without MFA is less protected.
+The setup token is not stored in the database. It is not written to a file or
+logged after the startup line.
 
 ## Login flows
 
 ### Password login
 
-1. `POST /api/v1/auth/login` with username and password.
-2. Verify the Argon2id hash in constant time.
-3. Apply per-IP and per-username rate limiting and lockout.
-4. If TOTP is confirmed, create a short-lived pending-MFA session.
-5. On TOTP success, create a full session and rotate the session token.
-6. Audit success/failure with username/IP/user-agent, without logging passwords
-   or TOTP codes.
+1. `POST /api/v1/auth/login` with JSON `username` and `password`.
+2. The server applies per-IP (10 per 15 minutes) and per-username (5 per 15
+   minutes) limits.
+3. Verify Argon2id in constant time. Unknown usernames still run a dummy hash.
+4. If TOTP is confirmed, create a pending-MFA session valid for 5 minutes.
+5. Otherwise create a full session and rotate the cookie.
+6. Audit success and failure without logging passwords or codes.
 
 ### TOTP
 
-- 30-second, 6-digit SHA-1 TOTP, one step of clock skew.
-- Store the last accepted step to prevent replay.
-- Pending MFA sessions expire after 5 minutes.
-- Replacing TOTP requires a completed session or admin reset.
-- Recovery codes can complete MFA and are single-use.
+1. `POST /api/v1/auth/mfa` with the 6-digit code.
+2. The server checks the pending session, validates the code, and rejects a
+   step that was already used.
+3. Rotate to a full session and audit the event.
 
 ### Recovery codes
 
-- Ten codes generated at enrollment or on demand.
-- Displayed once; only Argon2id hashes are stored.
-- Each code is single-use.
-- Using a code to sign in can reset the password and/or MFA according to policy.
-- Generating new codes invalidates the previous set after confirmation.
+1. `POST /api/v1/auth/recovery` with one unused code.
+2. On success, mark it used, rotate to a full session, and audit the event.
+3. Recovery codes are generated from `/security`; generating a new set replaces
+   all previous codes.
 
 ## Sessions and transport security
 
-- Session cookie: random 256-bit token, `HttpOnly`, `SameSite=Strict`, `Secure`
-  when HTTPS is used.
-- CSRF token per session, required on all state-changing requests.
-- Origin/Referer validation for browser requests.
-- Absolute and idle expiry checked on every request; defaults 12 hours and 30
-  minutes, configurable.
-- Logout and admin disable revoke all sessions for the user.
-- Rate limiting and lockout for login, TOTP, recovery-code, and setup endpoints.
-- The server trusts `X-Forwarded-*` headers only from a configured proxy address
-  or CIDR. Otherwise the headers are ignored.
-- The server binds `127.0.0.1` or a private address. HAProxy provides TLS and
-  internet-facing access.
-- No wildcard CORS. The UI is same-origin.
+- Cookie: `cmdb_session`, random 256-bit token, `HttpOnly`,
+  `SameSite=Strict`, `Secure` when the request is HTTPS or a trusted proxy says
+  `X-Forwarded-Proto: https`.
+- Absolute and idle expiry are checked on every request. Idle expiry slides
+  forward but never beyond the absolute expiry.
+- Logout deletes the session. Changing a password revokes the user's other
+  sessions. Disabling a user, resetting a password, or resetting MFA revokes all
+  of that user's sessions.
+- State-changing API calls require `X-CSRF-Token` matching the session.
+- The server sends `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+  `Referrer-Policy: no-referrer`, and `Cache-Control: no-store`.
+- Login and account pages use a restrictive Content-Security-Policy.
+- `X-Forwarded-For` and `X-Forwarded-Proto` are trusted only when the direct
+  peer matches `--proxy`. Otherwise the headers are ignored. The rightmost
+  `X-Forwarded-For` entry is used so that a client-supplied header cannot
+  override the address appended by the trusted proxy.
+- The service has no wildcard CORS. The UI is same-origin.
+- There is no TLS listener. Terminate TLS at HAProxy/VPN and bind
+  `cmdb-server` to loopback or a private interface.
 
 ## Audit
 
 Authentication events are written to the existing hash-chained `audit_log` with
-`entity_type = 'auth'` and the username as `actor`:
+`entity_type = 'user'` or `'auth'` and the account name as `actor`:
 
-- first-run admin created;
-- login succeeded/failed;
+- setup and first admin creation;
+- login success, password-stage success, failure, MFA failure;
 - logout;
-- session revoked;
-- TOTP enrolled/confirmed/reset;
-- recovery code generated/used;
-- password changed/reset;
-- user created/disabled/enabled/deleted;
-- admin reset performed.
+- TOTP enrollment and admin reset;
+- recovery-code generation, use, and failure;
+- password change and admin password reset;
+- user create, enable, and disable.
 
-Existing CI, relationship, import, scan, backup, and export events remain
-audited. The actor for authenticated requests is the logged-in username, not
-`local`.
+Inventory requests pass the authenticated username as the top-level `actor`
+field in the JSON request to the C core. `cmdb_app_handle` sets the audit actor
+for that request, so CI, relationship, import, scan, export, and backup events
+are attributed to the logged-in user instead of `local`. Local desktop mode
+continues to use `local`.
 
-## API sketch
+## HTTP API
+
+Pages:
 
 ```text
-GET  /api/v1/auth/setup/status
+GET /login
+GET /security
+GET /users
+GET /
+GET /app.js
+GET /style.css
+```
+
+Authentication and account API:
+
+```text
+GET  /api/v1/auth/status
 POST /api/v1/auth/setup
 POST /api/v1/auth/login
-POST /api/v1/auth/mfa/totp
+POST /api/v1/auth/mfa
 POST /api/v1/auth/recovery
 POST /api/v1/auth/logout
 GET  /api/v1/auth/session
@@ -279,50 +291,68 @@ POST /api/v1/auth/recovery/generate
 GET  /api/v1/users
 POST /api/v1/users
 POST /api/v1/users/{id}/disable
+POST /api/v1/users/{id}/enable
 POST /api/v1/users/{id}/reset-password
 POST /api/v1/users/{id}/reset-mfa
 ```
 
-All inventory endpoints require a completed session. The server passes the
-authenticated username into the C core audit actor.
+Inventory proxy:
+
+```text
+POST /api/v1/rpc     {"method": "...", "params": {...}}
+                     → {"ok": true, "result": ...}
+                     → {"ok": false, "error": {...}}
+```
+
+The proxy rejects process/database-management methods that make no sense in
+server mode: `db.open`, `db.create`, `db.lock`, `db.restore`, `db.backup`,
+`dialog.choose_database`, `export.save`, `graph.save_drawio`, `settings.get`,
+`settings.remember`, and the auth-state methods. Every other C API method is
+proxied with the authenticated actor.
+
+The server holds one `cmdb-rpc` child and one open database connection for its
+lifetime. Restart the server to release the database.
 
 ## Database passphrase and service startup
 
 - The database passphrase is not stored in the database.
-- Server mode prompts on an interactive start, or reads a systemd credential or
-  root-only key file.
-- Desktop mode prompts when it starts the local server.
+- Server mode reads `CMDB_DB_PASSPHRASE` or prompts on a TTY.
+- Desktop local mode prompts in the unlock screen.
 - Users never know or type the database passphrase.
 - The server refuses to start without the correct passphrase.
-- Restarting the service after a reboot requires the configured unlock method.
-  Interactive unlock is accepted for the first implementation.
+- Restarting after a reboot requires the configured unlock method. Interactive
+  unlock is accepted for the first implementation.
 
 ## Migration from v0.6.0
 
-- Schema v4 → v5 adds the authentication tables and `app_meta` setup keys.
+- Schema version stays at 4. There is no v5 authentication schema.
 - Existing inventory, relationships, diagrams, scan staging, and audit rows are
   preserved.
-- On first open with no users, the server enters first-run setup mode.
+- On first server start with no `auth.state`, the server enters first-run setup.
 - The existing database passphrase remains the database encryption passphrase.
 - The first admin account is new and separate from the database passphrase.
-- Backups remain the `.cmdb` plus `.meta` pair.
+- Backups remain the `.cmdb` plus `.meta` pair and include `auth.state`.
+- Opening a server-managed database in local desktop mode bypasses application
+  logins. The database passphrase is the only gate in that mode. Treat local
+  desktop access as equivalent to knowing the database key.
 
-## Packaging
+## Packaging and deployment
 
-- One package containing `cmdb` and `cmdb-server`.
-- Fedora and Ubuntu server packaging first:
-  - systemd unit for `cmdb-server`;
-  - config file for bind address, proxy CIDR, and session timeouts;
-  - server data directory and file permissions;
-  - log/journal guidance without secrets.
-- Desktop package includes the thin client and can start a local server.
-- Windows packaging follows after Linux.
+- The Linux package contains `cmdb`, `cmdb-server`, `cmdb-rpc`, and the web
+  assets under `share/cmdb-lite/web`.
+- Flatpak builds only the desktop client (`-DCMDB_BUILD_SERVER=OFF`).
+- Windows packages contain only the desktop client.
+- There is no systemd unit or packaged configuration file yet. For the current
+  phase, start `cmdb-server` from a service manager or a supervised process and
+  provide the passphrase through a root-only environment file or TTY.
+- HAProxy should terminate TLS, forward to the loopback listener, and preserve
+  the client address. Add the proxy address/CIDR to `--proxy`.
 
 ## Security test plan
 
-- password hash and verify;
-- TOTP replay rejection;
-- recovery-code single use;
+Implemented tests cover password hashing/verification, TOTP validation, and
+recovery-code single use. Before a production rollout, also exercise:
+
 - session fixation and rotation;
 - CSRF rejection;
 - login rate limiting and lockout;
@@ -332,14 +362,21 @@ authenticated username into the C core audit actor.
 - auth bypass attempts on inventory endpoints;
 - audit completeness for auth and host changes;
 - migration from a v0.6.0 database;
-- backup/restore of the authentication state.
+- backup/restore of the authentication state;
+- restart behavior: sessions are gone, accounts remain.
 
-## Open decisions
+## Known gaps
 
-- The first release uses an interactive database-passphrase prompt on server
-  start. A systemd credential/root-only key file can follow.
-- TOTP is optional, including for the first admin, with a prominent warning.
-- Recovery-code use can reset both password and MFA; the exact UX is still to be
-  finalized.
-- The desktop client supports both starting a local server and connecting to a
-  configured server URL. The default mode and switch UI still need design.
+- Sessions are memory-only, so a restart logs everyone out.
+- The auth state is a single JSON document rather than typed tables.
+- No systemd unit, automatic passphrase provisioning, or packaged server
+  configuration.
+- The first-run setup token is printed to standard output/logs. Restrict access
+  to the server console and journal while the instance has no users.
+- The database passphrase is a Go string in the server process and cannot be
+  reliably wiped. Restrict core dumps and swap for server deployments.
+- No account deletion, password-history policy, or email-based recovery.
+- Desktop local mode has no application-level login.
+- The desktop client does not start a local server automatically.
+- No passkey/WebAuthn support.
+- Windows server support is not implemented.

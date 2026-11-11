@@ -71,6 +71,8 @@ coverage/
 # Go / Rust / Java
 # ---------------------------------------------------------------------------
 bin/
+/server/cmdb-server
+/server/server
 *.test
 *.out
 target/

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file:; style-src 'self' file:; img-src 'self' data: file:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file:; style-src 'self' file:; img-src 'self' data: file:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none';">
   <title>cmdb-lite</title>
   <link rel="stylesheet" href="style.css">
   <script src="app.js" defer></script>
@@ -79,6 +79,8 @@
           <option value="dark">Dark</option>
         </select>
       </label>
+      <button id="security-button" type="button" class="secondary small hidden">Security</button>
+      <button id="users-button" type="button" class="secondary small hidden">Users</button>
       <button id="backup-db" type="button" class="secondary small">Backup</button>
       <button id="lock-button" type="button" class="secondary small">Lock</button>
     </header>

@@ -25,7 +25,7 @@ sudo dnf install -y \
   gcc gcc-c++ cmake ninja-build pkgconf-pkg-config git python3 \
   rpm-build \
   sqlcipher-devel libsodium-devel libsodium-static \
-  openssl-devel zlib-devel expat-devel \
+  openssl-devel zlib-devel expat-devel golang \
   gtk3-devel webkit2gtk4.1-devel nmap
 
 echo

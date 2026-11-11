@@ -22,6 +22,9 @@ typedef struct {
   char hash[65];
 } cmdb_audit_entry_t;
 
+void cmdb_audit_set_actor(const char *actor);
+const char *cmdb_audit_actor(void);
+
 int cmdb_audit_add(cmdb_db_t *db, const char *actor, const char *action,
                    const char *entity_type, const char *entity_id,
                    const char *detail_json, cmdb_error_t *err);

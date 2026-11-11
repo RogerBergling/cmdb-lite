@@ -109,6 +109,7 @@ modules:
       - -DCMDB_FETCH_WEBVIEW=OFF
       - -DCMDB_WEBVIEW_SOURCE_DIR=/app/share/cmdb-lite/webview-src
       - -DCMDB_STATIC_CRYPTO=OFF
+      - -DCMDB_BUILD_SERVER=OFF
       - -DCMAKE_INSTALL_PREFIX=/app
     sources:
       - type: dir

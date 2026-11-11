@@ -5,7 +5,7 @@ if(POLICY CMP0135)
 endif()
 
 project(cmdb-lite
-  VERSION 0.6.0
+  VERSION 0.7.0
   DESCRIPTION "Local-first encrypted Configuration Management Database"
   LANGUAGES C)
 
@@ -318,6 +318,11 @@ if(CMDB_BUILD_UI)
       DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/256x256/apps
       RENAME cmdb-lite.png)
   endif()
+  if(NOT WIN32)
+    install(DIRECTORY src/web/
+      DESTINATION ${CMAKE_INSTALL_DATADIR}/cmdb-lite/web
+      FILES_MATCHING PATTERN "index.html" PATTERN "app.js" PATTERN "style.css")
+  endif()
   install(FILES README.md LICENSE SECURITY.md THIRD_PARTY_NOTICES.md
     DESTINATION ${CMAKE_INSTALL_DOCDIR})
   install(DIRECTORY docs/
@@ -327,6 +332,42 @@ if(CMDB_BUILD_UI)
   # share/doc, but redistributed binaries still need their notices.
   install(FILES LICENSE THIRD_PARTY_NOTICES.md
     DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/cmdb-lite)
+endif()
+
+if(NOT WIN32)
+  option(CMDB_BUILD_SERVER "Build cmdb-server and cmdb-rpc" ON)
+  if(CMDB_BUILD_SERVER)
+    add_executable(cmdb-rpc src/ui/rpc_main.c)
+    target_compile_options(cmdb-rpc PRIVATE ${CMDB_WARNINGS})
+    target_compile_definitions(cmdb-rpc PRIVATE _POSIX_C_SOURCE=200809L)
+    target_link_libraries(cmdb-rpc PRIVATE cmdb_core)
+    install(TARGETS cmdb-rpc RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+    find_program(GO_EXECUTABLE go)
+    if(GO_EXECUTABLE)
+      file(GLOB CMDB_SERVER_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/server/*.go")
+      add_custom_command(
+        OUTPUT "${CMAKE_BINARY_DIR}/cmdb-server"
+        COMMAND "${CMAKE_COMMAND}" -E env CGO_ENABLED=0
+          "${GO_EXECUTABLE}" build -trimpath -o "${CMAKE_BINARY_DIR}/cmdb-server" .
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/server"
+        DEPENDS ${CMDB_SERVER_SOURCES}
+          "${CMAKE_CURRENT_SOURCE_DIR}/server/go.mod"
+          "${CMAKE_CURRENT_SOURCE_DIR}/server/go.sum"
+        COMMENT "Building cmdb-server")
+      add_custom_target(cmdb_server ALL
+        DEPENDS "${CMAKE_BINARY_DIR}/cmdb-server")
+      install(PROGRAMS "${CMAKE_BINARY_DIR}/cmdb-server"
+        DESTINATION ${CMAKE_INSTALL_BINDIR})
+      if(CMDB_BUILD_TESTS)
+        add_test(NAME cmdb_server_tests
+          COMMAND "${GO_EXECUTABLE}" test ./...
+          WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/server")
+      endif()
+    else()
+      message(WARNING "Go not found; skipping cmdb-server")
+    endif()
+  endif()
 endif()
 
 if(CMDB_BUILD_TESTS)

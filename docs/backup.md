@@ -21,10 +21,14 @@ The derived SQLCipher key is kept in process memory while the database is open
 so backup does not ask for the passphrase again. It is zeroized on close and is
 never written to disk.
 
-When the planned server-mode authentication lands, user accounts, session
-metadata, TOTP secrets, and recovery-code hashes will live in the same
-encrypted database. A database backup will therefore include authentication
-state. Restore tests must include login, TOTP, and recovery-code validation.
+Server-mode accounts, TOTP secrets, and recovery-code hashes live in the same
+encrypted database under the `app_meta` key `auth.state`. A database backup
+therefore includes authentication state, and restore tests must include login,
+TOTP, and recovery-code validation. Sessions are memory-only and are not part of
+a backup; restarting the server logs everyone out.
+
+Opening a server-managed database in local desktop mode bypasses application
+logins. The database passphrase is the only gate in that mode.
 
 ## Manual backup while the application is closed
 
@@ -36,6 +40,19 @@ cp inventory.cmdb inventory.cmdb.meta /path/to/backup/
 
 Do not copy a live database while it is open if you are not using the in-app
 backup. Use **Backup** instead.
+
+## Server mode
+
+`cmdb-server` does not expose a backup API in this release, and the server-mode
+UI hides the desktop **Backup** action. To take a consistent backup:
+
+1. Stop the server process.
+2. Copy the `.cmdb` and matching `.meta` sidecar together.
+3. Restart the server and confirm that accounts and inventory are present.
+
+Stopping the server also ends all sessions. Do not copy the file while the
+server is running. A future release should add an authenticated server-side
+backup action with destination and retention controls.
 
 ## Restore
 
@@ -72,7 +89,7 @@ will not open it. Use the passphrase that was active when the backup was taken.
 
 ## Backup policy for the production rollout
 
-The current v0.6.0 release provides **manual in-app backup** and **automatic
+The current codebase provides **manual in-app backup** and **automatic
 pre-migration backup**. It does not yet provide configured automatic or
 scheduled backups.
 
@@ -87,7 +104,7 @@ The planned go-live requirement is configurable backup policy:
 - restore verification instructions.
 
 Until that is implemented, use the manual **Backup** action and an external
-scheduler or file-copy procedure. Do not describe v0.6.0 as having scheduled
+scheduler or file-copy procedure. Do not describe the current release as having scheduled
 backups.
 
 ## What is not included
@@ -95,7 +112,7 @@ backups.
 - Passphrase recovery. A lost passphrase cannot be recovered.
 - Passphrase rotation. It is a future milestone; changing the passphrase
   requires a migration tool.
-- Configurable automatic/scheduled backups. The v0.6.0 backup is manual, plus the
+- Configurable automatic/scheduled backups. The current backup is manual, plus the
   automatic pre-migration backup.
 - A plaintext export of the database. Exports such as `.drawio` are intentionally
   plaintext files chosen by the user.

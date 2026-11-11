@@ -1778,7 +1778,7 @@ static cJSON *handle_graph_save_drawio(cmdb_app_t *app, cJSON *params,
       cJSON_Delete(detail);
     }
     if (json != NULL) {
-      (void)cmdb_audit_add(app->db, "local", "export", "drawio", "", json, NULL);
+      (void)cmdb_audit_add(app->db, cmdb_audit_actor(), "export", "drawio", "", json, NULL);
       free(json);
     }
   }
@@ -1915,7 +1915,7 @@ static cJSON *handle_export_save(cmdb_app_t *app, cJSON *params,
       cJSON_Delete(detail);
     }
     if (json != NULL) {
-      (void)cmdb_audit_add(app->db, "local", "export", "data", kind_text,
+      (void)cmdb_audit_add(app->db, cmdb_audit_actor(), "export", "data", kind_text,
                            json, NULL);
       free(json);
     }
@@ -1971,7 +1971,7 @@ static cJSON *handle_db_backup(cmdb_app_t *app, cJSON *params,
       cJSON_Delete(detail);
     }
     if (json != NULL) {
-      (void)cmdb_audit_add(app->db, "local", "backup", "database", "",
+      (void)cmdb_audit_add(app->db, cmdb_audit_actor(), "backup", "database", "",
                            json, NULL);
       free(json);
     }
@@ -2120,6 +2120,90 @@ static cJSON *handle_audit_verify(cmdb_app_t *app, cmdb_error_t *err) {
   }
   cJSON_AddBoolToObject(result, "valid", valid);
   cJSON_AddNumberToObject(result, "count", (double)count);
+  return result;
+}
+
+static cJSON *handle_auth_state_get(cmdb_app_t *app, cmdb_error_t *err) {
+  char *state = cmdb_malloc(1024u * 1024u);
+  cJSON *result;
+  cmdb_error_t read_err;
+
+  cmdb_error_clear(&read_err);
+  state[0] = '\0';
+  if (cmdb_schema_meta_get(app->db, "auth.state", state, 1024u * 1024u,
+                           &read_err) != 0) {
+    if (read_err.code != CMDB_ERR_NOT_FOUND) {
+      *err = read_err;
+      free(state);
+      return NULL;
+    }
+    cmdb_error_clear(err);
+  }
+  result = cJSON_CreateObject();
+  if (result == NULL) {
+    free(state);
+    cmdb_error_set(err, CMDB_ERR_INTERNAL, "Cannot create auth state");
+    return NULL;
+  }
+  cJSON_AddStringToObject(result, "state", state);
+  free(state);
+  return result;
+}
+
+static cJSON *handle_auth_state_set(cmdb_app_t *app, cJSON *params,
+                                    cmdb_error_t *err) {
+  const char *state = NULL;
+  cJSON *result;
+
+  if (require_params(params, err) != 0 ||
+      get_string(params, "state", &state, 1, err) != 0) {
+    return NULL;
+  }
+  if (strlen(state) > 1024u * 1024u) {
+    cmdb_error_set(err, CMDB_ERR_LIMIT, "Auth state is too large");
+    return NULL;
+  }
+  if (cmdb_schema_meta_set(app->db, "auth.state", state, err) != 0) {
+    return NULL;
+  }
+  result = cJSON_CreateObject();
+  if (result == NULL) {
+    cmdb_error_set(err, CMDB_ERR_INTERNAL, "Cannot create auth result");
+    return NULL;
+  }
+  cJSON_AddBoolToObject(result, "saved", 1);
+  return result;
+}
+
+static cJSON *handle_auth_audit(cmdb_app_t *app, cJSON *params,
+                                cmdb_error_t *err) {
+  const char *actor = NULL;
+  const char *action = NULL;
+  const char *entity_type = NULL;
+  const char *entity_id = NULL;
+  const char *detail = NULL;
+  cJSON *result;
+
+  if (require_params(params, err) != 0 ||
+      get_string(params, "actor", &actor, 1, err) != 0 ||
+      get_string(params, "action", &action, 1, err) != 0 ||
+      get_string(params, "entity_type", &entity_type, 0, err) != 0 ||
+      get_string(params, "entity_id", &entity_id, 0, err) != 0 ||
+      get_string(params, "detail", &detail, 0, err) != 0) {
+    return NULL;
+  }
+  if (cmdb_audit_add(app->db, actor, action,
+                     entity_type != NULL ? entity_type : "auth",
+                     entity_id != NULL ? entity_id : "",
+                     detail != NULL ? detail : "{}", err) != 0) {
+    return NULL;
+  }
+  result = cJSON_CreateObject();
+  if (result == NULL) {
+    cmdb_error_set(err, CMDB_ERR_INTERNAL, "Cannot create audit result");
+    return NULL;
+  }
+  cJSON_AddBoolToObject(result, "saved", 1);
   return result;
 }
 
@@ -2285,7 +2369,7 @@ static void scan_audit(cmdb_db_t *db, const char *action, const char *target,
   if (json == NULL) {
     return;
   }
-  (void)cmdb_audit_add(db, "local", action, "network_scan",
+  (void)cmdb_audit_add(db, cmdb_audit_actor(), action, "network_scan",
                        target != NULL ? target : "", json, NULL);
   free(json);
 }
@@ -2942,7 +3026,7 @@ static cJSON *handle_scan_import(cmdb_app_t *app, cJSON *params,
       cJSON_Delete(detail);
     }
     if (json != NULL) {
-      (void)cmdb_audit_add(app->db, "local", "import", "network_scan",
+      (void)cmdb_audit_add(app->db, cmdb_audit_actor(), "import", "network_scan",
                            job_id, json, NULL);
       free(json);
     }
@@ -3256,6 +3340,18 @@ cJSON *cmdb_api_handle(cmdb_app_t *app, cJSON *request) {
   } else if (strcmp(method, "diagrams.delete") == 0) {
     if (require_db(app, &err) == 0) {
       result = handle_diagrams_delete(app, params, &err);
+    }
+  } else if (strcmp(method, "auth.state.get") == 0) {
+    if (require_db(app, &err) == 0) {
+      result = handle_auth_state_get(app, &err);
+    }
+  } else if (strcmp(method, "auth.state.set") == 0) {
+    if (require_db(app, &err) == 0) {
+      result = handle_auth_state_set(app, params, &err);
+    }
+  } else if (strcmp(method, "auth.audit") == 0) {
+    if (require_db(app, &err) == 0) {
+      result = handle_auth_audit(app, params, &err);
     }
   } else if (strcmp(method, "security.info") == 0) {
     if (require_db(app, &err) == 0) {

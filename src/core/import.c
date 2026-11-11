@@ -919,7 +919,7 @@ static int audit_import(cmdb_db_t *db, const char *kind,
     cmdb_error_set(err, CMDB_ERR_INTERNAL, "Cannot create audit detail");
     return -1;
   }
-  rc = cmdb_audit_add(db, "local", "import", kind, "", json, err);
+  rc = cmdb_audit_add(db, cmdb_audit_actor(), "import", kind, "", json, err);
   free(json);
   return rc;
 }

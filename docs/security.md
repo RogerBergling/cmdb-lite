@@ -113,10 +113,12 @@ append-only system.
 
 ## Application surface
 
-- The UI is local and offline. There is no remote content, telemetry, or update
-  check.
+- Desktop-local mode is offline. There is no remote content, telemetry, or
+  update check.
+- Server mode is same-origin. The UI loads only from the configured server and
+  uses its authenticated RPC proxy.
 - The Content-Security-Policy blocks remote scripts, frames, objects, and
-  network connections.
+  arbitrary network connections.
 - The JS bridge accepts JSON only. Request size is capped at 64 MiB. Import
   content is capped at 20 MiB.
 - User data is rendered with DOM `textContent`; the UI does not inject imported
@@ -128,18 +130,17 @@ append-only system.
 - File dialogs are native. The C core writes exports atomically.
 - Release builds do not enable webview developer tools and do not honor
   `CMDB_WEB_DIR` or `CMDB_UI_URL`; those overrides are compiled out with
-  `NDEBUG`.
+  `NDEBUG`. `CMDB_SERVER_URL` is a supported release-mode setting.
 - The application does not execute a shell. nmap is launched with a fixed argv
   vector, validated target/port arguments, a private XML output file, and a hard
   timeout.
 
-## Planned server authentication
+## Server authentication
 
-v0.6.0 has no application-level login beyond the database passphrase. The planned
-v0.7 server mode moves the database behind a Go server with:
+Server mode moves the database behind a Go server with:
 
 - username/password accounts and Argon2id password hashes;
-- session tokens stored only as hashes;
+- session tokens kept in memory and stored only as hashes;
 - TOTP and recovery codes; passkeys are out of scope for this phase;
 - ten one-time recovery-code hashes per user;
 - admin user management and MFA reset;
@@ -149,8 +150,13 @@ v0.7 server mode moves the database behind a Go server with:
   address.
 
 The database passphrase is known only to the server; users authenticate to the
-server and never receive the database key. The complete threat model, schema, and
-API are in [`authentication.md`](authentication.md).
+server and never receive the database key. Authentication state is JSON in
+`app_meta` inside SQLCipher. Sessions are memory-only. The complete design,
+storage format, and API are in [`authentication.md`](authentication.md).
+
+Desktop-local mode still has no application-level login. Anyone who can open the
+database file and knows the passphrase has full access. Opening a server-managed
+database locally therefore bypasses server accounts.
 
 ## Memory-safety posture
 
@@ -249,13 +255,19 @@ The monitored fallback contact is `github@bergling.net`. See
 
 ## Known limitations
 
-- Single-user local application; no RBAC or server-side authentication.
-- No passphrase rotation/rekey, auto-lock/idle timeout, or passphrase attempt
-  rate limiting.
-- No configurable automatic or scheduled backups; v0.6.0 has manual backup and
-  automatic pre-migration backup only.
+- Server mode has no RBAC beyond the admin flag; all non-admin accounts share
+  inventory privileges.
+- Desktop-local mode remains single-user with no application-level login.
+- Sessions are memory-only: a server restart logs everyone out.
+- No passphrase rotation/rekey, local auto-lock, or database passphrase attempt
+  rate limiting. Server login/TOTP/recovery endpoints are rate-limited.
+- No configurable automatic or scheduled backups; the current release has manual
+  backup and automatic pre-migration backup only.
 - The derived key is not `sodium_mlock`ed. Swap, hibernation, and core dumps are
   OS-level concerns; zeroization happens on normal close, not on a crash.
+- The Go server holds the database passphrase in a Go string. Go strings cannot
+  be reliably wiped, so the passphrase may remain in the server process memory
+  until exit. Restrict core dumps and swap for server deployments.
 - Webview memory cannot be fully zeroized.
 - The audit chain is local and key-holder-rewritable; there is no off-device
   audit export or forwarding yet.
@@ -275,6 +287,7 @@ The monitored fallback contact is `github@bergling.net`. See
   GitHub Actions are referenced by tag, the repository allows all actions, and
   SHA pinning is not required. The vcpkg baseline is not pinned.
 - The Flatpak sandbox grants broad home-directory and network access.
-- No macOS, ARM64, 32-bit, or headless/server build is produced by CI.
+- No macOS, ARM64, 32-bit, or Windows server build is produced by CI. Linux
+  packages include `cmdb-server`; Flatpak and Windows packages are desktop-only.
 - No FIPS 140, Common Criteria, HSM-backed key, or hardware-token support is
   claimed.

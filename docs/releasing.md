@@ -17,19 +17,24 @@ manual trigger required.
    git diff --check
    ```
 
-3. Test migrations against at least the previous schema version.
-4. Run the clean-Windows-VM checklist and a Linux GUI/Flatpak smoke test on the
+3. Test migrations against at least the previous schema version. v0.7.0 does
+   not change the schema, but verify that a v0.6.0 database opens and that its
+   inventory, diagrams, scans, and audit chain remain intact.
+4. Verify the Linux package contains `cmdb-server`, `cmdb-rpc`, and
+   `share/cmdb-lite/web`, and that server setup/login/TOTP/recovery work from a
+   fresh database.
+5. Run the clean-Windows-VM checklist and a Linux GUI/Flatpak smoke test on the
    target distributions.
-5. Signing and SBOMs are not required for the current rollout. Windows artifacts
+6. Signing and SBOMs are not required for the current rollout. Windows artifacts
    are unsigned and may trigger SmartScreen; record that expectation.
-6. Commit and push `main`.
-7. Wait for the normal `main` CI run to pass.
+7. Commit and push `main`.
+8. Wait for the normal `main` CI run to pass.
 
 ## Tag and publish
 
 ```bash
-git tag -a v0.6.0 -m "cmdb-lite v0.6.0"
-git push origin v0.6.0
+git tag -a v0.7.0 -m "cmdb-lite v0.7.0"
+git push origin v0.7.0
 ```
 
 The tag triggers `.github/workflows/ci.yml` for Linux, Fedora, Flatpak, and
@@ -46,8 +51,8 @@ No manual artifact assembly or `gh release create` step is required.
 ## Verify the release
 
 ```bash
-gh release view v0.6.0
-gh release download v0.6.0 --dir /tmp/cmdb-release
+gh release view v0.7.0
+gh release download v0.7.0 --dir /tmp/cmdb-release
 cd /tmp/cmdb-release
 sha256sum -c SHA256SUMS
 ```
@@ -66,11 +71,11 @@ The release job does not run unless all platform jobs pass. Fix the commit,
 delete the tag locally and remotely, then re-tag:
 
 ```bash
-git tag -d v0.6.0
-git push origin :refs/tags/v0.6.0
+git tag -d v0.7.0
+git push origin :refs/tags/v0.7.0
 # fix, commit, push main, wait for CI
-git tag -a v0.6.0 -m "cmdb-lite v0.6.0"
-git push origin v0.6.0
+git tag -a v0.7.0 -m "cmdb-lite v0.7.0"
+git push origin v0.7.0
 ```
 
 Do not move a published release tag. Publish a new patch version instead.

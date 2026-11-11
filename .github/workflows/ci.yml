@@ -24,7 +24,7 @@ jobs:
             build-essential cmake ninja-build pkg-config \
             fakeroot dpkg-dev \
             libsqlcipher-dev libsodium-dev libexpat1-dev \
-            libssl-dev zlib1g-dev \
+            libssl-dev zlib1g-dev golang-go \
             libgtk-3-dev libwebkit2gtk-4.1-dev nmap
 
       - name: Check embedded web UI
@@ -75,7 +75,7 @@ jobs:
             gcc gcc-c++ cmake ninja-build pkgconf-pkg-config git python3 \
             findutils rpm-build \
             sqlcipher-devel libsodium-devel libsodium-static \
-            openssl-devel zlib-devel expat-devel \
+            openssl-devel zlib-devel expat-devel golang \
             gtk3-devel webkit2gtk4.1-devel nmap
 
       - name: Check embedded web UI

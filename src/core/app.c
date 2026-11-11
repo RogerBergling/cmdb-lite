@@ -1,6 +1,7 @@
 #include "cmdb/api.h"
 
 #include "app_internal.h"
+#include "cmdb/audit.h"
 #include "cmdb/crypto.h"
 #include "cmdb/util.h"
 
@@ -115,6 +116,14 @@ char *cmdb_app_handle(cmdb_app_t *app, const char *request,
                    "API request must be a JSON object");
     response = error_response(NULL, &err);
     goto print;
+  }
+  {
+    cJSON *actor = cJSON_GetObjectItemCaseSensitive(parsed, "actor");
+    if (cJSON_IsString(actor) && actor->valuestring != NULL) {
+      cmdb_audit_set_actor(actor->valuestring);
+    } else {
+      cmdb_audit_set_actor("local");
+    }
   }
 
   response = cmdb_api_handle(app, parsed);

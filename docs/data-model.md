@@ -158,12 +158,24 @@ The embedded editor stores diagrams here. Edges in the diagram point at CIs by
 UUID and may carry a relationship type; connecting nodes creates a real row in
 `relationships`.
 
-## Planned authentication schema
+## Authentication state
 
-Schema v5 is planned to add `users`, `sessions`, and `user_recovery_codes` to the same encrypted database. The planned DDL, session
-model, TOTP/recovery rules, admin flow, and migration from v4 are documented in
-[`authentication.md`](authentication.md). These tables are **not present in
-v0.6.0**.
+Server-mode accounts do **not** add a schema version. Schema v4 stays unchanged,
+and the Go server stores one JSON document in the existing `app_meta` table:
+
+| Key | Contents |
+|---|---|
+| `auth.state` | Versioned JSON with users, Argon2id password hashes, TOTP secrets/last step, and recovery-code hashes. |
+| `ui.theme` | Existing local UI preference. |
+
+Sessions and CSRF tokens are kept in server memory only and are not written to
+the database. They are lost on restart. The document, login flows, TOTP,
+recovery-code rules, admin flow, and backup implications are documented in
+[`authentication.md`](authentication.md).
+
+Keeping `auth.state` in `app_meta` means a normal encrypted database backup
+includes accounts and MFA material. There is no separate authentication file to
+back up.
 
 ## `scan_jobs` and `discovered_assets`
 
@@ -203,7 +215,7 @@ inventory.
 |---|---|---|
 | `id` | INTEGER | Auto-increment primary key. |
 | `ts` | TEXT | ISO 8601 UTC. |
-| `actor` | TEXT | `local` in the single-user version. |
+| `actor` | TEXT | `local` in desktop-local mode; the authenticated username in server mode. |
 | `action` | TEXT | `create`, `update`, `delete`, `import`, `export`, ... |
 | `entity_type` | TEXT | `ci`, `ci_type`, `ci_type_field`, `relationship`, ... |
 | `entity_id` | TEXT | Entity UUID or empty. |
@@ -226,16 +238,20 @@ cis     1 ─── n diagrams       (editor nodes/edges reference CIs)
 scan_jobs 1 ─── n discovered_assets
 ```
 
-## Future multi-user path
+## Multi-user architecture
 
 The schema is deliberately server-friendly:
 
 - UUID primary keys rather than auto-increment IDs for domain objects.
 - An audit log with actor and entity fields.
 - A clear API boundary (`src/core/api.c`) between the UI and persistence.
-- SQLite can be replaced by a server database behind the same repository/API
-  layer, or the existing database can be served by a small local server with
-  authentication and RBAC.
+- A Go `cmdb-server` that owns the encrypted SQLite database and exposes the
+  JSON API over HTTP.
+
+Server mode provides application login, TOTP, recovery codes, and per-user audit
+actors. All accounts still have the same inventory privileges; only account and
+credential management is restricted to administrators. Role-based access control
+and per-CI permissions remain future work.
 
 Multi-user access to a shared encrypted SQLite file is **not** supported. SQLite's
 locking is not a substitute for a server, and sharing a passphrase across users
