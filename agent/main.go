@@ -90,7 +90,7 @@ Usage:
       Show the enrolled server and host identity without printing secrets.
 
   cmdb-agent install-service [--config PATH]
-  cmdb-agent uninstall-service
+  cmdb-agent uninstall-service [--purge]
   cmdb-agent start-service
   cmdb-agent stop-service
   cmdb-agent remove-config [--config PATH]
@@ -372,11 +372,17 @@ func cmdInstallService(args []string) error {
 
 func cmdUninstallService(args []string) error {
 	flags := flag.NewFlagSet("uninstall-service", flag.ContinueOnError)
+	purge := flags.Bool("purge", false, "remove the agent configuration after removing the service")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if err := uninstallService(); err != nil {
 		return err
+	}
+	if *purge {
+		if err := os.Remove(defaultConfigPath()); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove configuration: %w", err)
+		}
 	}
 	log.Printf("service %s removed", serviceName)
 	return nil

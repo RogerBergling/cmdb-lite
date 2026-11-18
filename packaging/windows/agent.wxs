@@ -68,13 +68,7 @@
                   Return="check" />
     <CustomAction Id="RemoveAgentService"
                   FileKey="AgentExe"
-                  ExeCommand="uninstall-service"
-                  Execute="deferred"
-                  Impersonate="no"
-                  Return="check" />
-    <CustomAction Id="RemoveAgentConfig"
-                  FileKey="AgentExe"
-                  ExeCommand="remove-config"
+                  ExeCommand="uninstall-service --purge"
                   Execute="deferred"
                   Impersonate="no"
                   Return="check" />
@@ -89,9 +83,6 @@
       <Custom Action="StartAgentService"
               After="InstallAgentService">WIX_UPGRADE_DETECTED</Custom>
       <Custom Action="RemoveAgentService"
-              Before="RemoveFiles">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
-      <Custom Action="RemoveAgentConfig"
-              After="RemoveAgentService"
               Before="RemoveFiles">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
     </InstallExecuteSequence>
   </Product>

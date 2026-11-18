@@ -454,9 +454,11 @@ static void test_scan_live_nmap(void) {
   address.sin_family = AF_INET;
   address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
   address.sin_port = 0;
-  TEST_ASSERT(bind(listener, (struct sockaddr *)&address, sizeof(address)) == 0);
+  TEST_ASSERT(bind(listener, (struct sockaddr *)(void *)&address,
+                   sizeof(address)) == 0);
   TEST_ASSERT(listen(listener, 16) == 0);
-  TEST_ASSERT(getsockname(listener, (struct sockaddr *)&address, &length) == 0);
+  TEST_ASSERT(getsockname(listener, (struct sockaddr *)(void *)&address,
+                          &length) == 0);
   {
     int flags = fcntl(listener, F_GETFL, 0);
     if (flags >= 0) {
