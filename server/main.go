@@ -154,6 +154,7 @@ func main() {
 		agentReportsPerHost = flag.Int("agent-reports-per-host", 90,
 			"application reports to keep per host")
 		resetAuth = flag.Bool("reset-auth", false, "clear accounts/TOTP/recovery state and exit (break-glass)")
+		createDB  = flag.Bool("create-db", false, "create a new encrypted database and exit")
 		showVer   = flag.Bool("version", false, "print version and build information")
 	)
 	flag.Parse()
@@ -196,6 +197,19 @@ func main() {
 		log.Fatalf("start %s: %v", rpcPathResolved, err)
 	}
 	defer rpc.close()
+
+	if *createDB {
+		var result map[string]any
+		if err := rpc.callResult("db.create", map[string]any{
+			"path":       *dbPath,
+			"passphrase": passphrase,
+		}, "system", &result); err != nil {
+			log.Fatalf("create database: %v", err)
+		}
+		log.Printf("database created: %s", *dbPath)
+		log.Printf("keep the passphrase safe; it cannot be recovered")
+		return
+	}
 
 	opened, err := rpc.call("db.open", map[string]any{
 		"path":       *dbPath,

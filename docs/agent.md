@@ -4,6 +4,10 @@
 > application inventory to a `cmdb-server` and stores current software plus a
 > bounded change history in the encrypted database.
 
+For the complete server-to-agent walkthrough, including first-run setup and TLS,
+see [`installation.md`](installation.md). This document is the detailed
+reference for the agent itself.
+
 ## Purpose
 
 `cmdb-agent` is an unattended service for Windows and Linux hosts. It collects

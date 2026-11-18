@@ -143,6 +143,11 @@ The screenshots use sample inventory data.
 
 ## Installation
 
+For a single end-to-end walkthrough covering the server, TLS proxy, first
+administrator, desktop client, and native agents, see
+[`docs/installation.md`](docs/installation.md). The sections below are the
+per-component reference.
+
 A Git clone contains source only; executables are not committed. Download the
 latest release from:
 
@@ -289,6 +294,9 @@ server owns the database; users log in with their own accounts and never receive
 the database passphrase.
 
 ```bash
+# One-time creation for a new server database.
+cmdb-server --db /var/lib/cmdb-lite/inventory.cmdb --create-db
+
 # Interactive first validation: the server prompts for the passphrase.
 cmdb-server --db /var/lib/cmdb-lite/inventory.cmdb --listen 127.0.0.1:8080
 ```
@@ -796,15 +804,20 @@ sudo install -o root -g root -m 0600 \
   /usr/share/doc/cmdb-lite/server.env.example /etc/cmdb-lite/server.env
 sudo editor /etc/cmdb-lite/server.env
 
+# Create the encrypted database once, using the same passphrase.
+sudo -u cmdb /usr/bin/cmdb-server \
+  --db /var/lib/cmdb-lite/inventory.cmdb \
+  --create-db
+
 sudo systemctl enable --now cmdb-server
 sudo journalctl -u cmdb-server -n 20 --no-pager
 ```
 
 The package's post-install script creates the `cmdb` service user and
-`/var/lib/cmdb-lite` with mode `0700`. It does not start the service or create
-the passphrase file automatically. The first start prints the one-time setup
-token to the journal. Read it, then open `https://your-host/login` through your
-TLS proxy.
+`/var/lib/cmdb-lite` with mode `0700`. It does not start the service, create the
+passphrase file, or create the database automatically. The first start prints
+the one-time setup token to the journal. Read it, then open
+`https://your-host/login` through your TLS proxy.
 
 Install either the desktop+server package or the server-only package on a host,
 not both: they share `cmdb-server`, `cmdb-rpc`, web assets, and the systemd unit.
@@ -1560,6 +1573,8 @@ GitHub Actions Windows runner.
   hardening, and limitations.
 - [`docs/architecture.md`](docs/architecture.md) — layers, bridge, data flows,
   and dependency choices.
+- [`docs/installation.md`](docs/installation.md) — step-by-step server, TLS,
+  administrator, desktop client, and agent installation.
 - [`docs/authentication.md`](docs/authentication.md) — server mode,
   `cmdb-rpc`, accounts, sessions, TOTP, recovery codes, storage, and API.
 - [`docs/agent.md`](docs/agent.md) — application inventory agent: supported

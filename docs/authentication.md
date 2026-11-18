@@ -125,6 +125,7 @@ Flags:
 | `--agent-interval` | `24h` | Reporting interval advertised to agents (15m–168h). |
 | `--agent-retention-days` | `365` | Days of application report/event history to keep. |
 | `--agent-reports-per-host` | `90` | Maximum reports retained per host. |
+| `--create-db` | off | Create a new encrypted database at `--db` with the supplied passphrase, then exit. Refuses to overwrite an existing database. |
 | `--version` | off | Print version, build number, commit, date, target, and build type, then exit. |
 | `--reset-auth` | off | Break-glass: clear accounts/TOTP/recovery state, write an audit entry, and exit. Requires the database passphrase and a stopped server. |
 

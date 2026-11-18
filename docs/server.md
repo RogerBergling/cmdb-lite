@@ -5,6 +5,10 @@ covers a single-node Linux deployment. The server is not a clustered or
 high-availability product: one `cmdb-server` process owns one database through
 one `cmdb-rpc` child.
 
+For a single linear install walkthrough, start with
+[`installation.md`](installation.md). This document is the detailed reference for
+the server-specific parts.
+
 > **Status:** v0.7.0 ships server-only DEB/RPM/TGZ packages with a hardened
 > systemd unit and a passphrase example. It does not yet ship a separate
 > flags/config file, an online backup API, or a health endpoint. The samples
@@ -53,8 +57,8 @@ The package installs the systemd unit at
 `/usr/lib/systemd/system/cmdb-server.service`, the passphrase example at
 `/usr/share/doc/cmdb-lite/server.env.example`, and creates the `cmdb` service
 user plus `/var/lib/cmdb-lite` (mode `0700`). It does not create the passphrase
-file or start the service automatically. Follow the first-start procedure
-below.
+file, create the database, or start the service automatically. Follow the
+first-start procedure below.
 
 Do not install the desktop+server package and the server-only package on the
 same host: they share `cmdb-server`, `cmdb-rpc`, web assets, and the systemd
@@ -266,20 +270,29 @@ Notes:
 
 ## First start and accounts
 
-1. Start the service while the database has no users.
-2. Read the one-time setup token from the journal:
+1. Create the encrypted database once as the service user. This prompts for the
+   passphrase and refuses to overwrite an existing database:
 
    ```bash
-   journalctl -u cmdb-server -n 20 --no-pager
+   sudo -u cmdb /usr/bin/cmdb-server \
+     --db /var/lib/cmdb-lite/inventory.cmdb \
+     --create-db
+   ```
+
+2. Start the service while the database has no users.
+3. Read the one-time setup token from the journal:
+
+   ```bash
+   sudo journalctl -u cmdb-server -n 20 --no-pager
    ```
 
    The setup token is printed on every start while no users exist. Restrict
    journal access during this window.
 
-3. Open `https://your-host/login`, enter the token, and create the first
+4. Open `https://your-host/login`, enter the token, and create the first
    administrator.
-4. Create normal accounts from the **Users** page.
-5. Enroll TOTP and generate recovery codes from **Security** for every
+5. Create normal accounts from the **Users** page.
+6. Enroll TOTP and generate recovery codes from **Security** for every
    administrator. Store recovery codes offline, separately from the database
    passphrase.
 
