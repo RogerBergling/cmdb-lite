@@ -17,7 +17,7 @@
 - The database passphrase is known only to the server. Users authenticate with
   their own account and never receive the database key.
 - Several accounts have the same inventory privileges. Administrators can only
-  manage accounts and reset credentials.
+  manage accounts/credentials and create or revoke agent enrollment tokens.
 - First-run admin, then admin-created accounts. No self-registration.
 - TOTP is mandatory for every account before inventory access. Ten one-time
   recovery codes are required before inventory access; admins can reset both.
@@ -122,6 +122,9 @@ Flags:
 | `--proxy` | `127.0.0.1/32,::1/128` | Trusted proxy CIDRs for `X-Forwarded-*`. |
 | `--session-idle` | `30m` | Idle session timeout. |
 | `--session-absolute` | `12h` | Absolute session timeout. |
+| `--agent-interval` | `24h` | Reporting interval advertised to agents (15m–168h). |
+| `--agent-retention-days` | `365` | Days of application report/event history to keep. |
+| `--agent-reports-per-host` | `90` | Maximum reports retained per host. |
 | `--version` | off | Print version, build number, commit, date, target, and build type, then exit. |
 | `--reset-auth` | off | Break-glass: clear accounts/TOTP/recovery state, write an audit entry, and exit. Requires the database passphrase and a stopped server. |
 
@@ -143,9 +146,9 @@ Installed layout:
 
 ## Storage model
 
-Authentication state is **not** a schema version 5 set of SQL tables. Schema v4
-stays unchanged. The server stores one JSON document in the existing `app_meta`
-table under the key `auth.state`:
+Authentication state is **not** a typed SQL table set. Schema v5 adds the
+application-inventory agent tables, but user accounts remain one JSON document in
+the existing `app_meta` table under the key `auth.state`:
 
 ```json
 {
@@ -348,16 +351,21 @@ lifetime. Restart the server to release the database.
 
 ## Migration from v0.6.0
 
-- Schema version stays at 4. There is no v5 authentication schema.
+- Schema version moves from 4 to 5 for the agent inventory tables. Authentication
+  state itself is still the `app_meta.auth.state` JSON document.
 - Existing inventory, relationships, diagrams, scan staging, and audit rows are
   preserved.
 - On first server start with no `auth.state`, the server enters first-run setup.
 - The existing database passphrase remains the database encryption passphrase.
 - The first admin account is new and separate from the database passphrase.
-- Backups remain the `.cmdb` plus `.meta` pair and include `auth.state`.
+- Backups remain the `.cmdb` plus `.meta` pair and include `auth.state` and the
+  agent tables.
 - Opening a server-managed database in local desktop mode bypasses application
   logins. The database passphrase is the only gate in that mode. Treat local
   desktop access as equivalent to knowing the database key.
+- Endpoint agents use typed `agents`/`agent_enrollment_tokens` tables and a
+  separate bearer-token path; they do not receive user sessions or MFA state. See
+  [`agent.md`](agent.md).
 
 ## Packaging and deployment
 

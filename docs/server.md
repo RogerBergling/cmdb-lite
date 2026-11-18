@@ -165,6 +165,53 @@ update `ReadWritePaths` if you change the database path. Validate the unit with
 There is no `ExecReload`; restarting the service logs every user out because
 sessions are memory-only. The C core checkpoints the WAL when the child exits.
 
+## Application agent reporting
+
+`cmdb-server` accepts endpoint-agent reports on two dedicated paths:
+
+```text
+POST /api/v1/agent/enroll   one-time enrollment token in the JSON body
+POST /api/v1/agent/report   Authorization: Bearer <per-host token>
+```
+
+These are the only machine-facing endpoints. They do not use user sessions,
+cookies, or CSRF tokens, and they are not part of the generic RPC allowlist.
+Agents should reach the server through the same TLS proxy as users:
+
+- publish only the HTTPS proxy to agent networks;
+- keep the plain HTTP listener on loopback/private;
+- set `X-Forwarded-Proto` and append `X-Forwarded-For` at the proxy;
+- add the proxy CIDR to `--proxy` so enrollment rate limits and
+  `last_seen_ip` use the real client address;
+- allow request bodies up to 32 MiB for `/api/v1/agent/report` (the server
+  rejects larger reports); enrollment requests are limited to 64 KiB.
+
+Retention is controlled at server start:
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `--agent-interval` | `24h` | Interval advertised to newly enrolled agents (15m–168h). |
+| `--agent-retention-days` | `365` | Delete report/event history older than this. |
+| `--agent-reports-per-host` | `90` | Keep at most this many reports per host. |
+
+The server applies both retention bounds on every report. Current application
+rows and the `agents` record remain until the host is deleted by a future
+feature; revoke the token and remove the record when decommissioning a host.
+
+Create enrollment tokens in the **Applications** tab as an administrator. The
+plaintext token is shown once. The server stores only its hash, along with the
+per-host token hash. Revoke a host token from the same view; the agent receives
+HTTP 401 on its next report.
+
+Configure HAProxy or any intervening proxy not to log the `Authorization`
+request header or request bodies. Agent reports carry the per-host bearer token
+in that header, while enrollment tokens are carried in the JSON request body.
+The server itself does not log either value.
+
+The first-run setup token and user MFA remain mandatory before any administrator
+can create an agent token. An agent cannot enroll while the server has no
+administrator.
+
 ## HAProxy sample
 
 The packaged unit binds `127.0.0.1:8080` for a same-host TLS proxy. If you need

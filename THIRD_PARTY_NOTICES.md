@@ -51,6 +51,15 @@ cJSON, webview, GTK/WebKitGTK, and—for the Flatpak—nmap and libpcap.
 - Linux packages normally depend on the distribution's expat library; Windows
   builds link it statically.
 
+### golang.org/x/sys
+
+- License: BSD-3-Clause
+- Purpose: Windows registry, service control, and low-level Windows APIs used by
+  `cmdb-server` and `cmdb-agent`.
+- Copyright: The Go Authors.
+- The module is fetched by `go build`; its license text is available in the Go
+  module cache and should be included in redistributions of the Go binaries.
+
 ### GTK 3 and WebKitGTK 4.1 (Linux)
 
 - GTK: LGPL-2.1-or-later

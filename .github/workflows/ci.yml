@@ -60,6 +60,31 @@ jobs:
             dist/*.tar.gz
           if-no-files-found: error
 
+      - name: Build agent packages
+        run: |
+          cmake -S . -B build-agent -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMDB_BUILD_UI=OFF \
+            -DCMDB_BUILD_SERVER=OFF \
+            -DCMDB_BUILD_AGENT=ON \
+            -DCMDB_BUILD_TESTS=ON \
+            -DCMDB_WERROR=ON
+          cmake --build build-agent
+          ctest --test-dir build-agent --output-on-failure
+          cpack --config build-agent/CPackConfig.cmake -G DEB -B dist-agent
+          cpack --config build-agent/CPackConfig.cmake -G TGZ -B dist-agent
+          dpkg-deb -c dist-agent/*.deb | grep -E 'bin/cmdb-agent|systemd/system/cmdb-agent.service'
+          tar -tzf dist-agent/*.tar.gz | grep -E 'bin/cmdb-agent|systemd/system/cmdb-agent.service'
+
+      - name: Upload Linux agent packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: cmdb-lite-agent-linux-x86_64
+          path: |
+            dist-agent/*.deb
+            dist-agent/*.tar.gz
+          if-no-files-found: error
+
       - name: Build server-only packages
         run: |
           cmake -S . -B build-server -G Ninja \
@@ -137,6 +162,33 @@ jobs:
           path: |
             dist/*.rpm
             dist/*.tar.gz
+          if-no-files-found: error
+
+      - name: Build Fedora agent packages
+        run: |
+          cmake -S . -B build-agent -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMDB_BUILD_UI=OFF \
+            -DCMDB_BUILD_SERVER=OFF \
+            -DCMDB_BUILD_AGENT=ON \
+            -DCMDB_BUILD_TESTS=ON \
+            -DCMDB_WERROR=ON \
+            -DCMDB_PACKAGE_VARIANT=fedora
+          cmake --build build-agent
+          ctest --test-dir build-agent --output-on-failure
+          cpack --config build-agent/CPackConfig.cmake -G RPM -B dist-agent
+          cpack --config build-agent/CPackConfig.cmake -G TGZ -B dist-agent
+          rpm -qip dist-agent/*.rpm
+          rpm -qlp dist-agent/*.rpm | grep -E 'bin/cmdb-agent|systemd/system/cmdb-agent.service'
+          tar -tzf dist-agent/*.tar.gz | grep -E 'bin/cmdb-agent|systemd/system/cmdb-agent.service'
+
+      - name: Upload Fedora agent packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: cmdb-lite-agent-fedora-x86_64
+          path: |
+            dist-agent/*.rpm
+            dist-agent/*.tar.gz
           if-no-files-found: error
 
       - name: Build server-only packages
@@ -384,6 +436,96 @@ jobs:
             dist/*.msi
           if-no-files-found: error
 
+      - name: Build Windows agent
+        shell: pwsh
+        env:
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          $version = (Select-String -Path CMakeLists.txt -Pattern 'VERSION ([0-9]+\.[0-9]+\.[0-9]+)' |
+            ForEach-Object { $_.Matches[0].Groups[1].Value } | Select-Object -First 1)
+          if (-not $version) { throw "Project version was not found" }
+          cmake -S . -B build-agent -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static `
+            -DCMDB_BUILD_UI=OFF `
+            -DCMDB_BUILD_SERVER=OFF `
+            -DCMDB_BUILD_AGENT=ON `
+            -DCMDB_BUILD_TESTS=ON
+          if ($LASTEXITCODE -ne 0) { throw "Agent configure failed" }
+          cmake --build build-agent --config Release
+          if ($LASTEXITCODE -ne 0) { throw "Agent build failed" }
+          ctest --test-dir build-agent -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw "Agent tests failed" }
+          if ($env:WINDOWS_CERT_PFX_BASE64) {
+            $pfx = Join-Path $env:RUNNER_TEMP "cmdb-lite-agent.pfx"
+            [IO.File]::WriteAllBytes(
+              $pfx,
+              [Convert]::FromBase64String($env:WINDOWS_CERT_PFX_BASE64))
+            $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" `
+              -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -match 'x64' } |
+              Select-Object -First 1
+            if (-not $signtool) { throw "signtool.exe was not found" }
+            & $signtool.FullName sign /f $pfx `
+              /p $env:WINDOWS_CERT_PASSWORD `
+              /fd SHA256 `
+              /tr http://timestamp.digicert.com /td SHA256 `
+              build-agent\cmdb-agent.exe
+            if ($LASTEXITCODE -ne 0) { throw "Signing cmdb-agent.exe failed" }
+          } else {
+            Write-Host "No signing certificate configured; agent executable will be unsigned."
+          }
+          cpack --config build-agent\CPackConfig.cmake -C Release -G ZIP -B dist-agent
+          if ($LASTEXITCODE -ne 0) { throw "Agent ZIP packaging failed" }
+          candle -arch x64 `
+            -dVersion=$version `
+            -dSourceDir="$PWD\build-agent" `
+            -dUpgradeCode="{924706A6-4FFA-4C4B-9018-6D8AA8BD3014}" `
+            -dComponentGuid="{B16BBF41-8AC9-4B8B-93B3-69B22975A096}" `
+            -out build-agent\agent.wixobj packaging\windows\agent.wxs
+          if ($LASTEXITCODE -ne 0) { throw "Agent WiX compile failed" }
+          light -out "dist-agent\cmdb-lite-agent-$version-windows-x64.msi" build-agent\agent.wixobj
+          if ($LASTEXITCODE -ne 0) { throw "Agent MSI link failed" }
+          Get-ChildItem dist-agent | Format-Table Name, Length
+
+      - name: Sign Windows agent MSI
+        shell: pwsh
+        env:
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_CERT_PFX_BASE64) {
+            Write-Host "No signing certificate configured; skipping."
+            exit 0
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP "cmdb-lite-agent.pfx"
+          [IO.File]::WriteAllBytes(
+            $pfx,
+            [Convert]::FromBase64String($env:WINDOWS_CERT_PFX_BASE64))
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" `
+            -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match 'x64' } |
+            Select-Object -First 1
+          if (-not $signtool) { throw "signtool.exe was not found" }
+          $msi = Get-ChildItem dist-agent -Filter *.msi | Select-Object -First 1
+          if (-not $msi) { throw "Agent MSI was not found" }
+          & $signtool.FullName sign /f $pfx `
+            /p $env:WINDOWS_CERT_PASSWORD `
+            /fd SHA256 `
+            /tr http://timestamp.digicert.com /td SHA256 `
+            $msi.FullName
+          if ($LASTEXITCODE -ne 0) { throw "Signing the agent MSI failed" }
+
+      - name: Upload Windows agent package
+        uses: actions/upload-artifact@v4
+        with:
+          name: cmdb-lite-agent-windows-x64
+          path: |
+            dist-agent/*.zip
+            dist-agent/*.msi
+          if-no-files-found: error
+
       - name: Whitespace check
         shell: pwsh
         run: git diff --check
@@ -404,6 +546,12 @@ jobs:
           name: cmdb-lite-linux-x86_64
           path: release/linux
 
+      - name: Download Linux agent packages
+        uses: actions/download-artifact@v4
+        with:
+          name: cmdb-lite-agent-linux-x86_64
+          path: release/linux-agent
+
       - name: Download Linux server-only packages
         uses: actions/download-artifact@v4
         with:
@@ -415,6 +563,12 @@ jobs:
         with:
           name: cmdb-lite-fedora-x86_64
           path: release/fedora
+
+      - name: Download Fedora agent packages
+        uses: actions/download-artifact@v4
+        with:
+          name: cmdb-lite-agent-fedora-x86_64
+          path: release/fedora-agent
 
       - name: Download Fedora server-only packages
         uses: actions/download-artifact@v4
@@ -434,21 +588,33 @@ jobs:
           name: cmdb-lite-windows-x64
           path: release/windows
 
+      - name: Download Windows agent packages
+        uses: actions/download-artifact@v4
+        with:
+          name: cmdb-lite-agent-windows-x64
+          path: release/windows-agent
+
       - name: Assemble release assets
         run: |
           set -euo pipefail
           mkdir -p release/assets
           cp release/linux/*.deb release/assets/
           cp release/linux/*.tar.gz release/assets/
+          cp release/linux-agent/*.deb release/assets/
+          cp release/linux-agent/*.tar.gz release/assets/
           cp release/linux-server/*.deb release/assets/
           cp release/linux-server/*.tar.gz release/assets/
           cp release/fedora/*.rpm release/assets/
           cp release/fedora/*.tar.gz release/assets/
+          cp release/fedora-agent/*.rpm release/assets/
+          cp release/fedora-agent/*.tar.gz release/assets/
           cp release/fedora-server/*.rpm release/assets/
           cp release/fedora-server/*.tar.gz release/assets/
           cp release/flatpak/*.flatpak release/assets/
           cp release/windows/*.zip release/assets/
           cp release/windows/dist/*.msi release/assets/
+          cp release/windows-agent/*.zip release/assets/
+          cp release/windows-agent/*.msi release/assets/
           cd release/assets
           sha256sum * > SHA256SUMS
           ls -lh

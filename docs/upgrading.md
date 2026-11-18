@@ -44,17 +44,23 @@ wrong.
 
 ## Database compatibility
 
-v0.7.0 does **not** change the schema. It stays at version 4. Server-mode
-accounts, TOTP secrets, and recovery-code hashes are stored as JSON in the
-existing `app_meta` table under `auth.state`, so upgrading preserves inventory,
-relationships, diagrams, scans, and audit rows without a migration. The database
-passphrase is unchanged.
+v0.7.0 migrates the schema from version 4 to version 5. It adds the application
+inventory agent tables (`agents`, `agent_enrollment_tokens`, `agent_reports`,
+`agent_apps`, and `agent_app_events`). Existing inventory, relationships,
+diagrams, scans, authentication state, and audit rows are preserved. The
+database passphrase is unchanged. A pre-migration backup is created and its path
+is shown after opening.
 
-If you start using `cmdb-server`, the first admin account is separate from the
-database passphrase and is created through a one-time setup token. Backups
-already include `auth.state`; no additional authentication file is needed.
-Opening a server-managed database in local desktop mode bypasses application
-logins.
+Server-mode accounts, TOTP secrets, and recovery-code hashes remain JSON in the
+existing `app_meta` table under `auth.state`; agent credentials use the new typed
+tables. If you start using `cmdb-server`, the first admin account is separate
+from the database passphrase and is created through a one-time setup token.
+Backups already include `auth.state` and the agent tables; no additional
+authentication file is needed. Opening a server-managed database in local
+desktop mode bypasses application logins.
+
+Existing databases open on schema v5. Do not open the upgraded database with a
+v0.6.0 or earlier application; restore the pre-upgrade backup pair to roll back.
 
 v0.6.0 migrates the schema from version 3 to version 4. It adds relationship
 impact classes, new management/monitoring/provider relationship types, and the

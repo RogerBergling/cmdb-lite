@@ -70,22 +70,28 @@ type session struct {
 }
 
 type server struct {
-	rpc       *rpcClient
-	webDir    string
-	state     authState
-	stateMu   sync.Mutex
-	sessions  map[string]*session
-	sessMu    sync.Mutex
-	reqMu     sync.Mutex
-	loginIP   *attemptLimiter
-	loginUser *attemptLimiter
-	mfaIP     *attemptLimiter
-	reauth    *attemptLimiter
-	setupHash string
-	setupExp  time.Time
-	idle      time.Duration
-	absolute  time.Duration
-	proxies   []*net.IPNet
+	rpc                 *rpcClient
+	webDir              string
+	state               authState
+	stateMu             sync.Mutex
+	sessions            map[string]*session
+	sessMu              sync.Mutex
+	reqMu               sync.Mutex
+	loginIP             *attemptLimiter
+	loginUser           *attemptLimiter
+	mfaIP               *attemptLimiter
+	reauth              *attemptLimiter
+	agentEnroll         *attemptLimiter
+	agentReportIP       *attemptLimiter
+	agentReportToken    *attemptLimiter
+	setupHash           string
+	setupExp            time.Time
+	idle                time.Duration
+	absolute            time.Duration
+	agentInterval       time.Duration
+	agentRetentionDays  int
+	agentReportsPerHost int
+	proxies             []*net.IPNet
 }
 
 type attemptLimiter struct {
@@ -134,13 +140,19 @@ func (l *attemptLimiter) reset(key string) {
 
 func main() {
 	var (
-		dbPath    = flag.String("db", "", "encrypted database path")
-		listen    = flag.String("listen", "127.0.0.1:8080", "HTTP listen address")
-		rpcPath   = flag.String("rpc", "", "cmdb-rpc executable path")
-		webDir    = flag.String("web-dir", "", "directory containing index.html, app.js, and style.css")
-		proxyList = flag.String("proxy", "127.0.0.1/32,::1/128", "trusted proxy CIDRs for X-Forwarded-*")
-		idleFlag  = flag.Duration("session-idle", defaultIdle, "idle session timeout")
-		absolute  = flag.Duration("session-absolute", defaultAbsolute, "absolute session timeout")
+		dbPath        = flag.String("db", "", "encrypted database path")
+		listen        = flag.String("listen", "127.0.0.1:8080", "HTTP listen address")
+		rpcPath       = flag.String("rpc", "", "cmdb-rpc executable path")
+		webDir        = flag.String("web-dir", "", "directory containing index.html, app.js, and style.css")
+		proxyList     = flag.String("proxy", "127.0.0.1/32,::1/128", "trusted proxy CIDRs for X-Forwarded-*")
+		idleFlag      = flag.Duration("session-idle", defaultIdle, "idle session timeout")
+		absolute      = flag.Duration("session-absolute", defaultAbsolute, "absolute session timeout")
+		agentInterval = flag.Duration("agent-interval", 24*time.Hour,
+			"advertised agent reporting interval")
+		agentRetentionDays = flag.Int("agent-retention-days", 365,
+			"days of application history to keep")
+		agentReportsPerHost = flag.Int("agent-reports-per-host", 90,
+			"application reports to keep per host")
 		resetAuth = flag.Bool("reset-auth", false, "clear accounts/TOTP/recovery state and exit (break-glass)")
 		showVer   = flag.Bool("version", false, "print version and build information")
 	)
@@ -161,6 +173,15 @@ func main() {
 		version, buildNumber, buildCommit, buildDate, buildTarget, buildType)
 	if *idleFlag <= 0 || *absolute <= 0 || *idleFlag > *absolute {
 		log.Fatal("invalid session timeouts")
+	}
+	if *agentInterval < 15*time.Minute || *agentInterval > 7*24*time.Hour {
+		log.Fatal("--agent-interval must be between 15m and 168h")
+	}
+	if *agentRetentionDays < 1 || *agentRetentionDays > 3650 {
+		log.Fatal("--agent-retention-days must be between 1 and 3650")
+	}
+	if *agentReportsPerHost < 1 || *agentReportsPerHost > 3650 {
+		log.Fatal("--agent-reports-per-host must be between 1 and 3650")
 	}
 
 	passphrase, err := readPassphrase()
@@ -203,15 +224,21 @@ func main() {
 	}
 
 	s := &server{
-		rpc:       rpc,
-		webDir:    resolveWebDir(*webDir),
-		sessions:  make(map[string]*session),
-		loginIP:   newAttemptLimiter(10, 15*time.Minute),
-		loginUser: newAttemptLimiter(5, 15*time.Minute),
-		mfaIP:     newAttemptLimiter(20, 15*time.Minute),
-		reauth:    newAttemptLimiter(10, 15*time.Minute),
-		idle:      *idleFlag,
-		absolute:  *absolute,
+		rpc:                 rpc,
+		webDir:              resolveWebDir(*webDir),
+		sessions:            make(map[string]*session),
+		loginIP:             newAttemptLimiter(10, 15*time.Minute),
+		loginUser:           newAttemptLimiter(5, 15*time.Minute),
+		mfaIP:               newAttemptLimiter(20, 15*time.Minute),
+		reauth:              newAttemptLimiter(10, 15*time.Minute),
+		agentEnroll:         newAttemptLimiter(10, 15*time.Minute),
+		agentReportIP:       newAttemptLimiter(240, 15*time.Minute),
+		agentReportToken:    newAttemptLimiter(60, 15*time.Minute),
+		idle:                *idleFlag,
+		absolute:            *absolute,
+		agentInterval:       *agentInterval,
+		agentRetentionDays:  *agentRetentionDays,
+		agentReportsPerHost: *agentReportsPerHost,
 	}
 	s.proxies, err = parseProxies(*proxyList)
 	if err != nil {
@@ -394,6 +421,8 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/auth/totp/setup", s.requireAuth(s.handleTOTPSetup))
 	mux.HandleFunc("POST /api/v1/auth/totp/confirm", s.requireAuth(s.handleTOTPConfirm))
 	mux.HandleFunc("POST /api/v1/auth/recovery/generate", s.requireMFAReady(s.handleRecoveryGenerate))
+	mux.HandleFunc("POST /api/v1/agent/enroll", s.handleAgentEnroll)
+	mux.HandleFunc("POST /api/v1/agent/report", s.handleAgentReport)
 	mux.HandleFunc("GET /api/v1/users", s.requireAdmin(s.handleListUsers))
 	mux.HandleFunc("POST /api/v1/users", s.requireAdmin(s.handleCreateUser))
 	mux.HandleFunc("POST /api/v1/users/{id}/disable", s.requireAdmin(s.handleDisableUser))
@@ -1416,6 +1445,15 @@ var serverRPCAllowed = map[string]bool{
 	"security.info":            true,
 	"audit.list":               true,
 	"audit.verify":             true,
+	"agents.get":               true,
+	"agents.history":           true,
+	"agents.link_ci":           true,
+	"agents.list":              true,
+	"agents.prune":             true,
+	"agents.revoke":            true,
+	"agents.token_create":      true,
+	"agents.token_list":        true,
+	"agents.token_revoke":      true,
 	"categories.create":        true,
 	"categories.delete":        true,
 	"categories.list":          true,
@@ -1454,6 +1492,14 @@ var serverRPCAllowed = map[string]bool{
 	"types.update":             true,
 }
 
+var serverAdminRPC = map[string]bool{
+	"agents.prune":        true,
+	"agents.revoke":       true,
+	"agents.token_create": true,
+	"agents.token_list":   true,
+	"agents.token_revoke": true,
+}
+
 func (s *server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	sess := s.sessionFromRequest(r)
 	if sess == nil {
@@ -1473,6 +1519,10 @@ func (s *server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	}
 	if !serverRPCAllowed[request.Method] {
 		writeAPIError(w, http.StatusForbidden, "forbidden", "method is not available in server mode")
+		return
+	}
+	if serverAdminRPC[request.Method] && !sess.isAdmin {
+		writeAPIError(w, http.StatusForbidden, "admin_required", "admin required")
 		return
 	}
 	raw, err := s.rpc.call(request.Method, request.Params, sess.username)

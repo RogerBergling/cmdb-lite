@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "server_url": "https://cmdb.example.internal",
+  "agent_id": "00000000-0000-4000-8000-000000000000",
+  "agent_token": "REPLACE_WITH_PER_HOST_TOKEN",
+  "interval_seconds": 86400,
+  "ca_file": "",
+  "enrolled_at": "1970-01-01T00:00:00Z",
+  "hostname": "example-host",
+  "machine_id": "example-machine-id"
+}

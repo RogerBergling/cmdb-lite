@@ -99,6 +99,7 @@
 
     <nav class="tabs" aria-label="Main navigation">
       <button class="tab active" type="button" data-tab="inventory">Inventory</button>
+      <button class="tab" type="button" data-tab="applications">Applications</button>
       <button class="tab" type="button" data-tab="types">CI Types</button>
       <button class="tab" type="button" data-tab="relationships">Relationships</button>
       <button class="tab" type="button" data-tab="import">Import</button>
@@ -143,6 +144,161 @@
             <tbody id="ci-table"></tbody>
           </table>
           <p id="ci-empty" class="empty hidden">No configuration items match the current filter.</p>
+        </div>
+      </section>
+
+      <section id="panel-applications" class="panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Applications</h2>
+            <p class="muted" id="applications-summary">Loading managed hosts...</p>
+          </div>
+          <div class="button-row">
+            <button id="agent-refresh" type="button" class="secondary">Refresh</button>
+            <button id="agent-enrollment" type="button" class="primary hidden">Enrollment token</button>
+          </div>
+        </div>
+        <p id="applications-local-note" class="hint hidden">Agent enrollment requires a cmdb-server connection. This view can still display agent data in the open database.</p>
+
+        <div id="agent-enrollment-panel" class="card enrollment-card hidden">
+          <div class="detail-heading">
+            <div>
+              <h3>Enroll a host</h3>
+              <p class="muted">Create a short-lived one-time token, then run the command on the host. The token is shown once.</p>
+            </div>
+            <button id="agent-token-close" type="button" class="secondary small">Close</button>
+          </div>
+          <div class="form-grid">
+            <label for="agent-token-label">Label</label>
+            <div class="row">
+              <input id="agent-token-label" type="text" maxlength="127" placeholder="e.g. web servers">
+              <button id="agent-token-create" type="button" class="primary">Generate token</button>
+            </div>
+          </div>
+          <div id="agent-token-result" class="hidden">
+            <p class="hint">This token expires in one hour and enrolls one host. Copy it now; it cannot be shown again.</p>
+            <div class="token-row">
+              <input id="agent-token-value" type="text" readonly spellcheck="false">
+              <button id="agent-token-copy" type="button" class="secondary">Copy</button>
+            </div>
+            <pre id="agent-token-command" class="code-block"></pre>
+          </div>
+          <h4>Recent enrollment tokens</h4>
+          <div class="table-wrap compact">
+            <table>
+              <thead>
+                <tr>
+                  <th>Prefix</th>
+                  <th>Label</th>
+                  <th>Created</th>
+                  <th>Expires</th>
+                  <th>Status</th>
+                  <th class="actions-col">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="agent-token-table"></tbody>
+            </table>
+          </div>
+          <p id="agent-token-empty" class="empty hidden">No enrollment tokens have been created.</p>
+        </div>
+
+        <div class="card">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Host</th>
+                  <th>OS</th>
+                  <th>Applications</th>
+                  <th>Last report</th>
+                  <th>Status</th>
+                  <th class="actions-col">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="agent-table"></tbody>
+            </table>
+          </div>
+          <p id="agent-empty" class="empty hidden">No agents have enrolled yet.</p>
+        </div>
+
+        <div id="agent-detail" class="card agent-detail hidden">
+          <div class="detail-heading">
+            <div>
+              <h3 id="agent-detail-name"></h3>
+              <p id="agent-detail-meta" class="muted"></p>
+            </div>
+            <div class="button-row">
+              <button id="agent-revoke" type="button" class="danger small hidden">Revoke agent</button>
+            </div>
+          </div>
+          <div id="agent-summary-cards" class="summary-cards"></div>
+          <div class="agent-link-row">
+            <label for="agent-ci-link">Linked CI</label>
+            <select id="agent-ci-link"></select>
+            <button id="agent-link-save" type="button" class="secondary small">Save link</button>
+          </div>
+          <div class="segmented agent-view-tabs" role="tablist" aria-label="Application detail view">
+            <button id="agent-view-software" type="button" class="segment active" role="tab" aria-selected="true">Software</button>
+            <button id="agent-view-history" type="button" class="segment" role="tab" aria-selected="false">History</button>
+          </div>
+          <div id="agent-software-view">
+            <div class="toolbar">
+              <input id="agent-app-search" type="search" placeholder="Search applications..." aria-label="Search applications">
+            </div>
+            <p id="agent-app-meta" class="hint"></p>
+            <div class="table-wrap compact">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Application</th>
+                    <th>Version</th>
+                    <th>Publisher</th>
+                    <th>Source</th>
+                    <th>Architecture</th>
+                    <th>Installed</th>
+                    <th>Size</th>
+                  </tr>
+                </thead>
+                <tbody id="agent-app-table"></tbody>
+              </table>
+            </div>
+            <p id="agent-app-empty" class="empty hidden">No applications match the current search.</p>
+          </div>
+          <div id="agent-history-view" class="hidden">
+            <h4>Change timeline</h4>
+            <div class="table-wrap compact">
+              <table>
+                <thead>
+                  <tr>
+                    <th>When</th>
+                    <th>Change</th>
+                    <th>Application</th>
+                    <th>Version</th>
+                  </tr>
+                </thead>
+                <tbody id="agent-event-table"></tbody>
+              </table>
+            </div>
+            <p id="agent-event-empty" class="empty hidden">No application changes recorded yet.</p>
+            <h4>Report history</h4>
+            <div class="table-wrap compact">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Received</th>
+                    <th>Collected</th>
+                    <th>Complete</th>
+                    <th>Applications</th>
+                    <th>Added</th>
+                    <th>Removed</th>
+                    <th>Updated</th>
+                    <th>Collector warnings</th>
+                  </tr>
+                </thead>
+                <tbody id="agent-report-table"></tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </section>
 

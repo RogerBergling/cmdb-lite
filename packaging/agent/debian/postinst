@@ -1,0 +1,32 @@
+#!/bin/sh
+set -e
+
+if ! getent group cmdb-agent >/dev/null 2>&1; then
+  if command -v addgroup >/dev/null 2>&1; then
+    addgroup --system cmdb-agent
+  else
+    groupadd --system cmdb-agent
+  fi
+fi
+if ! getent passwd cmdb-agent >/dev/null 2>&1; then
+  if command -v adduser >/dev/null 2>&1; then
+    adduser --system --ingroup cmdb-agent --home /nonexistent \
+      --no-create-home --disabled-login --gecos "cmdb-lite agent" \
+      cmdb-agent
+  else
+    useradd --system --gid cmdb-agent --home-dir /nonexistent \
+      --no-create-home --shell /sbin/nologin cmdb-agent
+  fi
+fi
+
+install -d -o root -g cmdb-agent -m 0750 /etc/cmdb-lite-agent
+
+if [ -d /run/systemd/system ]; then
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  systemctl enable cmdb-agent.service >/dev/null 2>&1 || true
+  if [ -f /etc/cmdb-lite-agent/agent.json ]; then
+    systemctl try-restart cmdb-agent.service >/dev/null 2>&1 || true
+  fi
+fi
+
+exit 0

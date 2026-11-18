@@ -73,6 +73,7 @@ coverage/
 bin/
 /server/cmdb-server
 /server/server
+/agent/cmdb-agent
 *.test
 *.out
 target/

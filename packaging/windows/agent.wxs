@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*"
+           Name="cmdb-lite agent"
+           Language="1033"
+           Version="$(var.Version)"
+           Manufacturer="Roger Bergling"
+           UpgradeCode="$(var.UpgradeCode)">
+    <Package InstallerVersion="500"
+             Compressed="yes"
+             InstallScope="perMachine"
+             Description="Application inventory agent for cmdb-lite" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of the cmdb-lite agent is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Property Id="SERVER_URL" Secure="yes" />
+    <Property Id="ENROLLMENT_TOKEN" Secure="yes" />
+    <Property Id="ARPCONTACT" Value="github@bergling.net" />
+    <Property Id="ARPCOMMENTS" Value="Reports installed application inventory to a cmdb-lite server." />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="cmdb-lite-agent" />
+      </Directory>
+    </Directory>
+
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Component Id="AgentFiles" Guid="$(var.ComponentGuid)" Win64="yes">
+        <File Id="AgentExe"
+              Source="$(var.SourceDir)\cmdb-agent.exe"
+              KeyPath="yes" />
+        <Environment Id="AgentPath"
+                     Name="PATH"
+                     Action="set"
+                     Part="last"
+                     System="yes"
+                     Value="[INSTALLFOLDER]" />
+      </Component>
+    </DirectoryRef>
+
+    <Feature Id="AgentFeature" Title="cmdb-lite agent" Level="1">
+      <ComponentRef Id="AgentFiles" />
+    </Feature>
+
+    <CustomAction Id="EnrollAgent"
+                  FileKey="AgentExe"
+                  ExeCommand="enroll --server &quot;[SERVER_URL]&quot; --token &quot;[ENROLLMENT_TOKEN]&quot; --no-start"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check" />
+    <CustomAction Id="InstallAgentService"
+                  FileKey="AgentExe"
+                  ExeCommand="install-service"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check" />
+    <CustomAction Id="StartAgentService"
+                  FileKey="AgentExe"
+                  ExeCommand="start-service"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check" />
+    <CustomAction Id="StopAgentService"
+                  FileKey="AgentExe"
+                  ExeCommand="stop-service"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check" />
+    <CustomAction Id="RemoveAgentService"
+                  FileKey="AgentExe"
+                  ExeCommand="uninstall-service"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check" />
+    <CustomAction Id="RemoveAgentConfig"
+                  FileKey="AgentExe"
+                  ExeCommand="remove-config"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check" />
+
+    <InstallExecuteSequence>
+      <Custom Action="StopAgentService"
+              Before="InstallFiles">WIX_UPGRADE_DETECTED</Custom>
+      <Custom Action="EnrollAgent"
+              After="InstallFiles">NOT Installed AND SERVER_URL AND ENROLLMENT_TOKEN</Custom>
+      <Custom Action="InstallAgentService"
+              After="EnrollAgent">NOT Installed AND SERVER_URL AND ENROLLMENT_TOKEN</Custom>
+      <Custom Action="StartAgentService"
+              After="InstallAgentService">WIX_UPGRADE_DETECTED</Custom>
+      <Custom Action="RemoveAgentService"
+              Before="RemoveFiles">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="RemoveAgentConfig"
+              After="RemoveAgentService"
+              Before="RemoveFiles">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
+    </InstallExecuteSequence>
+  </Product>
+</Wix>

@@ -131,6 +131,28 @@ Do not install under a path that is not writable if you intend to keep the
 database there. The application asks you to choose the database location
 explicitly; the installation folder is separate from the database.
 
+## Application inventory agent on Windows
+
+Windows 11 and Windows Server 2019+ hosts can report installed applications to a
+Linux `cmdb-server`. The agent is a separate package and service; it does not
+install the desktop client and does not open the CMDB database.
+
+```powershell
+msiexec /i .\dist-agent\cmdb-lite-agent-0.7.0-windows-x64.msi
+& "C:\Program Files\cmdb-lite-agent\cmdb-agent.exe" enroll `
+  --server https://cmdb.example.internal `
+  --token <one-time-token>
+```
+
+The agent writes `%ProgramData%\cmdb-lite\agent.json` with an ACL restricted to
+SYSTEM and Administrators, creates the `cmdb-agent` service, and starts it. It
+runs as `LocalSystem` because it reads the machine-wide uninstall registry.
+
+For unattended deployment, pass `SERVER_URL` and `ENROLLMENT_TOKEN` as MSI
+properties. Those values can appear in MSI logs, so use a short-lived one-time
+token. See [`agent.md`](agent.md) for collection details, per-user app
+limitations, service management, and troubleshooting.
+
 ## WebView2 behaviour
 
 - Current Windows 10/11 includes the WebView2 Evergreen Runtime.

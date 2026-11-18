@@ -17,6 +17,7 @@ void test_export(void);
 void test_api(void);
 void test_scan(void);
 void test_settings(void);
+void test_agents(void);
 
 #define TEST_ASSERT(condition) \
   do { \

@@ -1,7 +1,12 @@
 # Data model
 
 The database is a single SQLCipher file. All tables live in the same encrypted
-file. Schema version 4 is created and migrated by `src/core/schema.c`.
+file. Schema version 5 is created and migrated by `src/core/schema.c`.
+
+Schema v5 adds the application-inventory agent tables. Schema v4 added the
+relationship impact fields, the Service CI type, and the managed category
+tables. Authentication state is still a JSON document in `app_meta`, not a typed
+table set.
 
 ## `app_meta`
 
@@ -9,7 +14,7 @@ Key/value application metadata stored inside the encrypted database.
 
 | Key | Meaning |
 |---|---|
-| `schema_version` | Integer schema version; currently `4`. |
+| `schema_version` | Integer schema version; currently `5`. |
 | `created_at` | Database creation timestamp (UTC). |
 | `app_version` | Application version that created/updated the schema. |
 | `ui.theme` | Optional `system`, `light`, or `dark` preference. |
@@ -160,8 +165,8 @@ UUID and may carry a relationship type; connecting nodes creates a real row in
 
 ## Authentication state
 
-Server-mode accounts do **not** add a schema version. Schema v4 stays unchanged,
-and the Go server stores one JSON document in the existing `app_meta` table:
+Server-mode accounts do **not** add a schema version. Schema v5 keeps the same
+`auth.state` JSON document in the existing `app_meta` table:
 
 | Key | Contents |
 |---|---|
@@ -209,6 +214,97 @@ Matching suggestions are computed at read time from `ci_attributes` and
 `cis.name`; they are not persisted, so they always reflect the current
 inventory.
 
+## Application inventory
+
+Schema v5 adds five tables for the endpoint agent. They store machine identity,
+hashed credentials, report metadata, current software, and append-only change
+events.
+
+### `agents`
+
+One row per enrolled host.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | TEXT | UUID primary key. |
+| `display_name`, `hostname` | TEXT | Operator-facing host identity. |
+| `machine_id` | TEXT | OS machine ID; unique when non-empty, used for re-enrollment. |
+| `os_family`, `os_name`, `os_version`, `architecture` | TEXT | Host facts from the last enrollment/report. |
+| `agent_version` | TEXT | Last reported agent version. |
+| `token_hash` | TEXT | BLAKE2b-256 of the per-host token; empty after revocation. |
+| `token_prefix` | TEXT | Display prefix only. |
+| `status` | TEXT | `active` or `revoked`. |
+| `enrolled_at` | TEXT | ISO 8601 UTC. |
+| `last_report_at`, `last_seen_ip` | TEXT | Latest successful report metadata. |
+| `ci_id` | TEXT | Optional linked CI; cleared by a trigger when the CI is deleted. |
+| `created_at`, `updated_at` | TEXT | ISO 8601 UTC. |
+
+### `agent_enrollment_tokens`
+
+Short-lived one-time tokens created by an administrator.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | TEXT | UUID primary key. |
+| `token_hash` | TEXT | BLAKE2b-256 hash; unique. Plaintext is shown once. |
+| `token_prefix` | TEXT | Display prefix only. |
+| `label` | TEXT | Optional operator label. |
+| `created_by` | TEXT | Authenticated actor. |
+| `created_at`, `expires_at` | TEXT | ISO 8601 UTC. |
+| `used_at`, `revoked_at` | TEXT | Empty while unused/active. |
+
+### `agent_reports`
+
+Compact metadata for each accepted report, not a copy of the full payload.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | TEXT | UUID primary key. |
+| `agent_id` | TEXT | FK to `agents.id`, cascade delete. |
+| `collected_at`, `received_at` | TEXT | ISO 8601 UTC. |
+| `app_count`, `added_count`, `removed_count`, `updated_count` | INTEGER | Diff summary. |
+| `complete` | INTEGER | `1` when the collector completed; partial reports do not mark missing apps as removed. |
+| `collector_errors` | TEXT | Bounded collector warnings. |
+
+### `agent_apps`
+
+Current application state per host.
+
+| Column | Type | Notes |
+|---|---|---|
+| `agent_id` | TEXT | FK to `agents.id`, cascade delete. |
+| `app_key` | TEXT | Stable source key such as `deb:bash:amd64`. |
+| `name`, `version`, `publisher`, `source`, `architecture` | TEXT | Display metadata. |
+| `install_date`, `install_location` | TEXT | Optional. |
+| `size_kb` | INTEGER | Reported size; `0` when unknown. |
+| `first_seen_at`, `last_seen_at` | TEXT | First and latest observation. |
+| `last_report_id` | TEXT | Report that last confirmed the row. |
+| `removed_at` | TEXT | Empty while installed; set when absent from a report. |
+
+Primary key: `(agent_id, app_key)`. Reinstalling the same key clears
+`removed_at` and creates a new `added` event.
+
+### `agent_app_events`
+
+Append-only change timeline.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER | Auto-increment primary key. |
+| `agent_id` | TEXT | FK to `agents.id`, cascade delete. |
+| `report_id` | TEXT | FK to `agent_reports.id`, cascade delete. |
+| `app_key` | TEXT | Stable application key. |
+| `event_type` | TEXT | `added`, `removed`, or `updated`. |
+| `name` | TEXT | Application name at the time of the event. |
+| `old_version`, `new_version` | TEXT | Convenience fields for the UI. |
+| `detail` | TEXT | JSON field-level old/new values for updates. |
+| `occurred_at` | TEXT | ISO 8601 UTC. |
+
+Retention deletes old `agent_reports` rows and cascades to their events. Current
+`agent_apps` rows are retained. Defaults are 365 days and 90 reports per host;
+the server flags `--agent-retention-days` and `--agent-reports-per-host` control
+the bounds.
+
 ## `audit_log`
 
 | Column | Type | Notes |
@@ -236,6 +332,11 @@ cis     1 ─── n ci_attributes
 cis     n ─── n cis            (through relationships)
 cis     1 ─── n diagrams       (editor nodes/edges reference CIs)
 scan_jobs 1 ─── n discovered_assets
+agents  1 ─── n agent_reports
+agents  1 ─── n agent_apps
+agents  1 ─── n agent_app_events
+agent_reports 1 ─── n agent_app_events
+agents  n ─── 1 cis             (optional link)
 ```
 
 ## Multi-user architecture

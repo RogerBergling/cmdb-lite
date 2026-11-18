@@ -7,7 +7,7 @@ Each row contains:
 
 - timestamp (UTC);
 - action (`create`, `update`, `delete`, `import`, `export`, `scan`, `backup`,
-  ...);
+  `agent-enroll`, `agent-report`, `revoke`, ...);
 - entity type and entity ID;
 - JSON or compact detail;
 - previous hash and current hash.

@@ -37,6 +37,23 @@ func startRPC(path string) (*rpcClient, error) {
 	return &rpcClient{cmd: cmd, stdin: stdin, stdout: bufio.NewReaderSize(stdout, 64*1024)}, nil
 }
 
+type rpcError struct {
+	Code    string
+	Message string
+	Detail  string
+}
+
+func (e *rpcError) Error() string {
+	message := e.Message
+	if message == "" {
+		message = "RPC request failed"
+	}
+	if e.Detail != "" {
+		message += ": " + e.Detail
+	}
+	return message
+}
+
 func (r *rpcClient) call(method string, params map[string]any, actor string) (json.RawMessage, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -64,16 +81,19 @@ func (r *rpcClient) call(method string, params map[string]any, actor string) (js
 	}
 	ok, _ := response["ok"].(bool)
 	if !ok {
-		message := "RPC request failed"
+		failure := &rpcError{Message: "RPC request failed"}
 		if e, exists := response["error"].(map[string]any); exists {
+			if code, exists := e["code"].(string); exists {
+				failure.Code = code
+			}
 			if m, exists := e["message"].(string); exists && m != "" {
-				message = m
+				failure.Message = m
 			}
 			if d, exists := e["detail"].(string); exists && d != "" {
-				message += ": " + d
+				failure.Detail = d
 			}
 		}
-		return nil, fmt.Errorf("%s", message)
+		return nil, failure
 	}
 	result, exists := response["result"]
 	if !exists {

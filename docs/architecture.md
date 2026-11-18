@@ -37,7 +37,9 @@
 
 The diagram shows desktop-local mode. Server mode replaces the native shell's
 direct C calls with `cmdb-server` → `cmdb-rpc` over stdio; see
-[Authenticated server mode](#authenticated-server-mode).
+[Authenticated server mode](#authenticated-server-mode). Application-inventory
+agents are a separate, narrowly scoped ingestion path into server mode; see
+[Application inventory agent](#application-inventory-agent).
 
 ### UI
 
@@ -166,6 +168,37 @@ external files but is only rendered structurally in the UI; it is not executed.
 uses `sqlite3_backup` to copy pages, and writes the matching `.meta` sidecar. The
 source database remains open and consistent.
 
+### Application inventory agent
+
+```text
+cmdb-agent (Windows service / systemd)
+  dpkg status | rpm query | Windows uninstall registry
+        │ bounded JSON over HTTPS
+        ▼
+cmdb-server /api/v1/agent/{enroll,report}
+        │ per-host Bearer token
+        ▼
+cmdb-rpc agents.enroll / agents.auth / agents.report
+        │ one transaction
+        ▼
+agents · agent_reports · agent_apps · agent_app_events
+        │
+        ▼
+Applications tab: hosts, current software, change timeline
+```
+
+The agent is a separate Go binary. It does not open the database and never
+receives the database passphrase. Enrollment exchanges a short-lived one-time
+token for a unique per-host token; only hashes are stored. The server exposes no
+generic RPC method to agents. Reports are diffed against current application
+state in the C core, which writes added/removed/updated events and applies
+retention in the same transaction.
+
+The Windows MSI can enroll from `SERVER_URL`/`ENROLLMENT_TOKEN` properties or
+the administrator can run `cmdb-agent enroll` after installation. Linux packages
+install a systemd unit that runs as the unprivileged `cmdb-agent` user. See
+[`agent.md`](agent.md).
+
 ### Theme preference
 
 The UI stores `ui.theme` (`system`, `light`, or `dark`) in `app_meta`, with a
@@ -268,7 +301,8 @@ details are in [`server.md`](server.md).
 
 - CMake 3.20+ with Ninja or Visual Studio.
 - C17 core; C++17 only as required by the pinned `webview/webview` dependency.
-- Go 1.22+ for `cmdb-server`; the C bridge `cmdb-rpc` is built with the core.
+- Go 1.22+ for `cmdb-server` and the separate `cmdb-agent` module; the C bridge
+  `cmdb-rpc` is built with the core.
 - `pkg-config` for SQLCipher, libsodium, GTK3, and WebKitGTK on Linux.
 - CMake `FetchContent` pins `webview/webview` to a specific commit and SHA-256
   archive hash.

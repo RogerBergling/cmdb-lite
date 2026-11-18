@@ -28,6 +28,7 @@ include(CTest)
 
 option(CMDB_BUILD_UI "Build the desktop webview application" ON)
 option(CMDB_BUILD_SERVER "Build cmdb-server and cmdb-rpc on Linux" ON)
+option(CMDB_BUILD_AGENT "Build the cmdb-agent application inventory service" OFF)
 option(CMDB_BUILD_TESTS "Build the test suite" ${BUILD_TESTING})
 option(CMDB_ENABLE_ASAN "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 option(CMDB_WERROR "Treat compiler warnings as errors" OFF)
@@ -96,6 +97,8 @@ else()
 endif()
 set(CMDB_BUILD_TARGET "${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR}")
 set(CMDB_SERVER_LDFLAGS
+  "-X main.version=${PROJECT_VERSION} -X main.buildNumber=${CMDB_BUILD_NUMBER} -X main.buildCommit=${CMDB_BUILD_COMMIT} -X main.buildDate=${CMDB_BUILD_DATE} -X main.buildTarget=${CMDB_BUILD_TARGET} -X main.buildType=${CMDB_BUILD_CONFIG}")
+set(CMDB_AGENT_LDFLAGS
   "-X main.version=${PROJECT_VERSION} -X main.buildNumber=${CMDB_BUILD_NUMBER} -X main.buildCommit=${CMDB_BUILD_COMMIT} -X main.buildDate=${CMDB_BUILD_DATE} -X main.buildTarget=${CMDB_BUILD_TARGET} -X main.buildType=${CMDB_BUILD_CONFIG}")
 
 set(CMDB_STATIC_CRYPTO_LINKED OFF)
@@ -221,6 +224,7 @@ set_target_properties(cjson PROPERTIES
   POSITION_INDEPENDENT_CODE ON)
 
 add_library(cmdb_core STATIC
+  src/core/agents.c
   src/core/app.c
   src/core/api.c
   src/core/audit.c
@@ -448,9 +452,69 @@ if(NOT WIN32)
   endif()
 endif()
 
+if(CMDB_BUILD_AGENT AND (CMDB_BUILD_UI OR CMDB_BUILD_SERVER))
+  message(FATAL_ERROR
+    "CMDB_BUILD_AGENT is a separate package build; configure with "
+    "-DCMDB_BUILD_UI=OFF -DCMDB_BUILD_SERVER=OFF")
+endif()
+
+if(CMDB_BUILD_AGENT)
+  if(WIN32)
+    set(CMDB_AGENT_GOOS windows)
+  else()
+    set(CMDB_AGENT_GOOS linux)
+  endif()
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64")
+    set(CMDB_AGENT_GOARCH amd64)
+  elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
+    set(CMDB_AGENT_GOARCH arm64)
+  else()
+    message(FATAL_ERROR "Unsupported cmdb-agent architecture: ${CMAKE_SYSTEM_PROCESSOR}")
+  endif()
+  find_program(GO_EXECUTABLE go)
+  if(NOT GO_EXECUTABLE)
+    message(FATAL_ERROR
+      "Go was not found; install Go 1.22+ or configure with -DCMDB_BUILD_AGENT=OFF")
+  endif()
+  file(GLOB_RECURSE CMDB_AGENT_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/agent/*.go"
+    "${CMAKE_CURRENT_SOURCE_DIR}/agent/go.mod"
+    "${CMAKE_CURRENT_SOURCE_DIR}/agent/go.sum")
+  set(CMDB_AGENT_OUTPUT
+    "${CMAKE_BINARY_DIR}/cmdb-agent${CMAKE_EXECUTABLE_SUFFIX}")
+  add_custom_command(
+    OUTPUT "${CMDB_AGENT_OUTPUT}"
+    COMMAND "${CMAKE_COMMAND}" -E env
+      CGO_ENABLED=0
+      GOOS=${CMDB_AGENT_GOOS}
+      GOARCH=${CMDB_AGENT_GOARCH}
+      "${GO_EXECUTABLE}" build -trimpath
+      "-ldflags=${CMDB_AGENT_LDFLAGS}"
+      -o "${CMDB_AGENT_OUTPUT}" .
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/agent"
+    DEPENDS ${CMDB_AGENT_SOURCES}
+    COMMENT "Building cmdb-agent")
+  add_custom_target(cmdb_agent ALL DEPENDS "${CMDB_AGENT_OUTPUT}")
+  install(PROGRAMS "${CMDB_AGENT_OUTPUT}"
+    DESTINATION ${CMAKE_INSTALL_BINDIR})
+  if(NOT WIN32)
+    install(FILES packaging/agent/cmdb-agent.service
+      DESTINATION lib/systemd/system)
+    install(FILES packaging/agent/agent.json.example
+      DESTINATION ${CMAKE_INSTALL_DOCDIR}
+      RENAME agent.json.example)
+  endif()
+  if(CMDB_BUILD_TESTS)
+    add_test(NAME cmdb_agent_tests
+      COMMAND "${GO_EXECUTABLE}" test ./...
+      WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/agent")
+  endif()
+endif()
+
 if(CMDB_BUILD_TESTS)
   add_executable(cmdb_tests
     tests/test_main.c
+    tests/test_agents.c
     tests/test_api.c
     tests/test_ci.c
     tests/test_crypto.c
@@ -497,13 +561,18 @@ if(CMDB_BUILD_UI)
   endif()
 endif()
 
-if(CMDB_BUILD_UI OR (NOT WIN32 AND CMDB_BUILD_SERVER))
+if(CMDB_BUILD_UI OR CMDB_BUILD_AGENT OR (NOT WIN32 AND CMDB_BUILD_SERVER))
   set(CPACK_PACKAGE_VENDOR "Roger Bergling")
   set(CPACK_PACKAGE_CONTACT "github@bergling.net")
   set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
   set(CPACK_PACKAGE_INSTALL_DIRECTORY "cmdb-lite")
 
-  if(CMDB_BUILD_UI)
+  if(CMDB_BUILD_AGENT)
+    set(CPACK_PACKAGE_NAME "cmdb-lite-agent")
+    set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
+      "Application inventory agent for cmdb-lite")
+    set(CPACK_PACKAGE_INSTALL_DIRECTORY "cmdb-lite-agent")
+  elseif(CMDB_BUILD_UI)
     set(CPACK_PACKAGE_NAME "cmdb-lite")
     set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
       "Local-first encrypted Configuration Management Database")
@@ -515,15 +584,35 @@ if(CMDB_BUILD_UI OR (NOT WIN32 AND CMDB_BUILD_SERVER))
   endif()
 
   if(WIN32)
+    if(CMDB_BUILD_AGENT)
+      set(CPACK_PACKAGE_FILE_NAME
+        "cmdb-lite-agent-${PROJECT_VERSION}-windows-x64")
+      set(CPACK_GENERATOR "ZIP")
+    else()
+      set(CPACK_PACKAGE_FILE_NAME
+        "cmdb-lite-${PROJECT_VERSION}-windows-x64")
+      set(CPACK_GENERATOR "WIX;ZIP")
+      set(CPACK_WIX_UPGRADE_GUID
+        "{B82FCBFC-5F09-4813-9140-371DE9B6B3AF}")
+      set(CPACK_WIX_PRODUCT_ICON
+        "${CMAKE_CURRENT_SOURCE_DIR}/packaging/windows/cmdb-lite.ico")
+      set(CPACK_WIX_PROGRAM_MENU_FOLDER "cmdb-lite")
+      set(CPACK_WIX_INSTALL_SCOPE "perMachine")
+    endif()
+  elseif(CMDB_BUILD_AGENT)
     set(CPACK_PACKAGE_FILE_NAME
-      "cmdb-lite-${PROJECT_VERSION}-windows-x64")
-    set(CPACK_GENERATOR "WIX;ZIP")
-    set(CPACK_WIX_UPGRADE_GUID
-      "{B82FCBFC-5F09-4813-9140-371DE9B6B3AF}")
-    set(CPACK_WIX_PRODUCT_ICON
-      "${CMAKE_CURRENT_SOURCE_DIR}/packaging/windows/cmdb-lite.ico")
-    set(CPACK_WIX_PROGRAM_MENU_FOLDER "cmdb-lite")
-    set(CPACK_WIX_INSTALL_SCOPE "perMachine")
+      "cmdb-lite-agent-${PROJECT_VERSION}-linux-${CMAKE_SYSTEM_PROCESSOR}")
+    set(CPACK_GENERATOR "TGZ;DEB;RPM")
+    set(CPACK_DEBIAN_PACKAGE_MAINTAINER
+      "Roger Bergling <github@bergling.net>")
+    set(CPACK_DEBIAN_PACKAGE_SECTION "admin")
+    set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS OFF)
+    set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+    set(CPACK_RPM_PACKAGE_LICENSE "MIT")
+    set(CPACK_RPM_PACKAGE_GROUP "Applications/System")
+    set(CPACK_RPM_PACKAGE_DESCRIPTION
+      "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}")
+    set(CMDB_RPM_REQUIRES "shadow-utils")
   elseif(CMDB_BUILD_UI)
     set(CPACK_PACKAGE_FILE_NAME
       "cmdb-lite-${PROJECT_VERSION}-linux-${CMAKE_SYSTEM_PROCESSOR}")
@@ -559,7 +648,7 @@ if(CMDB_BUILD_UI OR (NOT WIN32 AND CMDB_BUILD_SERVER))
     if(CMDB_PACKAGE_VARIANT)
       string(APPEND CPACK_PACKAGE_FILE_NAME "-${CMDB_PACKAGE_VARIANT}")
     endif()
-    if(NOT CMDB_STATIC_CRYPTO_LINKED)
+    if((CMDB_BUILD_UI OR CMDB_BUILD_SERVER) AND NOT CMDB_STATIC_CRYPTO_LINKED)
       string(APPEND CMDB_RPM_REQUIRES ", sqlcipher, libsodium")
     endif()
     set(CPACK_RPM_PACKAGE_REQUIRES "${CMDB_RPM_REQUIRES}")
@@ -567,7 +656,18 @@ if(CMDB_BUILD_UI OR (NOT WIN32 AND CMDB_BUILD_SERVER))
     set(CPACK_RPM_FILE_NAME RPM-DEFAULT)
   endif()
 
-  if(NOT WIN32 AND CMDB_BUILD_SERVER)
+  if(NOT WIN32 AND CMDB_BUILD_AGENT)
+    set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
+      "${CMAKE_CURRENT_SOURCE_DIR}/packaging/agent/debian/postinst"
+      "${CMAKE_CURRENT_SOURCE_DIR}/packaging/agent/debian/prerm"
+      "${CMAKE_CURRENT_SOURCE_DIR}/packaging/agent/debian/postrm")
+    set(CPACK_RPM_POST_INSTALL_SCRIPT_FILE
+      "${CMAKE_CURRENT_SOURCE_DIR}/packaging/agent/rpm/post.sh")
+    set(CPACK_RPM_PRE_UNINSTALL_SCRIPT_FILE
+      "${CMAKE_CURRENT_SOURCE_DIR}/packaging/agent/rpm/preun.sh")
+    set(CPACK_RPM_POST_UNINSTALL_SCRIPT_FILE
+      "${CMAKE_CURRENT_SOURCE_DIR}/packaging/agent/rpm/postun.sh")
+  elseif(NOT WIN32 AND CMDB_BUILD_SERVER)
     set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
       "${CMAKE_CURRENT_SOURCE_DIR}/packaging/server/debian/postinst"
       "${CMAKE_CURRENT_SOURCE_DIR}/packaging/server/debian/prerm")

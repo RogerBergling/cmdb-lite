@@ -10,14 +10,17 @@ Windows.
 > diagram editor, persisted nmap discovery with matching/merge review, encrypted
 > database backup, the desktop webview shell, and the Go `cmdb-server` with
 > first-run setup, password login, TOTP, recovery codes, sessions, and admin
-> account management. Linux, Fedora, Windows, and Flatpak CI builds are defined;
-> the Windows job runs a real WebView2 smoke test and produces the portable ZIP
-> and MSI. A clean-Windows-VM install/uninstall check is still recommended.
+> account management. **Application inventory agents** for Windows and Linux
+> report installed software, current state, and a bounded change timeline. Linux,
+> Fedora, Windows, and Flatpak CI builds are defined; the Windows job runs a real
+> WebView2 smoke test and produces the portable ZIP, MSI, and agent packages. A
+> clean-Windows-VM install/uninstall check is still recommended.
 
 > **Release status:** v0.6.0 is the latest published release. v0.7.0, which adds
-> authenticated server mode and server-only packages, is not tagged for this
-> rollout. Install from a verified local build/package, record the commit hash,
-> and verify checksums. See [`docs/releasing.md`](docs/releasing.md) and
+> authenticated server mode, server-only packages, and the application inventory
+> agent, is not tagged for this rollout. Install from a verified local
+> build/package, record the commit hash, and verify checksums. See
+> [`docs/releasing.md`](docs/releasing.md) and
 > [`docs/authentication.md`](docs/authentication.md).
 
 > **Production use:** server mode is single-node and is not yet a turnkey
@@ -35,12 +38,19 @@ Windows.
   process, one database, no clustering/HA. Passkeys are out of scope for this
   phase. HIBP integration is out of scope for this rollout; the separate HIBP
   server, if used later, remains a separate security boundary.
+- **Application inventory:** separate `cmdb-agent` packages for Windows 11,
+  Windows Server 2019+, Ubuntu/Kali/Debian, and Fedora. The agent reports
+  installed applications to `cmdb-server`; administrators see current software
+  and a change timeline in the **Applications** tab. Agents use per-host bearer
+  tokens obtained through short-lived one-time enrollment tokens.
 - **Platforms built by CI:** Linux x86_64 (desktop+server `.deb`, RPM, portable
-  tarball, server-only `.deb`/RPM/tarball, Flatpak) and Windows x86_64 (portable
-  ZIP, MSI). The Windows package is a desktop client only.
+  tarball, server-only `.deb`/RPM/tarball, Flatpak, agent `.deb`/RPM/tarball) and
+  Windows x86_64 (portable ZIP, MSI, agent ZIP/MSI). The Windows server is not
+  supported; Windows packages are clients and agents.
 - **Current limitation:** desktop-local mode has no application-level login
   beyond the database passphrase, and the desktop client does not start the
-  server automatically. Server mode is Linux-only for now.
+  server automatically. Server mode is Linux-only for now. Agent enrollment
+  requires a server connection; desktop-local databases have no listener.
 - **Not currently built:** macOS, ARM64, 32-bit, or a Windows server.
 - **Storage:** one SQLCipher database plus a required `.meta` sidecar. Desktop
   local mode opens a user-selected file; server mode owns a server-side file.
@@ -68,6 +78,7 @@ This repository is being prepared for one specific deployment:
 | One-admin recovery | Tested `cmdb-server --reset-auth` break-glass procedure; keep recovery codes and the database passphrase separately. |
 | RBAC / SSO | Out of scope for this rollout; all accounts share inventory privileges. |
 | HIBP | Out of scope for this rollout; the export code remains available but no HIBP integration will be deployed. |
+| Application inventory | Windows 11/Server 2019+, Ubuntu, Kali, and Fedora agents report to the Linux server over HTTPS. Enrollment tokens are administrator-issued. |
 | Release artifacts | Local verified packages; release tagging, signing, and SBOM generation are skipped by decision. |
 
 The detailed runbook is in [`docs/server.md`](docs/server.md). The decisions
@@ -151,6 +162,10 @@ you download):
 | Server-only DEB (v0.7.0+) | `cmdb-lite-server_0.7.0_amd64.deb` |
 | Server-only RPM (v0.7.0+) | `cmdb-lite-server-0.7.0-*.rpm` |
 | Server-only tarball (v0.7.0+) | `cmdb-lite-server-0.7.0-linux-x86_64.tar.gz` |
+| Agent DEB (v0.7.0+) | `cmdb-lite-agent_0.7.0_amd64.deb` |
+| Agent RPM (v0.7.0+) | `cmdb-lite-agent-0.7.0-*.rpm` |
+| Agent Linux tarball (v0.7.0+) | `cmdb-lite-agent-0.7.0-linux-x86_64.tar.gz` |
+| Agent Windows ZIP/MSI (v0.7.0+) | `cmdb-lite-agent-0.7.0-windows-x64.zip`, `cmdb-lite-agent-0.7.0-windows-x64.msi` |
 | Checksums | `SHA256SUMS` |
 
 Verify the download before running it:
@@ -315,19 +330,29 @@ desktop mode bypasses application logins. See
 [`docs/authentication.md`](docs/authentication.md) for the full design and
 [`docs/backup.md`](docs/backup.md) for backup implications.
 
+Server mode also accepts unattended agent reports on
+`/api/v1/agent/enroll` and `/api/v1/agent/report`. Administrators create
+short-lived enrollment tokens in the **Applications** tab; the agent exchanges
+one for a unique per-host token, and only token hashes are stored. Agent data is
+in the same encrypted database and is included in backups. Retention defaults to
+90 reports per host and 365 days; change it with `--agent-reports-per-host` and
+`--agent-retention-days`. See [`docs/agent.md`](docs/agent.md).
+
 ### Data locations
 
 | Data | Location | Contains secrets? |
 |---|---|---|
-| Inventory database | The `.cmdb` path you choose | Encrypted inventory, diagrams, audit log. The passphrase is never stored. |
+| Inventory database | The `.cmdb` path you choose | Encrypted inventory, diagrams, audit log, and agent inventory/history. The passphrase is never stored. |
 | KDF sidecar | `<database>.cmdb.meta` next to the database | Salt and KDF parameters only; required to open the database. |
 | Recent-database settings (desktop-local) | Linux: `$XDG_CONFIG_HOME/cmdb-lite/config.json` (normally `~/.config/cmdb-lite/config.json`). Windows: `%APPDATA%\cmdb-lite\config.json` | Database paths only; no passphrase or key. |
-| Server database | Operator path, typically `/var/lib/cmdb-lite/inventory.cmdb` | Encrypted inventory, audit log, and `auth.state` (accounts, Argon2id hashes, TOTP secrets, recovery-code hashes). |
+| Server database | Operator path, typically `/var/lib/cmdb-lite/inventory.cmdb` | Encrypted inventory, audit log, `auth.state` (accounts, Argon2id hashes, TOTP secrets, recovery-code hashes), and agent inventory/history. |
 | Server web assets | `/usr/share/cmdb-lite/web/` | `index.html`, `app.js`, `style.css`; must match the server version. |
 | Server passphrase file | Operator-managed, typically `/etc/cmdb-lite/server.env` | Contains `CMDB_DB_PASSPHRASE`; root-owned, mode `0600`, read by systemd. |
 | Server sessions | Server process memory only | Session and CSRF tokens. Lost on restart. |
+| Agent configuration | Linux: `/etc/cmdb-lite-agent/agent.json` (`root:cmdb-agent`, `0640`). Windows: `%ProgramData%\cmdb-lite\agent.json` (SYSTEM/Administrators ACL). | Server URL, host identity, reporting interval, CA path, and the per-host agent token. Root/Administrator compromise can read it. |
+| Agent inventory and history | Inside the encrypted `.cmdb` database (`agents`, `agent_reports`, `agent_apps`, `agent_app_events`) | Host facts, current installed software, report summaries, and change events. Token hashes, not plaintext tokens. |
 | Server logs | systemd journal or process stdout/stderr | Startup, first-run setup token, database-open result, audit write failures. Restrict journal access. |
-| Backups | Desktop: the path you choose in **Backup**. Server: operator copy while stopped. | An encrypted `.cmdb` plus matching `.meta` sidecar. Server backups include `auth.state`. |
+| Backups | Desktop: the path you choose in **Backup**. Server: operator copy while stopped. | An encrypted `.cmdb` plus matching `.meta` sidecar. Server backups include `auth.state` and the agent inventory/history tables. |
 | Exports, `.drawio`, HIBP CSV | The path you choose | Plaintext. Store and delete according to your data-handling policy. |
 | Scan XML | Private temporary file (`0600` on POSIX), deleted after parsing | Discovery results before they enter encrypted staging. |
 | Application logs | Desktop: none by default. Server: systemd journal. | Server logs include startup, setup-token, and database-open lines; authentication and inventory events are in the encrypted audit table. |
@@ -397,11 +422,13 @@ Application upgrades replace the executable only. Your database and `.meta`
 sidecar stay where they are. The application remembers the last database and
 shows recent databases on the unlock screen.
 
-v0.7.0 does not change the database schema. It adds the Go `cmdb-server`,
-`cmdb-rpc`, and optional authenticated server mode. Existing databases open
-normally and keep the same passphrase. Server accounts are stored inside the
-same encrypted database under `app_meta`; a normal backup includes them. The
-desktop client remains local unless `CMDB_SERVER_URL` is set.
+v0.7.0 migrates the database from schema version 4 to version 5. It adds the
+application inventory agent tables, the Linux server package, and authenticated
+server mode. Existing databases open normally and keep the same passphrase. A
+pre-migration backup is created and its path is shown after opening. Server
+accounts remain stored inside the same encrypted database under `app_meta`; a
+normal backup includes them. The desktop client remains local unless
+`CMDB_SERVER_URL` is set.
 
 v0.6.0 migrated the database from schema version 3 to version 4. It added
 relationship impact classes, new management/monitoring/provider relationship
@@ -482,6 +509,11 @@ password vault instead.
 - **Persisted scan staging** with exact-match suggestions against existing CIs
   by IP, MAC, hostname, and CI name. The operator chooses create, merge (fill
   empty fields or overwrite scan fields), or ignore for each host.
+- **Application inventory agent** for Windows 11/Server 2019+, Ubuntu, Kali, and
+  Fedora: installed DEB/RPM packages and Windows uninstall registry entries,
+  per-host token enrollment, revocable access, current software, a bounded
+  added/removed/updated timeline, optional CI linking, and a dedicated
+  Applications view.
 - **Encrypted database backup** from the application; the backup is consistent
   while the database is open and includes the matching `.meta` sidecar.
 - **Restore to a new database path** from the unlock screen.
@@ -513,7 +545,9 @@ binaries and web assets because the server serves the UI over HTTP:
 | Platform | Artifact | Contents and runtime requirements |
 |---|---|---|
 | Windows | `cmdb.exe` | Desktop only. Embedded UI. WebView2 runtime (present on current Windows 10/11). SQLCipher, libsodium, OpenSSL, expat, and the C/C++ runtime are linked statically. Use `CMDB_SERVER_URL` to connect to a Linux server over HTTPS. |
+| Windows agent | `cmdb-agent.exe`, MSI/ZIP | Reports installed applications to a Linux `cmdb-server`. Windows service. Config ACL-restricted to SYSTEM/Administrators. |
 | Linux (.deb/RPM/TGZ) | `cmdb`, `cmdb-server`, `cmdb-rpc`, `share/cmdb-lite/web/`, systemd unit | Desktop plus single-node server. The desktop needs GTK3, WebKitGTK 4.1, expat, and system OpenSSL. SQLCipher and libsodium are linked statically when `.a` archives are available. Server-only packages omit `cmdb` and GTK/WebKit. |
+| Linux agent (.deb/RPM/TGZ) | `cmdb-agent`, `cmdb-agent.service` | Application inventory service. Runs as the unprivileged `cmdb-agent` user with systemd hardening. No desktop or server libraries required. |
 | Linux (Flatpak) | `cmdb-lite.flatpak` | Desktop only. Uses the GNOME runtime for GTK3/WebKitGTK and bundles SQLCipher, libsodium, and nmap. The GNOME runtime is installed separately by Flatpak. |
 
 The encrypted database and its `.meta` sidecar are intentionally separate files.
@@ -538,6 +572,9 @@ environments you intend to support.
 
 ### Next milestones
 
+- Agent: Store/Appx, Snap, and Flatpak enumeration; per-user Windows application
+  visibility; host-record deletion; application/history export; and automated
+  end-to-end enrollment/report tests.
 - Server: flags/config file beyond the packaged systemd unit, health/readiness
   endpoint, graceful shutdown, online backup/restore, browser export/download,
   role-change UI, active-session management, and server HTTP integration tests.
@@ -675,7 +712,7 @@ The Linux package provides a Go `cmdb-server` and the C `cmdb-rpc` bridge:
 - the desktop `cmdb` client opens a local database directly, or connects to a
   server when `CMDB_SERVER_URL` is set;
 - several accounts share inventory privileges; administrators manage accounts
-  and credential resets;
+  and credentials, and create/revoke agent enrollment tokens;
 - username/password login, TOTP, and ten one-time recovery codes per user;
   passkeys are out of scope for this phase;
 - sessions default to 12 hours absolute and 30 minutes idle and are configurable
@@ -683,9 +720,12 @@ The Linux package provides a Go `cmdb-server` and the C `cmdb-rpc` bridge:
 - login, logout, MFA, recovery, user-management, and inventory changes are
   audited with the account name as actor;
 - first-run admin creation is protected by a one-time setup token printed by the
-  server.
+  server;
+- application inventory agents use a separate per-host bearer-token path, not
+  user sessions; enrollment tokens are administrator-issued and single-use.
 
-Authentication state is JSON in `app_meta`; schema v4 is unchanged. Sessions are
+Authentication state is JSON in `app_meta`; schema v5 adds the agent inventory
+tables but leaves user authentication state in that JSON document. Sessions are
 memory-only. The desktop client does not start the server automatically, and
 Windows server support is future work. See
 [`docs/authentication.md`](docs/authentication.md) for architecture, flags,
@@ -728,9 +768,10 @@ Before go-live:
 | MFA | TOTP and at least one unused recovery code are required before inventory access | Enroll during first login; the server blocks inventory until both are present. |
 | Passwords | Admin-created/reset passwords are temporary and force a change | The administrator knows the temporary password; the user must replace it before inventory access. |
 | Sessions | Memory-only; no session list or global revoke UI | Restart logs everyone out; disable/reset actions revoke per user. |
-| Authorization | Admin flag only; all other accounts share inventory privileges | No RBAC or per-CI permissions. |
+| Authorization | Admin flag only; all other accounts share inventory privileges; agent token management is admin-only | No RBAC or per-CI permissions. |
 | Operations | systemd unit packaged; no health endpoint, metrics, or request log | Enable the packaged unit and use a TCP check in [`docs/server.md`](docs/server.md); add monitoring. |
 | Ingress | No TLS listener; proxy trust is CIDR-based | HAProxy/VPN is mandatory; configure forwarded headers or cookies/rate limits break. |
+| Agents | Dedicated enrollment/report endpoints; per-host tokens; admin-managed | Publish the HTTPS proxy to managed hosts; keep the plain HTTP listener private. Configure retention flags. |
 
 See [`docs/server.md`](docs/server.md) for a sample systemd unit, HAProxy
 configuration, file permissions, backup/restore, upgrade/rollback, NTP, logs,
@@ -770,6 +811,68 @@ not both: they share `cmdb-server`, `cmdb-rpc`, web assets, and the systemd unit
 The server-only package intentionally has no online backup/export feature and no
 health endpoint yet; see the limitations above and in
 [`docs/server.md`](docs/server.md).
+
+### Install the application inventory agent
+
+The agent is a separate package. It reports installed applications to
+`cmdb-server` and does not open the database itself. It supports:
+
+- Windows 11 and Windows Server 2019 or later (x86_64);
+- Ubuntu and Kali (Debian package);
+- Fedora (RPM package).
+
+On the server, sign in as an administrator, open **Applications**, and choose
+**Enrollment token**. The token is shown once and expires after one hour.
+
+**Linux**
+
+```bash
+sudo apt install ./cmdb-lite-agent_0.7.0_amd64.deb
+# or: sudo dnf install ./cmdb-lite-agent-0.7.0-*.rpm
+sudo cmdb-agent enroll \
+  --server https://cmdb.example.internal \
+  --token <one-time-token>
+```
+
+**Windows**
+
+```powershell
+msiexec /i .\cmdb-lite-agent-0.7.0-windows-x64.msi
+& "C:\Program Files\cmdb-lite-agent\cmdb-agent.exe" enroll `
+  --server https://cmdb.example.internal `
+  --token <one-time-token>
+```
+
+The MSI adds its install directory to the system `PATH`; open a new elevated
+prompt before using the short `cmdb-agent.exe` command.
+
+The enrollment command writes a protected configuration, creates/starts the
+service, and sends the first report immediately. Supported collectors are DEB
+packages, RPM packages, and the 64/32-bit Windows uninstall registry. Windows
+Store/Appx, Snap, Flatpak, per-user Windows applications, running processes, and
+services are not collected in this version.
+
+The **Applications** tab shows each host's current software with search, an
+optional CI link, an added/removed/updated timeline, and report history. Reports
+that could not read the complete package database are marked **Partial** and do
+not remove applications that were absent from that report. Default retention is
+90 reports per host and 365 days, configurable on the server with
+`--agent-reports-per-host` and `--agent-retention-days`. See
+[`docs/agent.md`](docs/agent.md) for enrollment, service hardening, the MSI
+property form, TLS/CA configuration, and troubleshooting.
+
+For automated Windows deployment, the MSI accepts public `SERVER_URL` and
+`ENROLLMENT_TOKEN` properties:
+
+```powershell
+msiexec /i .\cmdb-lite-agent-0.7.0-windows-x64.msi /qn `
+  SERVER_URL="https://cmdb.example.internal" `
+  ENROLLMENT_TOKEN="<one-time-token>"
+```
+
+MSI properties can appear in installation logs. Use a short-lived one-time token
+and revoke it if the log is retained; for high-security deployments, run the
+installed `cmdb-agent.exe enroll` after installation instead.
 
 ## Import file formats
 
@@ -973,6 +1076,28 @@ file through a native save dialog. The embedded editor is a lightweight
 - TOTP requires an accurate server clock. Use NTP/chrony; only one 30-second
   step of skew is accepted.
 
+### Agent authentication
+
+- Enrollment tokens are 256-bit random values, single-use, and expire after one
+  hour by default. Per-host tokens are 256-bit random values scoped to reporting
+  for one agent record.
+- Only token hashes are stored. Plaintext is returned once (enrollment) or
+  written only to the host configuration (per-host token).
+- Agent endpoints are separate from user sessions and the generic RPC allowlist:
+  `POST /api/v1/agent/enroll` and `POST /api/v1/agent/report`.
+- Non-loopback agent URLs must use HTTPS. The agent verifies the system trust
+  store and can append a private CA with `--ca-file`. Redirects are rejected so
+  the Bearer token cannot be forwarded to another origin.
+- Linux configuration is `root:cmdb-agent`, mode `0640`; the service runs as the
+  unprivileged `cmdb-agent` user with an empty capability set and a read-only
+  system view. Windows configuration is ACL-restricted to SYSTEM and
+  Administrators; the service runs as `LocalSystem` to read machine-wide
+  uninstall keys.
+- Revocation clears the token hash immediately. A revoked agent receives HTTP 401
+  on its next report.
+- Reports are self-asserted. A stolen token can submit false inventory for its
+  own host but cannot read the CMDB or modify unrelated CIs.
+
 ### Threat model
 
 Protected against:
@@ -1092,6 +1217,15 @@ Server mode
         │ JSON lines over stdio, serialized
         ▼
   cmdb-rpc (C) → C17 core → SQLCipher (.cmdb + .meta)
+
+Application inventory
+  cmdb-agent (Windows service / systemd)
+        │ HTTPS + per-host bearer token
+        ▼
+  cmdb-server /api/v1/agent/{enroll,report}
+        │ cmdb-rpc: agents.enroll / agents.auth / agents.report
+        ▼
+  agents · agent_reports · agent_apps · agent_app_events
 ```
 
 The native shell is intentionally thin. `webview/webview` is a pinned
@@ -1121,21 +1255,26 @@ expat, and the system webview are the other runtime dependencies.
 - **Server-ready data model.** UUID domain IDs, an audit actor column, and a
   JSON API boundary made authenticated server mode possible without a schema
   rewrite. Accounts are JSON in `app_meta` rather than a new schema version.
+- **Separate, narrow agent.** The application inventory collector is its own Go
+  binary and package. It uses a dedicated per-host bearer-token path, not user
+  sessions or the generic RPC allowlist, and can only report its own inventory.
+  The server stores token hashes and diffs reports against current state.
 
 ### Repository layout
 
 ```text
 include/cmdb/        Public C headers for the core
-src/core/            Crypto, database, domain, import, graph, scan, diagrams, API
+src/core/            Crypto, database, domain, import, graph, scan, agents, diagrams, API
 src/ui/              Native webview shell, native file dialogs, cmdb-rpc bridge
-server/              Go cmdb-server: HTTP, auth, sessions, TOTP, admin API
+server/              Go cmdb-server: HTTP, auth, sessions, TOTP, admin API, agent ingest
+agent/               Go application inventory agent for Windows and Linux
 src/web/             HTML/CSS/JS UI source (embedded in local mode)
 src/web_bundle.c     Generated embedded UI (do not edit)
 tests/               C unit and integration tests
-docs/                Data model, import, security, architecture, scanning, backup
+docs/                Data model, import, security, architecture, scanning, backup, agent
 docs/screenshots/    README screenshots
 third_party/         Vendored cJSON (MIT)
-packaging/           Icons, embed script, Windows resources, Flatpak, installers
+packaging/           Icons, embed script, Windows resources, Flatpak, installers, agent units
 .github/workflows/   Linux, Fedora, Flatpak, and Windows CI builds
 ```
 
@@ -1146,8 +1285,8 @@ packaging/           Icons, embed script, Windows resources, Flatpak, installers
 - **Build system:** CMake 3.20+ with Ninja or Visual Studio 2022; CTest for the
   test suite; CPack for DEB/RPM/TGZ/WIX packages.
 - **Languages:** C17 core, C++17 only for the pinned `webview/webview`
-  dependency, and Go 1.22+ for `cmdb-server`. `cmdb-rpc` is the C stdio bridge
-  between the server and the core.
+  dependency, Go 1.22+ for `cmdb-server` and the separate `cmdb-agent` module.
+  `cmdb-rpc` is the C stdio bridge between the server and the core.
 - **Required libraries:** SQLCipher 4, libsodium, libexpat, cJSON (vendored),
   GTK3 + WebKitGTK 4.1 on Linux, WebView2 on Windows, OpenSSL 3 (SQLCipher
   crypto backend).
@@ -1163,7 +1302,8 @@ packaging/           Icons, embed script, Windows resources, Flatpak, installers
 |---|---|---|
 | `CMDB_BUILD_UI` | `ON` | Build the GTK/WebView2 desktop client. |
 | `CMDB_BUILD_SERVER` | `ON` on Linux | Build `cmdb-server` and `cmdb-rpc`; requires Go 1.22+. Set `OFF` for Flatpak or a desktop-only build. |
-| `CMDB_BUILD_TESTS` | `ON` | Build the C test suite and register `cmdb_server_tests` when the server is built. |
+| `CMDB_BUILD_AGENT` | `OFF` | Build the separate `cmdb-agent` package. Requires Go 1.22+ and must be combined with `-DCMDB_BUILD_UI=OFF -DCMDB_BUILD_SERVER=OFF`. |
+| `CMDB_BUILD_TESTS` | `ON` | Build the C test suite and register `cmdb_server_tests`/`cmdb_agent_tests` when those components are built. |
 | `CMDB_STATIC_CRYPTO` | `ON` | Link SQLCipher/libsodium statically on Unix when `.a` archives are available. |
 | `CMDB_FETCH_WEBVIEW` | `ON` | Fetch the pinned `webview/webview` source. Use `OFF` with `CMDB_WEBVIEW_SOURCE_DIR` for offline builds. |
 | `CMDB_ENABLE_ASAN` | `OFF` | Enable AddressSanitizer and UndefinedBehaviorSanitizer. |
@@ -1292,6 +1432,29 @@ This produces `cmdb-lite-server_*`/`cmdb-lite-server-*` artifacts with
 `cmdb-server`, `cmdb-rpc`, web assets, the systemd unit, docs, and the passphrase
 example, but no desktop client.
 
+Build the application inventory agent package:
+
+```bash
+cmake -S . -B build-agent -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMDB_BUILD_UI=OFF \
+  -DCMDB_BUILD_SERVER=OFF \
+  -DCMDB_BUILD_AGENT=ON \
+  -DCMDB_BUILD_TESTS=ON
+cmake --build build-agent
+ctest --test-dir build-agent --output-on-failure
+cpack --config build-agent/CPackConfig.cmake -G DEB -B build-agent/dist
+cpack --config build-agent/CPackConfig.cmake -G RPM -B build-agent/dist
+cpack --config build-agent/CPackConfig.cmake -G TGZ -B build-agent/dist
+```
+
+The agent package contains `/usr/bin/cmdb-agent`, the hardened
+`cmdb-agent.service` unit, the agent example, and documentation. It does not
+contain the desktop client or server. RPM output requires `rpmbuild`; CI builds
+RPMs on Fedora. On Windows, the same CMake configuration produces
+`cmdb-lite-agent-*-windows-x64.zip`; CI also builds the WiX MSI with
+`cpack`/`candle`/`light`. See [`docs/agent.md`](docs/agent.md).
+
 Build the self-contained Flatpak:
 
 ```bash
@@ -1399,6 +1562,9 @@ GitHub Actions Windows runner.
   and dependency choices.
 - [`docs/authentication.md`](docs/authentication.md) — server mode,
   `cmdb-rpc`, accounts, sessions, TOTP, recovery codes, storage, and API.
+- [`docs/agent.md`](docs/agent.md) — application inventory agent: supported
+  platforms, enrollment, service hardening, API, history, packages, security, and
+  troubleshooting.
 - [`docs/server.md`](docs/server.md) — production server deployment: systemd,
   HAProxy/TLS, permissions, backup/restore, upgrade, logs, and hardening.
 - [`docs/dependencies.md`](docs/dependencies.md) — impact classes, vCenter and
@@ -1423,6 +1589,8 @@ GitHub Actions Windows runner.
   package upgrades, rollback, and post-upgrade checks.
 - [`docs/releasing.md`](docs/releasing.md) — tag-driven release automation and
   artifact verification.
+- [`docs/contributing.md`](docs/contributing.md) — local validation, commit,
+  push, agent release checks, and security review checklist.
 - [`docs/windows.md`](docs/windows.md) — Windows build, WebView2 behaviour,
   portable package layout, and clean-VM validation checklist.
 - [`SECURITY.md`](SECURITY.md) — supported versions and private vulnerability
@@ -1462,6 +1630,28 @@ GOTOOLCHAIN=local go build -trimpath -o /tmp/cmdb-server .
 govulncheck ./...
 cd ..
 
+# Go agent tests, formatting, cross-build, and static checks
+cd agent
+gofmt -l .
+go vet ./...
+go test ./...
+go build -trimpath -o /tmp/cmdb-agent .
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o /tmp/cmdb-agent.exe .
+# Optional, when installed:
+govulncheck ./...
+cd ..
+
+# Agent package and service contents
+cmake -S . -B build-agent -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMDB_BUILD_UI=OFF \
+  -DCMDB_BUILD_SERVER=OFF \
+  -DCMDB_BUILD_AGENT=ON
+cmake --build build-agent
+ctest --test-dir build-agent --output-on-failure
+cpack --config build-agent/CPackConfig.cmake -G DEB -B build-agent/dist
+dpkg-deb -c build-agent/dist/*.deb | grep -E 'bin/cmdb-agent|systemd/system/cmdb-agent.service'
+
 # Static analysis (when installed)
 cppcheck --enable=warning,performance,portability --error-exitcode=1 \
   --suppress=missingIncludeSystem src include
@@ -1476,26 +1666,33 @@ tar -tzf dist/*.tar.gz | grep -E 'bin/(cmdb|cmdb-server|cmdb-rpc)|cmdb-lite/web'
 
 The Linux build was configured with CMake and compiled with strict warnings
 (`-Wall -Wextra -Wpedantic`, shadow/format/cast/prototype checks, `-Werror`).
-CTest passes both suites:
+CTest passes the server, agent, and core suites:
 
 ```text
 cmdb_server_tests                ok
+cmdb_agent_tests                 ok
 cmdb_tests                       ok
 0 failure(s)
 ```
 
-`cmdb_server_tests` runs the Go unit tests (`auth_test.go`, `server_test.go`).
-The development validation also exercised a fresh-database end-to-end flow
-(first-run setup, mandatory TOTP enrollment, mandatory recovery codes, forced
-password change, login/MFA/recovery, one-admin guard, restart/session
-invalidation, and `--reset-auth`) plus a >1 MiB server-mode import through
-`/api/v1/rpc`. Those HTTP integration flows are **not yet committed as automated
-tests**, so this remains a regression risk.
+`cmdb_server_tests` runs the Go unit tests (`auth_test.go`, `server_test.go`,
+`agent_test.go`). `cmdb_agent_tests` runs the agent Go tests, including the
+dpkg/RPM parsers, config permissions, HTTP enrollment/report contract, and
+token/validation logic. The development validation also exercised a
+fresh-database end-to-end flow (first-run setup, mandatory TOTP enrollment,
+mandatory recovery codes, forced password change, login/MFA/recovery, one-admin
+guard, restart/session invalidation, and `--reset-auth`) plus a >1 MiB
+server-mode import through `/api/v1/rpc`. An end-to-end agent flow was also
+validated: enrollment-token creation, agent enrollment, 1,188-package report,
+current-software retrieval, a diff report with add/remove/update events, and
+history retrieval. Those HTTP integration flows are **not yet committed as
+automated tests**, so this remains a regression risk.
 
-The Go server builds with Go 1.22.x (tested locally with 1.22.12; CI installs
-Ubuntu 24.04's `golang-go`) and is linked with `CGO_ENABLED=0`. Its dependencies
-are currently `golang.org/x/crypto v0.31.0`, `golang.org/x/sys v0.28.0`, and
-`golang.org/x/term v0.27.0`; they are older than current upstream releases and
+The Go server and agent build with Go 1.22+ (the modules declare 1.22; CI
+installs Ubuntu 24.04's `golang-go`) and are linked with `CGO_ENABLED=0`. The
+server's dependencies are currently `golang.org/x/crypto v0.31.0`,
+`golang.org/x/sys v0.28.0`, and `golang.org/x/term v0.27.0`; the agent uses
+`golang.org/x/sys v0.28.0`. They are older than current upstream releases and
 are not scanned in CI. Run `govulncheck` and update them as part of release
 preparation.
 
@@ -1521,6 +1718,17 @@ scan against a localhost listener (`CMDB_TEST_LIVE_NMAP=1`). The backup and
 diagram tests create a real encrypted database, copy it with the online backup
 API, reopen it, and verify data and `.meta` handling.
 
+The agent tests cover dpkg and RPM parsing (including held packages), config
+permissions, URL/token validation, the HTTP enroll/report contract, and the C
+core token lifecycle, report diff, partial-report retention behavior, CI link,
+revocation, re-enrollment, and schema v4→v5 migration. The agent DEB/TGZ package
+was built and inspected: it contains `/usr/bin/cmdb-agent`, the hardened
+`cmdb-agent.service`, docs, and the DEB control scripts, and does not contain
+the desktop or server binaries. The full desktop+server DEB/TGZ and server-only
+DEB were also rebuilt to verify the CPack changes. The Windows agent ZIP/MSI is
+built by CI; a clean-Windows-VM service install/enroll/upgrade/uninstall test is
+still required.
+
 The GTK3/WebKitGTK system build and core test suite pass with GCC/CMake on the
 development host. A Release build was also smoke-tested with an intentionally
 invalid `CMDB_WEB_DIR` to confirm that release builds ignore the development UI
@@ -1532,17 +1740,20 @@ The Debian/Ubuntu CI job builds the `.deb` and TGZ packages. A Fedora container
 job builds and tests the RPM and TGZ packages. A Flatpak job builds a
 self-contained Linux bundle with the GNOME runtime and nmap. The Windows CI job
 (Visual Studio 2022, `x64-windows-static`) builds, tests, and packages
-`cmdb-lite-windows-x64.zip` and a WiX MSI successfully. The package contains a
-single `bin/cmdb.exe` with no unexpected DLLs (verified by CI). GUI launch, MSI
-install/uninstall, and WebView2 behaviour must still be validated on a clean
-Windows VM using the checklist in
-[`docs/windows.md`](docs/windows.md). Pushing a `v*` tag runs all four platform
-jobs and publishes the assets with `SHA256SUMS` automatically; see
+`cmdb-lite-windows-x64.zip` and a WiX MSI successfully, and builds the agent
+ZIP/MSI with the same toolchain. The desktop package contains a single
+`bin/cmdb.exe` with no unexpected DLLs (verified by CI). GUI launch, MSI
+install/uninstall, WebView2 behaviour, and the agent service install/enroll/
+upgrade/uninstall flows must still be validated on a clean Windows VM using the
+checklist in [`docs/windows.md`](docs/windows.md). Pushing a `v*` tag runs all
+four platform jobs and publishes the assets with `SHA256SUMS` automatically; see
 [`docs/releasing.md`](docs/releasing.md).
 
 Not yet enforced in CI:
 
 - HTTP/session/TOTP/recovery/admin integration tests for `cmdb-server`;
+- end-to-end agent enrollment/report integration tests;
+- Windows agent MSI install/enroll/uninstall automation;
 - `gofmt`, `go vet`, `govulncheck`, and Go module updates;
 - `cmdb-server`/`cmdb-rpc`/web-asset content checks for built packages;
 - ASan/UBSan and the CSV fuzz target;
@@ -1619,6 +1830,24 @@ Ready-to-use examples are in [`examples/`](examples/):
 - The first-run setup token is printed to stdout/journald. Restrict access to the
   server console and journal while no users exist.
 - Discovery never merges automatically; the operator must choose every action.
+- The application inventory agent collects only installed DEB/RPM packages and
+  machine-wide Windows uninstall registry entries. Windows Store/Appx, Snap,
+  Flatpak, per-user Windows apps, running processes, and services are out of
+  scope for this version.
+- Agent reports are self-asserted and have no host attestation or client
+  certificate. A stolen per-host token can only poison that host's own
+  application inventory, but the server cannot prove the report is truthful.
+- There is no bulk agent installer or directory/OU integration; MSI properties
+  and the `cmdb-agent enroll` command cover automated deployment.
+- Agent tokens do not expire automatically; revoke them when decommissioning a
+  host. There is no agent-record delete UI yet.
+- Agent history retention is global, not per-host, and the UI has no export of
+  application inventory/history yet.
+- The MSI `SERVER_URL`/`ENROLLMENT_TOKEN` properties can appear in installation
+  logs; use a short-lived one-time token or post-install enrollment.
+- The agent Windows service runs as `LocalSystem` because it reads machine-wide
+  registry keys. It does not require interactive login and has no remote command
+  channel.
 - Do not share a database file between a running server and a desktop-local
   process. Server mode supports multiple users through one server process, not
   through a shared file.
@@ -1650,7 +1879,13 @@ Ready-to-use examples are in [`examples/`](examples/):
   of skew is accepted.
 - The Go module dependencies (`golang.org/x/crypto v0.31.0`, `x/sys v0.28.0`,
   `x/term v0.27.0`) are older than current upstream releases and are not scanned
-  in CI. Run `govulncheck` and update before release.
+  in CI. Run `govulncheck` and update before release. The agent uses
+  `golang.org/x/sys` for Windows registry/service access.
+- Agent enrollment and report endpoints have in-memory rate limits that are
+  cleared by a restart. There is no persistent lockout on agent credentials.
+- Agent report data is untrusted; the server and C core bound sizes and field
+  lengths, but the UI is the only consumer and no independent report signature is
+  used.
 - Signing, SBOMs, and build provenance are not used for the current rollout.
   Windows artifacts are unsigned and may trigger SmartScreen; `SHA256SUMS` is the
   only published integrity check. Reproducible-build verification is not yet
@@ -1725,6 +1960,21 @@ is still needed before a public or enterprise production rollout.
       the API is serialized and has no HA.
 - [ ] Add HTTP/session/TOTP/recovery/admin integration tests to CI; current CI
       runs only Go unit tests plus manual end-to-end validation.
+- [ ] Add automated agent enrollment/report integration tests to CI. The current
+      end-to-end flow is manually validated.
+- [ ] Validate the agent DEB/RPM on the target Ubuntu, Kali, and Fedora images;
+      verify the `cmdb-agent` user can read the package database.
+- [ ] Validate the agent MSI on a clean Windows 11 and Windows Server 2019/2022
+      VM: install without properties, enroll, service start, report, upgrade,
+      uninstall, and Programs and Features entry.
+- [ ] Test MSI `SERVER_URL`/`ENROLLMENT_TOKEN` deployment and confirm whether
+      installation logs retain the one-time token in the target environment.
+- [ ] Perform an agent backup/restore drill and verify current software, change
+      events, linked CIs, and audit entries survive.
+- [ ] Define agent retention and decommissioning policy; revoke tokens and plan
+      for host-record deletion.
+- [ ] Confirm that collecting package inventories is permitted by endpoint
+      monitoring and privacy policy.
 - [ ] Run `govulncheck` and update the Go module dependencies, which currently
       lag upstream.
 - [x] Enable GitHub private vulnerability reporting and publish `SECURITY.md`

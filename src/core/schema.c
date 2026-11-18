@@ -170,6 +170,102 @@ static const char scan_schema_sql[] =  "CREATE TABLE IF NOT EXISTS scan_jobs (\n
   "CREATE INDEX IF NOT EXISTS idx_discovered_status\n"
   "  ON discovered_assets(review_status);\n";
 
+static const char agents_schema_sql[] =
+  "CREATE TABLE IF NOT EXISTS agents (\n"
+  "  id TEXT PRIMARY KEY NOT NULL,\n"
+  "  display_name TEXT NOT NULL DEFAULT '',\n"
+  "  hostname TEXT NOT NULL DEFAULT '',\n"
+  "  machine_id TEXT NOT NULL DEFAULT '',\n"
+  "  os_family TEXT NOT NULL DEFAULT '',\n"
+  "  os_name TEXT NOT NULL DEFAULT '',\n"
+  "  os_version TEXT NOT NULL DEFAULT '',\n"
+  "  architecture TEXT NOT NULL DEFAULT '',\n"
+  "  agent_version TEXT NOT NULL DEFAULT '',\n"
+  "  token_hash TEXT NOT NULL DEFAULT '',\n"
+  "  token_prefix TEXT NOT NULL DEFAULT '',\n"
+  "  status TEXT NOT NULL DEFAULT 'active'\n"
+  "    CHECK (status IN ('active','revoked')),\n"
+  "  enrolled_at TEXT NOT NULL,\n"
+  "  last_report_at TEXT NOT NULL DEFAULT '',\n"
+  "  last_seen_ip TEXT NOT NULL DEFAULT '',\n"
+  "  ci_id TEXT NOT NULL DEFAULT '',\n"
+  "  created_at TEXT NOT NULL,\n"
+  "  updated_at TEXT NOT NULL\n"
+  ");\n"
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_token_hash\n"
+  "  ON agents(token_hash) WHERE token_hash <> '';\n"
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_machine_id\n"
+  "  ON agents(machine_id) WHERE machine_id <> '';\n"
+  "CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);\n"
+  "CREATE TABLE IF NOT EXISTS agent_enrollment_tokens (\n"
+  "  id TEXT PRIMARY KEY NOT NULL,\n"
+  "  token_hash TEXT NOT NULL UNIQUE,\n"
+  "  token_prefix TEXT NOT NULL DEFAULT '',\n"
+  "  label TEXT NOT NULL DEFAULT '',\n"
+  "  created_by TEXT NOT NULL DEFAULT '',\n"
+  "  created_at TEXT NOT NULL,\n"
+  "  expires_at TEXT NOT NULL,\n"
+  "  used_at TEXT NOT NULL DEFAULT '',\n"
+  "  revoked_at TEXT NOT NULL DEFAULT ''\n"
+  ");\n"
+  "CREATE INDEX IF NOT EXISTS idx_agent_tokens_created\n"
+  "  ON agent_enrollment_tokens(created_at DESC);\n"
+  "CREATE TABLE IF NOT EXISTS agent_reports (\n"
+  "  id TEXT PRIMARY KEY NOT NULL,\n"
+  "  agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,\n"
+  "  collected_at TEXT NOT NULL,\n"
+  "  received_at TEXT NOT NULL,\n"
+  "  app_count INTEGER NOT NULL DEFAULT 0,\n"
+  "  added_count INTEGER NOT NULL DEFAULT 0,\n"
+  "  removed_count INTEGER NOT NULL DEFAULT 0,\n"
+  "  updated_count INTEGER NOT NULL DEFAULT 0,\n"
+  "  complete INTEGER NOT NULL DEFAULT 1 CHECK (complete IN (0,1)),\n"
+  "  collector_errors TEXT NOT NULL DEFAULT ''\n"
+  ");\n"
+  "CREATE INDEX IF NOT EXISTS idx_agent_reports_agent\n"
+  "  ON agent_reports(agent_id, received_at DESC);\n"
+  "CREATE TABLE IF NOT EXISTS agent_apps (\n"
+  "  agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,\n"
+  "  app_key TEXT NOT NULL,\n"
+  "  name TEXT NOT NULL,\n"
+  "  version TEXT NOT NULL DEFAULT '',\n"
+  "  publisher TEXT NOT NULL DEFAULT '',\n"
+  "  source TEXT NOT NULL DEFAULT '',\n"
+  "  architecture TEXT NOT NULL DEFAULT '',\n"
+  "  install_date TEXT NOT NULL DEFAULT '',\n"
+  "  install_location TEXT NOT NULL DEFAULT '',\n"
+  "  size_kb INTEGER NOT NULL DEFAULT 0,\n"
+  "  first_seen_at TEXT NOT NULL,\n"
+  "  last_seen_at TEXT NOT NULL,\n"
+  "  last_report_id TEXT NOT NULL DEFAULT '',\n"
+  "  removed_at TEXT NOT NULL DEFAULT '',\n"
+  "  PRIMARY KEY (agent_id, app_key)\n"
+  ");\n"
+  "CREATE INDEX IF NOT EXISTS idx_agent_apps_current\n"
+  "  ON agent_apps(agent_id, removed_at);\n"
+  "CREATE TABLE IF NOT EXISTS agent_app_events (\n"
+  "  id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+  "  agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,\n"
+  "  report_id TEXT NOT NULL REFERENCES agent_reports(id) ON DELETE CASCADE,\n"
+  "  app_key TEXT NOT NULL,\n"
+  "  event_type TEXT NOT NULL\n"
+  "    CHECK (event_type IN ('added','removed','updated')),\n"
+  "  name TEXT NOT NULL DEFAULT '',\n"
+  "  old_version TEXT NOT NULL DEFAULT '',\n"
+  "  new_version TEXT NOT NULL DEFAULT '',\n"
+  "  detail TEXT NOT NULL DEFAULT '',\n"
+  "  occurred_at TEXT NOT NULL\n"
+  ");\n"
+  "CREATE INDEX IF NOT EXISTS idx_agent_events_agent\n"
+  "  ON agent_app_events(agent_id, occurred_at DESC);\n"
+  "CREATE TRIGGER IF NOT EXISTS trg_agent_ci_delete\n"
+  "AFTER DELETE ON cis\n"
+  "BEGIN\n"
+  "  UPDATE agents SET ci_id = '' WHERE ci_id = OLD.id;\n"
+  "END;\n"
+  "CREATE INDEX IF NOT EXISTS idx_ci_attributes_lookup\n"
+  "  ON ci_attributes(field_key, value);\n";
+
 typedef struct {
   const char *id;
   const char *name;
@@ -361,7 +457,10 @@ int cmdb_schema_create(cmdb_db_t *db, cmdb_error_t *err) {
   if (cmdb_db_exec(db, schema_sql, err) != 0) {
     return -1;
   }
-  return cmdb_db_exec(db, scan_schema_sql, err);
+  if (cmdb_db_exec(db, scan_schema_sql, err) != 0) {
+    return -1;
+  }
+  return cmdb_db_exec(db, agents_schema_sql, err);
 }
 
 int cmdb_schema_meta_set(cmdb_db_t *db, const char *key, const char *value,
@@ -895,6 +994,12 @@ int cmdb_schema_migrate(cmdb_db_t *db, cmdb_error_t *err) {
     char now[21];
     cmdb_iso8601_now(now);
     if (schema_migrate_v4(db, now, err) != 0) {
+      (void)cmdb_db_rollback(db, NULL);
+      return -1;
+    }
+  }
+  if (version < 5) {
+    if (cmdb_db_exec(db, agents_schema_sql, err) != 0) {
       (void)cmdb_db_rollback(db, NULL);
       return -1;
     }

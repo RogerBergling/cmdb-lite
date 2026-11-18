@@ -1,0 +1,9 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = "0" ]; then
+  rm -f /etc/cmdb-lite-agent/agent.json
+  rmdir /etc/cmdb-lite-agent >/dev/null 2>&1 || true
+fi
+
+exit 0

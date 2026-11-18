@@ -54,6 +54,14 @@ const state = {
   diagramSelected: new Set(),
   diagramDrag: null,
   diagramDirty: false,
+  agents: [],
+  selectedAgentId: null,
+  agentDetail: null,
+  agentApps: [],
+  agentHistory: null,
+  agentView: "software",
+  agentTokens: [],
+  agentTokenValue: "",
   mapGraph: null,
   mapParams: null,
   mapNodeIds: new Set(),
@@ -441,6 +449,7 @@ async function enterApplication() {
     $("lock-button").textContent = "Sign out";
   }
   await loadAll();
+  updateAgentUi();
   await loadThemePreference();
 }
 
@@ -542,6 +551,16 @@ async function lockApplication() {
   state.diagram = null;
   state.diagramSelected.clear();
   state.diagramDirty = false;
+  state.agents = [];
+  state.selectedAgentId = null;
+  state.agentDetail = null;
+  state.agentApps = [];
+  state.agentHistory = null;
+  state.agentTokens = [];
+  state.agentTokenValue = "";
+  hide($("agent-detail"));
+  hide($("agent-enrollment-panel"));
+  hide($("agent-token-result"));
   hide($("main-app"));
   show($("unlock-screen"));
   $("passphrase").value = "";
@@ -569,6 +588,7 @@ async function loadAll() {
     renderDiagramSelects();
     await loadCis();
     await loadRelationships();
+    await loadAgents();
   } catch (error) {
     toast(formatError(error), "error");
   }
@@ -2837,6 +2857,461 @@ function closeModal(id) {
   hide($(id));
 }
 
+function canManageAgents() {
+  return Boolean(state.serverMode && state.authUser && state.authUser.is_admin);
+}
+
+function updateAgentUi() {
+  const manage = canManageAgents();
+  $("agent-enrollment").classList.toggle("hidden", !manage);
+  const note = $("applications-local-note");
+  if (!state.serverMode) {
+    note.textContent = "Agent enrollment requires a cmdb-server connection. This view can still display agent data in the open database.";
+    show(note);
+  } else if (!manage) {
+    note.textContent = "An administrator can create enrollment tokens. You can still inspect hosts and application history.";
+    show(note);
+  } else {
+    hide(note);
+  }
+  if (!manage) {
+    hide($("agent-enrollment-panel"));
+  }
+}
+
+function formatAgentTime(value) {
+  if (!value) {
+    return "\u2014";
+  }
+  return value.replace("T", " ").replace("Z", "");
+}
+
+function agentStatusInfo(agent) {
+  if (agent.status === "revoked") {
+    return { label: "Revoked", css: "revoked" };
+  }
+  if (!agent.last_report_at) {
+    return { label: "Awaiting report", css: "waiting" };
+  }
+  const reported = Date.parse(agent.last_report_at);
+  if (Number.isNaN(reported)) {
+    return { label: "Unknown", css: "waiting" };
+  }
+  const hours = (Date.now() - reported) / 3600000;
+  if (hours > 48) {
+    return { label: "Stale", css: "stale" };
+  }
+  return { label: "Active", css: "active" };
+}
+
+function formatSize(kilobytes) {
+  if (!kilobytes || kilobytes <= 0) {
+    return "\u2014";
+  }
+  if (kilobytes >= 1024 * 1024) {
+    return `${(kilobytes / (1024 * 1024)).toFixed(1)} GB`;
+  }
+  if (kilobytes >= 1024) {
+    return `${(kilobytes / 1024).toFixed(1)} MB`;
+  }
+  return `${kilobytes} KB`;
+}
+
+async function loadAgents() {
+  try {
+    const result = await api("agents.list");
+    state.agents = result.agents || [];
+    renderAgents();
+    if (state.selectedAgentId && !state.agents.some((agent) => agent.id === state.selectedAgentId)) {
+      state.selectedAgentId = null;
+      state.agentDetail = null;
+      state.agentApps = [];
+      state.agentHistory = null;
+      hide($("agent-detail"));
+    }
+  } catch (error) {
+    toast(formatError(error), "error");
+  }
+}
+
+function renderAgents() {
+  const tbody = $("agent-table");
+  clear(tbody);
+  for (const agent of state.agents) {
+    const status = agentStatusInfo(agent);
+    const view = el("button", {
+      type: "button",
+      class: "secondary small",
+      text: "View",
+      onclick: () => selectAgent(agent.id)
+    });
+    const row = el("tr", {
+      class: agent.id === state.selectedAgentId ? "selected-row" : "",
+      onclick: (event) => {
+        if (event.target.tagName !== "BUTTON") {
+          selectAgent(agent.id);
+        }
+      }
+    }, [
+      el("td", {}, [
+        el("strong", { text: agent.display_name || agent.hostname || agent.id }),
+        el("div", { class: "muted small-text", text: agent.hostname || "" })
+      ]),
+      el("td", {}, [
+        el("div", { text: agent.os_name || "\u2014" }),
+        el("div", { class: "muted small-text", text: agent.os_version || "" })
+      ]),
+      el("td", { text: String(agent.app_count || 0) }),
+      el("td", { text: formatAgentTime(agent.last_report_at) }),
+      el("td", {}, el("span", { class: `badge ${status.css}`, text: status.label })),
+      el("td", {}, el("div", { class: "table-actions" }, [view]))
+    ]);
+    tbody.append(row);
+  }
+  $("agent-empty").classList.toggle("hidden", state.agents.length !== 0);
+  $("applications-summary").textContent = state.agents.length === 1
+    ? "1 managed host"
+    : `${state.agents.length} managed hosts`;
+}
+
+async function selectAgent(id) {
+  state.selectedAgentId = id;
+  renderAgents();
+  try {
+    const [detail, history] = await Promise.all([
+      api("agents.get", { id }),
+      api("agents.history", { id, limit: 30, event_limit: 200 })
+    ]);
+    state.agentDetail = detail.agent || null;
+    state.agentApps = detail.apps || [];
+    state.agentHistory = history || { reports: [], events: [] };
+    renderAgentDetail();
+  } catch (error) {
+    toast(formatError(error), "error");
+  }
+}
+
+function summaryCard(label, value, detail) {
+  return el("div", { class: "summary-card" }, [
+    el("span", { class: "summary-label", text: label }),
+    el("strong", { text: String(value) }),
+    detail ? el("span", { class: "summary-detail", text: detail }) : null
+  ]);
+}
+
+function renderAgentDetail() {
+  const agent = state.agentDetail;
+  if (!agent) {
+    hide($("agent-detail"));
+    return;
+  }
+  show($("agent-detail"));
+  $("agent-detail-name").textContent = agent.display_name || agent.hostname || agent.id;
+  $("agent-detail-meta").textContent = [
+    agent.hostname,
+    `${agent.os_name || ""} ${agent.os_version || ""}`.trim(),
+    agent.architecture,
+    agent.agent_version ? `agent ${agent.agent_version}` : "",
+    agent.last_seen_ip ? `last seen ${agent.last_seen_ip}` : ""
+  ].filter(Boolean).join(" \u00b7 ");
+
+  const status = agentStatusInfo(agent);
+  const latest = state.agentHistory && state.agentHistory.reports && state.agentHistory.reports.length
+    ? state.agentHistory.reports[0]
+    : null;
+  const cards = $("agent-summary-cards");
+  clear(cards);
+  cards.append(
+    summaryCard("Applications", agent.app_count || 0, "currently installed"),
+    summaryCard("Added", latest ? latest.added_count : 0, "in the latest report"),
+    summaryCard("Removed", latest ? latest.removed_count : 0, "in the latest report"),
+    summaryCard("Updated", latest ? latest.updated_count : 0, "in the latest report"),
+    summaryCard("Status", status.label, agent.last_report_at ? `last report ${formatAgentTime(agent.last_report_at)}` : "no report yet")
+  );
+
+  $("agent-revoke").classList.toggle("hidden",
+    !(canManageAgents() && agent.status !== "revoked"));
+  populateAgentCiSelect(agent);
+  renderAgentApps();
+  renderAgentHistory();
+  setAgentView(state.agentView);
+}
+
+function populateAgentCiSelect(agent) {
+  const select = $("agent-ci-link");
+  clear(select);
+  select.append(el("option", { value: "", text: "Not linked" }));
+  const seen = new Set();
+  const add = (id, name, prefix) => {
+    if (!id || seen.has(id)) {
+      return;
+    }
+    seen.add(id);
+    select.append(el("option", {
+      value: id,
+      text: `${prefix || ""}${name || id}`
+    }));
+  };
+  add(agent.ci_id, agent.ci_name, "Linked: ");
+  add(agent.suggested_ci_id, agent.suggested_ci_name, "Suggested: ");
+  for (const ci of state.cis) {
+    add(ci.id, ci.name, "");
+  }
+  select.value = agent.ci_id || "";
+}
+
+function renderAgentApps() {
+  const tbody = $("agent-app-table");
+  clear(tbody);
+  const query = $("agent-app-search").value.trim().toLowerCase();
+  const matches = [];
+  for (const app of state.agentApps) {
+    const haystack = `${app.name} ${app.version} ${app.publisher} ${app.source} ${app.architecture}`.toLowerCase();
+    if (query && !haystack.includes(query)) {
+      continue;
+    }
+    matches.push(app);
+  }
+  const limit = 500;
+  const shown = matches.slice(0, limit);
+  for (const app of shown) {
+    tbody.append(el("tr", {}, [
+      el("td", { text: app.name }),
+      el("td", { text: app.version || "\u2014" }),
+      el("td", { text: app.publisher || "\u2014" }),
+      el("td", { text: app.source || "\u2014" }),
+      el("td", { text: app.architecture || "\u2014" }),
+      el("td", { text: app.install_date || "\u2014" }),
+      el("td", { text: formatSize(app.size_kb) })
+    ]));
+  }
+  const meta = matches.length === 1
+    ? "1 application"
+    : `${matches.length} applications`;
+  $("agent-app-meta").textContent = matches.length > limit
+    ? `${meta} (showing the first ${limit})`
+    : meta;
+  $("agent-app-empty").classList.toggle("hidden", shown.length !== 0);
+}
+
+function renderAgentHistory() {
+  const eventBody = $("agent-event-table");
+  const reportBody = $("agent-report-table");
+  clear(eventBody);
+  clear(reportBody);
+  const history = state.agentHistory || { events: [], reports: [] };
+  for (const event of history.events || []) {
+    let version = "\u2014";
+    if (event.event_type === "updated") {
+      version = `${event.old_version || "\u2014"} \u2192 ${event.new_version || "\u2014"}`;
+    } else if (event.event_type === "added") {
+      version = event.new_version || "\u2014";
+    } else if (event.event_type === "removed") {
+      version = event.old_version || "\u2014";
+    }
+    eventBody.append(el("tr", {}, [
+      el("td", { text: formatAgentTime(event.occurred_at) }),
+      el("td", {}, el("span", { class: `event-badge ${event.event_type}`, text: event.event_type })),
+      el("td", { text: event.name }),
+      el("td", { text: version })
+    ]));
+  }
+  for (const report of history.reports || []) {
+    reportBody.append(el("tr", {}, [
+      el("td", { text: formatAgentTime(report.received_at) }),
+      el("td", { text: formatAgentTime(report.collected_at) }),
+      el("td", {}, el("span", {
+        class: `badge ${report.complete ? "active" : "stale"}`,
+        text: report.complete ? "Complete" : "Partial"
+      })),
+      el("td", { text: String(report.app_count || 0) }),
+      el("td", { text: String(report.added_count || 0) }),
+      el("td", { text: String(report.removed_count || 0) }),
+      el("td", { text: String(report.updated_count || 0) }),
+      el("td", { text: report.collector_errors || "\u2014" })
+    ]));
+  }
+  $("agent-event-empty").classList.toggle("hidden", (history.events || []).length !== 0);
+}
+
+function setAgentView(name) {
+  state.agentView = name === "history" ? "history" : "software";
+  $("agent-view-software").classList.toggle("active", state.agentView === "software");
+  $("agent-view-history").classList.toggle("active", state.agentView === "history");
+  $("agent-view-software").setAttribute("aria-selected", state.agentView === "software" ? "true" : "false");
+  $("agent-view-history").setAttribute("aria-selected", state.agentView === "history" ? "true" : "false");
+  $("agent-software-view").classList.toggle("hidden", state.agentView !== "software");
+  $("agent-history-view").classList.toggle("hidden", state.agentView !== "history");
+}
+
+async function saveAgentLink() {
+  if (!state.agentDetail) {
+    return;
+  }
+  try {
+    const result = await api("agents.link_ci", {
+      id: state.agentDetail.id,
+      ci_id: $("agent-ci-link").value
+    });
+    state.agentDetail = result.agent || state.agentDetail;
+    toast("Agent CI link saved.", "success");
+    await loadAgents();
+    renderAgentDetail();
+  } catch (error) {
+    toast(formatError(error), "error");
+  }
+}
+
+async function revokeSelectedAgent() {
+  if (!state.agentDetail) {
+    return;
+  }
+  const confirmed = await askConfirm(
+    "Revoke agent",
+    `Revoke "${state.agentDetail.display_name || state.agentDetail.hostname}"? Its token stops working immediately; existing inventory and history remain.`,
+    "Revoke"
+  );
+  if (!confirmed) {
+    return;
+  }
+  try {
+    const result = await api("agents.revoke", { id: state.agentDetail.id });
+    state.agentDetail = result.agent || state.agentDetail;
+    toast("Agent revoked.", "success");
+    await loadAgents();
+    renderAgentDetail();
+  } catch (error) {
+    toast(formatError(error), "error");
+  }
+}
+
+function openEnrollmentPanel() {
+  show($("agent-enrollment-panel"));
+  $("agent-token-label").focus();
+  loadAgentTokens();
+}
+
+function closeEnrollmentPanel() {
+  hide($("agent-enrollment-panel"));
+  hide($("agent-token-result"));
+  state.agentTokenValue = "";
+  $("agent-token-value").value = "";
+  $("agent-token-command").textContent = "";
+}
+
+async function createEnrollmentToken() {
+  const label = $("agent-token-label").value.trim();
+  const button = $("agent-token-create");
+  button.disabled = true;
+  try {
+    const result = await api("agents.token_create", {
+      label,
+      ttl_seconds: 3600
+    });
+    state.agentTokenValue = result.token || "";
+    $("agent-token-value").value = state.agentTokenValue;
+    const origin = window.location.origin;
+    $("agent-token-command").textContent =
+      "# Linux (as root)\n" +
+      `sudo cmdb-agent enroll --server ${origin} --token ${state.agentTokenValue}\n\n` +
+      "# Windows (elevated PowerShell)\n" +
+      `cmdb-agent.exe enroll --server ${origin} --token ${state.agentTokenValue}`;
+    show($("agent-token-result"));
+    $("agent-token-label").value = "";
+    await loadAgentTokens();
+  } catch (error) {
+    toast(formatError(error), "error");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function copyAgentToken() {
+  if (!state.agentTokenValue) {
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(state.agentTokenValue);
+    toast("Enrollment token copied.", "success");
+  } catch (error) {
+    const input = $("agent-token-value");
+    input.select();
+    try {
+      document.execCommand("copy");
+      toast("Enrollment token copied.", "success");
+    } catch (fallbackError) {
+      toast("Copy failed; select the token manually.", "error");
+    }
+  }
+}
+
+async function loadAgentTokens() {
+  if (!canManageAgents()) {
+    return;
+  }
+  try {
+    const result = await api("agents.token_list");
+    state.agentTokens = result.tokens || [];
+    renderAgentTokens();
+  } catch (error) {
+    toast(formatError(error), "error");
+  }
+}
+
+function renderAgentTokens() {
+  const tbody = $("agent-token-table");
+  clear(tbody);
+  for (const token of state.agentTokens) {
+    let status = "Active";
+    let css = "active";
+    if (token.revoked) {
+      status = "Revoked";
+      css = "revoked";
+    } else if (token.used) {
+      status = "Used";
+      css = "waiting";
+    } else if (token.expired) {
+      status = "Expired";
+      css = "stale";
+    }
+    const action = !token.used && !token.revoked && !token.expired
+      ? el("button", {
+        type: "button",
+        class: "danger small",
+        text: "Revoke",
+        onclick: () => revokeEnrollmentToken(token)
+      })
+      : null;
+    tbody.append(el("tr", {}, [
+      el("td", { text: token.token_prefix }),
+      el("td", { text: token.label || "\u2014" }),
+      el("td", { text: formatAgentTime(token.created_at) }),
+      el("td", { text: formatAgentTime(token.expires_at) }),
+      el("td", {}, el("span", { class: `badge ${css}`, text: status })),
+      el("td", {}, el("div", { class: "table-actions" }, action ? [action] : []))
+    ]));
+  }
+  $("agent-token-empty").classList.toggle("hidden", state.agentTokens.length !== 0);
+}
+
+async function revokeEnrollmentToken(token) {
+  const confirmed = await askConfirm(
+    "Revoke enrollment token",
+    `Revoke the token with prefix ${token.token_prefix}? It can no longer enroll a host.`,
+    "Revoke"
+  );
+  if (!confirmed) {
+    return;
+  }
+  try {
+    await api("agents.token_revoke", { id: token.id });
+    toast("Enrollment token revoked.", "success");
+    await loadAgentTokens();
+  } catch (error) {
+    toast(formatError(error), "error");
+  }
+}
+
 function bindEvents() {
   $("mode-open").addEventListener("click", () => setUnlockMode("open"));
   $("mode-create").addEventListener("click", () => setUnlockMode("create"));
@@ -2849,6 +3324,25 @@ function bindEvents() {
   $("theme-unlock").addEventListener("change", changeTheme);
   $("backup-db").addEventListener("click", backupDatabase);
   $("lock-button").addEventListener("click", lockApplication);
+
+  $("agent-refresh").addEventListener("click", () => {
+    loadAgents();
+    if (state.selectedAgentId) {
+      selectAgent(state.selectedAgentId);
+    }
+    if (canManageAgents()) {
+      loadAgentTokens();
+    }
+  });
+  $("agent-enrollment").addEventListener("click", openEnrollmentPanel);
+  $("agent-token-close").addEventListener("click", closeEnrollmentPanel);
+  $("agent-token-create").addEventListener("click", createEnrollmentToken);
+  $("agent-token-copy").addEventListener("click", copyAgentToken);
+  $("agent-view-software").addEventListener("click", () => setAgentView("software"));
+  $("agent-view-history").addEventListener("click", () => setAgentView("history"));
+  $("agent-app-search").addEventListener("input", renderAgentApps);
+  $("agent-link-save").addEventListener("click", saveAgentLink);
+  $("agent-revoke").addEventListener("click", revokeSelectedAgent);
 
   for (const tab of document.querySelectorAll(".tab")) {
     tab.addEventListener("click", () => activateTab(tab.dataset.tab));
@@ -2970,6 +3464,13 @@ function activateTab(name) {
       renderDiagramCanvas();
     } else {
       loadDiagrams();
+    }
+  }
+  if (name === "applications") {
+    updateAgentUi();
+    loadAgents();
+    if (canManageAgents() && !$("agent-enrollment-panel").classList.contains("hidden")) {
+      loadAgentTokens();
     }
   }
 }

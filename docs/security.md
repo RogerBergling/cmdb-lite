@@ -6,9 +6,11 @@ reviewers of the codebase.
 
 ## Assets
 
-- The CMDB database: inventory records, relationships, diagrams, and audit log.
+- The CMDB database: inventory records, relationships, diagrams, application
+  inventory, and audit log.
 - The database passphrase.
 - The derived encryption key.
+- Per-host agent tokens and one-time enrollment tokens.
 - Import files and network scan results before and during ingestion.
 - The integrity of exported `.drawio` files and backups.
 
@@ -75,6 +77,10 @@ sidecar without its database is useless.
 - A downgrade of Argon2id parameters through sidecar tampering.
 - Silent auto-merge of network discovery data, because discovery is staged for
   review.
+- Replay of a used enrollment token or reuse of a revoked agent token.
+- Cross-host agent reporting: a per-host token is bound to one agent record.
+- Duplicate agent records after re-enrollment, because the machine ID is matched
+  and the existing record is reused.
 
 ### Not protected against
 
@@ -91,6 +97,10 @@ sidecar without its database is useless.
   attacker; they can rewrite the chain.
 - Traffic analysis or legal consequences of network scanning. Authorisation is
   the operator's responsibility.
+- A compromised managed host or an attacker with its agent token submitting
+  false application inventory for that host. Reports are self-asserted.
+- Theft of an agent token from a host by root/Administrator or malware. Revoke
+  and re-enroll the host.
 
 ## Audit log
 
@@ -184,6 +194,40 @@ Server-specific requirements and limitations:
 Desktop-local mode still has no application-level login. Anyone who can open the
 database file and knows the passphrase has full access. Opening a server-managed
 database locally therefore bypasses server accounts.
+
+## Application inventory agent
+
+`cmdb-agent` uses a separate machine-authentication path from user sessions:
+
+- an administrator creates a short-lived, single-use enrollment token;
+- the agent exchanges it over HTTPS for a unique 256-bit per-host token;
+- only token hashes are stored in the encrypted database;
+- the per-host token is scoped to reporting inventory for that host and is
+  revocable without affecting other hosts;
+- enrollment and report endpoints are dedicated and do not expose the generic
+  RPC method allowlist;
+- enrollment and report bodies are size-limited, field-validated, and
+  rate-limited per source address and credential;
+- TLS is required for non-loopback URLs; the agent verifies the system trust
+  store and can append a private CA bundle;
+- the Linux service runs as the unprivileged `cmdb-agent` user with an empty
+  capability set, `NoNewPrivileges`, a read-only system view, and a restricted
+  address-family list;
+- the Windows service runs as `LocalSystem` because it reads machine-wide
+  uninstall registry keys; its config is ACL-restricted to SYSTEM and
+  Administrators;
+- the agent executes only `rpm -qa` with a fixed argv on Fedora and reads the
+  Windows registry directly; it never invokes a shell and accepts no remote
+  commands.
+
+An agent token is a bearer credential. A host compromise can read it, and a
+stolen token can submit false inventory for that one host. It cannot read the
+CMDB, modify unrelated CIs, create users, or start scans. Agent reports are
+self-asserted; protect host integrity and revoke tokens when decommissioning
+hosts. MSI `ENROLLMENT_TOKEN` properties can appear in installation logs, so use
+a short-lived one-time token or run `cmdb-agent enroll` after installation.
+
+See [`agent.md`](agent.md) for the full design, deployment, and limitations.
 
 ## Memory-safety posture
 
@@ -323,6 +367,7 @@ The monitored fallback contact is `github@bergling.net`. See
   SHA pinning is not required. The vcpkg baseline is not pinned.
 - The Flatpak sandbox grants broad home-directory and network access.
 - No macOS, ARM64, 32-bit, or Windows server build is produced by CI. Linux
-  packages include `cmdb-server`; Flatpak and Windows packages are desktop-only.
+  packages include `cmdb-server`; Flatpak is desktop-only, and Windows packages
+  are desktop clients plus the application inventory agent.
 - No FIPS 140, Common Criteria, HSM-backed key, or hardware-token support is
   claimed.

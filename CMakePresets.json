@@ -54,6 +54,20 @@
       }
     },
     {
+      "name": "agent",
+      "displayName": "Agent package (headless)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-agent",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMDB_BUILD_UI": "OFF",
+        "CMDB_BUILD_SERVER": "OFF",
+        "CMDB_BUILD_AGENT": "ON",
+        "CMDB_BUILD_TESTS": "ON",
+        "CMDB_WERROR": "ON"
+      }
+    },
+    {
       "name": "windows",
       "displayName": "Windows MSVC x64",
       "generator": "Visual Studio 17 2022",
@@ -77,6 +91,7 @@
     { "name": "asan", "configurePreset": "asan" },
     { "name": "core", "configurePreset": "core" },
     { "name": "release", "configurePreset": "release" },
+    { "name": "agent", "configurePreset": "agent" },
     { "name": "windows", "configurePreset": "windows", "configuration": "Release" }
   ],
   "testPresets": [
@@ -84,6 +99,7 @@
     { "name": "asan", "configurePreset": "asan", "output": { "outputOnFailure": true } },
     { "name": "core", "configurePreset": "core", "output": { "outputOnFailure": true } },
     { "name": "release", "configurePreset": "release", "output": { "outputOnFailure": true } },
+    { "name": "agent", "configurePreset": "agent", "output": { "outputOnFailure": true } },
     { "name": "windows", "configurePreset": "windows", "configuration": "Release", "output": { "outputOnFailure": true } }
   ]
 }

@@ -22,10 +22,13 @@ so backup does not ask for the passphrase again. It is zeroized on close and is
 never written to disk.
 
 Server-mode accounts, TOTP secrets, and recovery-code hashes live in the same
-encrypted database under the `app_meta` key `auth.state`. A database backup
-therefore includes authentication state, and restore tests must include login,
-TOTP, and recovery-code validation. Sessions are memory-only and are not part of
-a backup; restarting the server logs everyone out.
+encrypted database under the `app_meta` key `auth.state`. Application inventory,
+agent credentials (as hashes), report history, and change events live in the
+schema v5 agent tables. A database backup therefore includes authentication
+state, agent identity, current software, and history. Restore tests must include
+login, TOTP, recovery-code validation, and the Applications view. Sessions are
+memory-only and are not part of a backup; restarting the server logs everyone
+out.
 
 Opening a server-managed database in local desktop mode bypasses application
 logins. The database passphrase is the only gate in that mode.
