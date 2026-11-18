@@ -97,11 +97,13 @@ func saveConfig(path string, cfg *Config) error {
 		return err
 	}
 	dir := filepath.Dir(path)
+	useServiceGroup := runtime.GOOS != "windows" &&
+		filepath.Clean(path) == filepath.Clean(defaultConfigPath())
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("create configuration directory: %w", err)
 	}
 	if runtime.GOOS != "windows" {
-		if err := secureConfigDirectory(dir); err != nil {
+		if err := secureConfigDirectory(dir, useServiceGroup); err != nil {
 			return err
 		}
 	}
@@ -137,7 +139,7 @@ func saveConfig(path string, cfg *Config) error {
 		return err
 	}
 	if runtime.GOOS != "windows" {
-		if err := secureConfigFile(tempName); err != nil {
+		if err := secureConfigFile(tempName, useServiceGroup); err != nil {
 			_ = os.Remove(tempName)
 			return err
 		}
@@ -147,7 +149,7 @@ func saveConfig(path string, cfg *Config) error {
 		return fmt.Errorf("install configuration: %w", err)
 	}
 	if runtime.GOOS == "windows" {
-		if err := secureConfigFile(path); err != nil {
+		if err := secureConfigFile(path, false); err != nil {
 			return err
 		}
 	}

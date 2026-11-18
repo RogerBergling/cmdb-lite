@@ -15,14 +15,14 @@ func runIcacls(args ...string) error {
 	return nil
 }
 
-func secureConfigDirectory(dir string) error {
+func secureConfigDirectory(dir string, _ bool) error {
 	return runIcacls(dir,
 		"/inheritance:r",
 		"/grant:r", "*S-1-5-18:(OI)(CI)F",
 		"*S-1-5-32-544:(OI)(CI)F")
 }
 
-func secureConfigFile(path string) error {
+func secureConfigFile(path string, _ bool) error {
 	return runIcacls(path,
 		"/inheritance:r",
 		"/grant:r", "*S-1-5-18:F",

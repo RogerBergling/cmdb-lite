@@ -444,7 +444,9 @@ jobs:
         run: |
           $version = (Select-String -Path CMakeLists.txt -Pattern 'VERSION ([0-9]+\.[0-9]+\.[0-9]+)' |
             ForEach-Object { $_.Matches[0].Groups[1].Value } | Select-Object -First 1)
-          if (-not $version) { throw "Project version was not found" }
+          if (-not $version -or $version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "Project version was not found or is not MSI-compatible"
+          }
           cmake -S . -B build-agent -G "Visual Studio 17 2022" -A x64 `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=x64-windows-static `
@@ -479,7 +481,7 @@ jobs:
           cpack --config build-agent\CPackConfig.cmake -C Release -G ZIP -B dist-agent
           if ($LASTEXITCODE -ne 0) { throw "Agent ZIP packaging failed" }
           candle -arch x64 `
-            -dVersion=$version `
+            "-dVersion=$version" `
             -dSourceDir="$PWD\build-agent" `
             -dUpgradeCode="{924706A6-4FFA-4C4B-9018-6D8AA8BD3014}" `
             -dComponentGuid="{B16BBF41-8AC9-4B8B-93B3-69B22975A096}" `

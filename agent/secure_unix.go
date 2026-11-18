@@ -11,8 +11,14 @@ import (
 
 const serviceGroup = "cmdb-agent"
 
-func secureConfigDirectory(dir string) error {
+func secureConfigDirectory(dir string, useServiceGroup bool) error {
 	if os.Geteuid() != 0 {
+		return nil
+	}
+	if !useServiceGroup {
+		if err := os.Chmod(dir, 0o700); err != nil {
+			return fmt.Errorf("set configuration directory mode: %w", err)
+		}
 		return nil
 	}
 	group, err := user.LookupGroup(serviceGroup)
@@ -32,8 +38,8 @@ func secureConfigDirectory(dir string) error {
 	return nil
 }
 
-func secureConfigFile(path string) error {
-	if os.Geteuid() != 0 {
+func secureConfigFile(path string, useServiceGroup bool) error {
+	if os.Geteuid() != 0 || !useServiceGroup {
 		return os.Chmod(path, 0o600)
 	}
 	group, err := user.LookupGroup(serviceGroup)
