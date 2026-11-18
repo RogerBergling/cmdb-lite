@@ -432,8 +432,11 @@ static void test_scan_os_privilege(void) {
 static void test_scan_live_nmap(void) {
   const char *enabled = getenv("CMDB_TEST_LIVE_NMAP");
   int listener;
-  struct sockaddr_in address;
-  socklen_t length = sizeof(address);
+  union {
+    struct sockaddr_in in;
+    struct sockaddr addr;
+  } address;
+  socklen_t length = sizeof(address.in);
   char ports[16];
   cmdb_scan_result_t result;
   cmdb_error_t err;
@@ -451,14 +454,12 @@ static void test_scan_live_nmap(void) {
     return;
   }
   memset(&address, 0, sizeof(address));
-  address.sin_family = AF_INET;
-  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-  address.sin_port = 0;
-  TEST_ASSERT(bind(listener, (struct sockaddr *)(void *)&address,
-                   sizeof(address)) == 0);
+  address.in.sin_family = AF_INET;
+  address.in.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  address.in.sin_port = 0;
+  TEST_ASSERT(bind(listener, &address.addr, sizeof(address.in)) == 0);
   TEST_ASSERT(listen(listener, 16) == 0);
-  TEST_ASSERT(getsockname(listener, (struct sockaddr *)(void *)&address,
-                          &length) == 0);
+  TEST_ASSERT(getsockname(listener, &address.addr, &length) == 0);
   {
     int flags = fcntl(listener, F_GETFL, 0);
     if (flags >= 0) {
@@ -466,7 +467,7 @@ static void test_scan_live_nmap(void) {
     }
   }
   (void)snprintf(ports, sizeof(ports), "%u",
-                 (unsigned int)ntohs(address.sin_port));
+                 (unsigned int)ntohs(address.in.sin_port));
   server.fd = listener;
   server.stop = 0;
   if (pthread_create(&thread, NULL, live_http_server, &server) == 0) {
