@@ -9,7 +9,7 @@ For a single linear install walkthrough, start with
 [`installation.md`](installation.md). This document is the detailed reference for
 the server-specific parts.
 
-> **Status:** v0.7.0 ships server-only DEB/RPM/TGZ packages with a hardened
+> **Status:** v0.7.1 ships server-only DEB/RPM/TGZ packages with a hardened
 > systemd unit and a passphrase example. It does not yet ship a separate
 > flags/config file, an online backup API, or a health endpoint. The samples
 > below cover the packaged unit and the remaining operational gaps. Validate
@@ -41,10 +41,10 @@ GTK/WebKit dependencies:
 
 ```bash
 # Debian/Ubuntu
-sudo apt install ./cmdb-lite-server_0.7.0_amd64.deb
+sudo apt install ./cmdb-lite-server_0.7.1_amd64.deb
 
 # Fedora
-sudo dnf install ./cmdb-lite-server-0.7.0-*.rpm
+sudo dnf install ./cmdb-lite-server-0.7.1-*.rpm
 ```
 
 Check the installed server build with:
@@ -379,7 +379,7 @@ procedure or a filesystem snapshot that is consistent with SQLite WAL.
 5. Log in, verify inventory and relationships, and run **Audit verify**.
 6. Keep the previous package and backup until validation is complete.
 
-The v0.7.0 schema is unchanged. Future schema migrations are performed by the C
+The schema is unchanged from v0.7.0. Future schema migrations are performed by the C
 core on open and create a pre-migration backup next to the database before
 migrating; the server logs the `db.open` result. Restarting the server invalidates
 all sessions. Rollback means restoring the database pair and the previous

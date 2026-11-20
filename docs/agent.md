@@ -1,6 +1,6 @@
 # Application inventory agent
 
-> **Status: implemented in v0.7.0 (unreleased).** The agent reports installed
+> **Status: released in v0.7.0; current release v0.7.1.** The agent reports installed
 > application inventory to a `cmdb-server` and stores current software plus a
 > bounded change history in the encrypted database.
 
@@ -94,8 +94,8 @@ CI link.
 Install the packaged service, then enroll as root:
 
 ```bash
-sudo apt install ./cmdb-lite-agent_0.7.0_amd64.deb
-# or: sudo dnf install ./cmdb-lite-agent-0.7.0-*.rpm
+sudo apt install ./cmdb-lite-agent_0.7.1_amd64.deb
+# or: sudo dnf install ./cmdb-lite-agent-0.7.1-*.rpm
 
 sudo cmdb-agent enroll \
   --server https://cmdb.example.internal \
@@ -122,7 +122,7 @@ cannot be made readable by the service.
 Install the MSI and enroll from an elevated prompt:
 
 ```powershell
-msiexec /i .\cmdb-lite-agent-0.7.0-windows-x64.msi
+msiexec /i .\cmdb-lite-agent-0.7.1-windows-x64.msi
 & "C:\Program Files\cmdb-lite-agent\cmdb-agent.exe" enroll `
   --server https://cmdb.example.internal `
   --token <one-time-token>
@@ -139,7 +139,7 @@ uninstall registry.
 For automated deployment, the MSI also accepts public properties:
 
 ```powershell
-msiexec /i .\cmdb-lite-agent-0.7.0-windows-x64.msi /qn `
+msiexec /i .\cmdb-lite-agent-0.7.1-windows-x64.msi /qn `
   SERVER_URL="https://cmdb.example.internal" `
   ENROLLMENT_TOKEN="<one-time-token>"
 ```

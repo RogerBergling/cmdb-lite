@@ -3,7 +3,7 @@
 A local-first, encrypted Configuration Management Database (CMDB) for Linux and
 Windows.
 
-> **Status: v0.7.0 development.** The repository contains the C17 core,
+> **Status: v0.7.1.** The repository contains the C17 core,
 > SQLCipher storage layer, Argon2id key derivation, CI categories/types/custom
 > fields, impact-aware typed relationships, seeded infrastructure services,
 > CSV/TSV import, dependency graph builder, `.drawio` export, an embedded
@@ -16,11 +16,12 @@ Windows.
 > WebView2 smoke test and produces the portable ZIP, MSI, and agent packages. A
 > clean-Windows-VM install/uninstall check is still recommended.
 
-> **Release status:** v0.6.0 is the latest published release. v0.7.0, which adds
-> authenticated server mode, server-only packages, and the application inventory
-> agent, is not tagged for this rollout. Install from a verified local
-> build/package, record the commit hash, and verify checksums. See
-> [`docs/releasing.md`](docs/releasing.md) and
+> **Release status:** v0.7.1 is the latest published release. It adds the
+> public demo container and corrects application-inventory change reporting.
+> v0.7.0 introduced authenticated server mode, server-only packages, and the
+> application inventory agent. Install from a verified release package and
+> verify `SHA256SUMS`. See [`demo/README.md`](demo/README.md),
+> [`docs/releasing.md`](docs/releasing.md), and
 > [`docs/authentication.md`](docs/authentication.md).
 
 > **Production use:** server mode is single-node and is not yet a turnkey
@@ -92,7 +93,7 @@ bar after opening a database or connecting to a server. For example, a local
 Debug build shows:
 
 ```text
-v0.7.0 · build 1234 · commit abc123def456 · 2026-11-11T21:05:48Z · Linux/x86_64 · Debug
+v0.7.1 · build 1234 · commit abc123def456 · 2026-11-11T21:05:48Z · Linux/x86_64 · Debug
 ```
 
 The server exposes the same information:
@@ -153,24 +154,24 @@ latest release from:
 
 <https://github.com/RogerBergling/cmdb-lite/releases/latest>
 
-Release assets (the latest published release is v0.6.0; substitute the version
+Release assets (the latest published release is v0.7.1; substitute the version
 you download):
 
 | Platform | Files |
 |---|---|
-| Debian/Ubuntu | `cmdb-lite_0.6.0_amd64.deb` |
-| Fedora (RHEL untested) | `cmdb-lite-0.6.0-*.rpm` |
-| Portable Linux | `cmdb-lite-0.6.0-linux-x86_64.tar.gz` |
+| Debian/Ubuntu | `cmdb-lite_0.7.1_amd64.deb` |
+| Fedora (RHEL untested) | `cmdb-lite-0.7.1-*.rpm` |
+| Portable Linux | `cmdb-lite-0.7.1-linux-x86_64.tar.gz` |
 | Flatpak (Linux) | `cmdb-lite.flatpak` |
 | Windows portable | `cmdb-lite-windows-x64.zip` |
-| Windows installer | `cmdb-lite-0.6.0-windows-x64.msi` |
-| Server-only DEB (v0.7.0+) | `cmdb-lite-server_0.7.0_amd64.deb` |
-| Server-only RPM (v0.7.0+) | `cmdb-lite-server-0.7.0-*.rpm` |
-| Server-only tarball (v0.7.0+) | `cmdb-lite-server-0.7.0-linux-x86_64.tar.gz` |
-| Agent DEB (v0.7.0+) | `cmdb-lite-agent_0.7.0_amd64.deb` |
-| Agent RPM (v0.7.0+) | `cmdb-lite-agent-0.7.0-*.rpm` |
-| Agent Linux tarball (v0.7.0+) | `cmdb-lite-agent-0.7.0-linux-x86_64.tar.gz` |
-| Agent Windows ZIP/MSI (v0.7.0+) | `cmdb-lite-agent-0.7.0-windows-x64.zip`, `cmdb-lite-agent-0.7.0-windows-x64.msi` |
+| Windows installer | `cmdb-lite-0.7.1-windows-x64.msi` |
+| Server-only DEB (v0.7.0+) | `cmdb-lite-server_0.7.1_amd64.deb` |
+| Server-only RPM (v0.7.0+) | `cmdb-lite-server-0.7.1-*.rpm` |
+| Server-only tarball (v0.7.0+) | `cmdb-lite-server-0.7.1-linux-x86_64.tar.gz` |
+| Agent DEB (v0.7.0+) | `cmdb-lite-agent_0.7.1_amd64.deb` |
+| Agent RPM (v0.7.0+) | `cmdb-lite-agent-0.7.1-*.rpm` |
+| Agent Linux tarball (v0.7.0+) | `cmdb-lite-agent-0.7.1-linux-x86_64.tar.gz` |
+| Agent Windows ZIP/MSI (v0.7.0+) | `cmdb-lite-agent-0.7.1-windows-x64.zip`, `cmdb-lite-agent-0.7.1-windows-x64.msi` |
 | Checksums | `SHA256SUMS` |
 
 Verify the download before running it:
@@ -211,7 +212,7 @@ Install the dependencies first, then the package:
 ```bash
 sudo apt update
 sudo apt install -y libgtk-3-0t64 libwebkit2gtk-4.1-0 libssl3t64
-sudo apt install ./cmdb-lite_0.6.0_amd64.deb
+sudo apt install ./cmdb-lite_0.7.1_amd64.deb
 cmdb
 ```
 
@@ -226,7 +227,7 @@ Flatpak or build from source. The Flatpak is the fully self-contained option.
 Install with `dnf` so dependencies are resolved automatically:
 
 ```bash
-sudo dnf install ./cmdb-lite-0.6.0-*.rpm
+sudo dnf install ./cmdb-lite-0.7.1-*.rpm
 cmdb
 ```
 
@@ -252,21 +253,21 @@ SmartScreen warning.
 **MSI installer**
 
 ```powershell
-msiexec /i .\cmdb-lite-0.6.0-windows-x64.msi
+msiexec /i .\cmdb-lite-0.7.1-windows-x64.msi
 ```
 
 The MSI is per-machine, requires administrator elevation, and creates a Start
 Menu shortcut. Uninstall with:
 
 ```powershell
-msiexec /x .\cmdb-lite-0.6.0-windows-x64.msi
+msiexec /x .\cmdb-lite-0.7.1-windows-x64.msi
 ```
 
 ### Portable Linux tarball
 
 ```bash
-tar -xzf cmdb-lite-0.6.0-linux-x86_64.tar.gz
-./cmdb-lite-0.6.0-linux-x86_64/bin/cmdb
+tar -xzf cmdb-lite-0.7.1-linux-x86_64.tar.gz
+./cmdb-lite-0.7.1-linux-x86_64/bin/cmdb
 ```
 
 The ELF requires GTK3, WebKitGTK 4.1, expat, and the system OpenSSL 3
@@ -430,7 +431,8 @@ Application upgrades replace the executable only. Your database and `.meta`
 sidecar stay where they are. The application remembers the last database and
 shows recent databases on the unlock screen.
 
-v0.7.0 migrates the database from schema version 4 to version 5. It adds the
+v0.7.1 does not change the schema; a v0.7.0 database opens without migration.
+v0.7.0 migrated the database from schema version 4 to version 5. It added the
 application inventory agent tables, the Linux server package, and authenticated
 server mode. Existing databases open normally and keep the same passphrase. A
 pre-migration backup is created and its path is shown after opening. Server
@@ -448,10 +450,10 @@ backup is created first and its path is shown after opening.
 
 ```bash
 # Debian/Ubuntu
-sudo apt install ./cmdb-lite_0.7.0_amd64.deb
+sudo apt install ./cmdb-lite_0.7.1_amd64.deb
 
 # Fedora
-sudo dnf upgrade ./cmdb-lite-0.7.0-*.rpm
+sudo dnf upgrade ./cmdb-lite-0.7.1-*.rpm
 ```
 
 On Windows, install the new MSI or replace the portable executable and open the
@@ -794,10 +796,10 @@ assets, a systemd unit, documentation, and a sample environment file.
 
 ```bash
 # Debian/Ubuntu
-sudo apt install ./cmdb-lite-server_0.7.0_amd64.deb
+sudo apt install ./cmdb-lite-server_0.7.1_amd64.deb
 
 # Fedora
-sudo dnf install ./cmdb-lite-server-0.7.0-*.rpm
+sudo dnf install ./cmdb-lite-server-0.7.1-*.rpm
 
 # Create the root-only passphrase file from the example, then edit it.
 sudo install -d -o root -g root -m 0700 /etc/cmdb-lite
@@ -841,8 +843,8 @@ On the server, sign in as an administrator, open **Applications**, and choose
 **Linux**
 
 ```bash
-sudo apt install ./cmdb-lite-agent_0.7.0_amd64.deb
-# or: sudo dnf install ./cmdb-lite-agent-0.7.0-*.rpm
+sudo apt install ./cmdb-lite-agent_0.7.1_amd64.deb
+# or: sudo dnf install ./cmdb-lite-agent-0.7.1-*.rpm
 sudo cmdb-agent enroll \
   --server https://cmdb.example.internal \
   --token <one-time-token>
@@ -851,7 +853,7 @@ sudo cmdb-agent enroll \
 **Windows**
 
 ```powershell
-msiexec /i .\cmdb-lite-agent-0.7.0-windows-x64.msi
+msiexec /i .\cmdb-lite-agent-0.7.1-windows-x64.msi
 & "C:\Program Files\cmdb-lite-agent\cmdb-agent.exe" enroll `
   --server https://cmdb.example.internal `
   --token <one-time-token>
@@ -879,7 +881,7 @@ For automated Windows deployment, the MSI accepts public `SERVER_URL` and
 `ENROLLMENT_TOKEN` properties:
 
 ```powershell
-msiexec /i .\cmdb-lite-agent-0.7.0-windows-x64.msi /qn `
+msiexec /i .\cmdb-lite-agent-0.7.1-windows-x64.msi /qn `
   SERVER_URL="https://cmdb.example.internal" `
   ENROLLMENT_TOKEN="<one-time-token>"
 ```
@@ -1524,7 +1526,7 @@ It installs the static vcpkg dependencies, builds, tests, and creates:
 
 ```text
 dist\cmdb-lite-windows-x64.zip
-dist\cmdb-lite-0.7.0-windows-x64.msi
+dist\cmdb-lite-0.7.1-windows-x64.msi
 dist\cmdb-lite-windows-x64\bin\cmdb.exe
 ```
 
@@ -1930,11 +1932,10 @@ is still needed before a public or enterprise production rollout.
 
 ### Release and distribution
 
-- [x] Tag and publish v0.6.0; verify all assets and `SHA256SUMS`.
+- [x] Tag and publish v0.6.0 and v0.7.0; verify all assets and `SHA256SUMS`.
 - [x] Release tagging/signing/SBOM is skipped for this rollout. Record the
       commit hash and verify locally built package contents/checksums.
-- [ ] If a public v0.7.0 release is later desired, tag it and publish the
-      desktop + server-only assets with `SHA256SUMS`.
+- [ ] Publish v0.7.1 with the demo image and verify all assets and `SHA256SUMS`.
 - [x] Signing and SBOMs are not required by the rollout decision. Windows
       artifacts are unsigned and may trigger SmartScreen.
 - [ ] Pin the vcpkg baseline and GitHub Actions SHAs for reproducible builds.
@@ -2035,7 +2036,7 @@ is still needed before a public or enterprise production rollout.
 
 There is no formal long-term support policy yet. The repository is validated on
 the CI platforms listed above, and only the latest release should be considered
-tested. Server mode is unreleased v0.7.0 code and is built/tested on Linux x86_64;
+tested. Server mode is v0.7.1 code and is built/tested on Linux x86_64;
 Windows server support is not implemented. Before production use, define:
 
 - which versions receive security fixes;

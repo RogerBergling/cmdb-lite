@@ -22,11 +22,11 @@ manual trigger required.
    git diff --check
    ```
 
-3. Test migrations against at least the previous schema version. v0.7.0
-   migrates schema 4 to schema 5 for the application inventory tables. Verify
-   that a v0.6.0 database opens, that the pre-migration backup is created, and
-   that inventory, diagrams, scans, authentication state, and the audit chain
-   remain intact.
+3. Test migrations against the previous release. v0.7.1 does not change the
+   schema; verify that a v0.7.0 database opens unchanged. For the v0.7.0 schema
+   4 to 5 migration, verify that a v0.6.0 database opens, that the pre-migration
+   backup is created, and that inventory, diagrams, scans, authentication
+   state, and the audit chain remain intact.
 4. Verify all Linux packages:
    - the desktop+server package contains `cmdb`, `cmdb-server`, `cmdb-rpc`, and
      `share/cmdb-lite/web`;
@@ -58,14 +58,14 @@ manual trigger required.
 ## Tag and publish
 
 ```bash
-git tag -a v0.7.0 -m "cmdb-lite v0.7.0"
-git push origin v0.7.0
+git tag -a v0.7.1 -m "cmdb-lite v0.7.1"
+git push origin v0.7.1
 ```
 
 The tag triggers `.github/workflows/ci.yml` for Linux, Fedora, Flatpak, and
-Windows. Fedora CI passes `-DCMDB_PACKAGE_VARIANT=fedora`, so its tarballs are
-distinct from the Ubuntu-built tarballs. When all four jobs pass, the `release`
-job:
+Windows, and `.github/workflows/demo-image.yml` for the public demo container.
+Fedora CI passes `-DCMDB_PACKAGE_VARIANT=fedora`, so its tarballs are distinct
+from the Ubuntu-built tarballs. When all four jobs pass, the `release` job:
 
 1. downloads the four platform artifacts plus the two server-only Linux
    artifacts and the three agent artifacts;
@@ -80,8 +80,8 @@ No manual artifact assembly or `gh release create` step is required.
 ## Verify the release
 
 ```bash
-gh release view v0.7.0
-gh release download v0.7.0 --dir /tmp/cmdb-release
+gh release view v0.7.1
+gh release download v0.7.1 --dir /tmp/cmdb-release
 cd /tmp/cmdb-release
 sha256sum -c SHA256SUMS
 ```
@@ -100,11 +100,11 @@ The release job does not run unless all platform jobs pass. Fix the commit,
 delete the tag locally and remotely, then re-tag:
 
 ```bash
-git tag -d v0.7.0
-git push origin :refs/tags/v0.7.0
+git tag -d v0.7.1
+git push origin :refs/tags/v0.7.1
 # fix, commit, push main, wait for CI
-git tag -a v0.7.0 -m "cmdb-lite v0.7.0"
-git push origin v0.7.0
+git tag -a v0.7.1 -m "cmdb-lite v0.7.1"
+git push origin v0.7.1
 ```
 
 Do not move a published release tag. Publish a new patch version instead.

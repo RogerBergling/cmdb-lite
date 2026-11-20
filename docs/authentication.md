@@ -1,9 +1,8 @@
 # Authentication and server mode
 
-> **Status: implemented in v0.7.0 (unreleased).** The Go `cmdb-server`, the
-> `cmdb-rpc` bridge, first-run setup, password login, TOTP, recovery codes,
-> sessions, admin user management, and server-mode audit actors are in the
-> codebase. v0.6.0 remains the latest published release.
+> **Status: released in v0.7.0; current release v0.7.1.** The Go `cmdb-server`,
+> the `cmdb-rpc` bridge, first-run setup, password login, TOTP, recovery codes,
+> sessions, admin user management, and server-mode audit actors are implemented.
 
 ## Decisions
 

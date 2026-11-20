@@ -91,7 +91,7 @@ volume entirely.
 
 CI publishes `ghcr.io/rogerbergling/cmdb-lite-demo` from the same commit:
 
-- `latest` and `0.7`/`0.7.0` on `v*` tags;
+- `latest` and the version/`major.minor` tags on `v*` releases;
 - `edge` and `main` on the default branch;
 - `sha-<commit>` on every non-PR build;
 - PR builds are compiled but not pushed.
