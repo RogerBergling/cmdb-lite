@@ -1,0 +1,103 @@
+source_ci,relationship_type,target_ci,description,impact
+erp-web,runs_on,srv-web-01,ERP web front end on web server,availability
+erp-api-01,runs_on,vm-erp-app-01,ERP API instance 1 on VM,availability
+erp-api-02,runs_on,vm-erp-app-02,ERP API instance 2 on VM,availability
+wms-api,runs_on,srv-app-03,Warehouse API on app server,availability
+tms-api,runs_on,srv-app-04,Transport API on app server,availability
+billing-api,runs_on,srv-app-03,Billing API on app server,availability
+tracking-portal,hosted_in,cloud-aws-prod,Tracking portal hosted in AWS,availability
+db-erp-primary,runs_on,srv-db-01,Primary ERP database host,availability
+db-erp-replica,runs_on,srv-db-02,ERP replica host,availability
+db-wms,runs_on,srv-db-01,WMS database host,availability
+db-tms,runs_on,srv-db-02,TMS database host,availability
+redis-cache-01,runs_on,srv-app-03,Redis on shared app server,availability
+mq-rabbit-01,runs_on,srv-app-03,RabbitMQ on shared app server,availability
+vcenter-01,runs_on,esxi-01,vCenter appliance on ESXi,availability
+srv-app-01,runs_on,esxi-02,App server VM on ESXi 02,availability
+srv-app-02,runs_on,esxi-03,App server VM on ESXi 03,availability
+srv-app-03,runs_on,esxi-02,App server VM on ESXi 02,availability
+srv-app-04,runs_on,esxi-03,App server VM on ESXi 03,availability
+srv-web-01,runs_on,esxi-02,Web server VM on ESXi 02,availability
+srv-web-02,runs_on,esxi-03,Web server VM on ESXi 03,availability
+srv-db-01,runs_on,esxi-01,Database VM on ESXi 01,availability
+srv-db-02,runs_on,esxi-02,Database VM on ESXi 02,availability
+srv-mon-01,runs_on,esxi-03,Monitoring VM on ESXi 03,availability
+srv-backup-01,runs_on,esxi-01,Backup VM on ESXi 01,availability
+srv-ad-01,runs_on,esxi-02,Domain controller VM on ESXi 02,availability
+srv-ad-02,runs_on,esxi-03,Domain controller VM on ESXi 03,availability
+srv-file-01,runs_on,esxi-01,File server VM on ESXi 01,availability
+vm-erp-app-01,runs_on,esxi-01,ERP VM on ESXi 01,availability
+vm-erp-app-02,runs_on,esxi-02,ERP VM on ESXi 02,availability
+vm-warehouse-01,runs_on,esxi-03,Warehouse VM on ESXi 03,availability
+vm-reporting-01,runs_on,esxi-01,Reporting VM on ESXi 01,availability
+vm-test-01,runs_on,esxi-02,Test VM on ESXi 02,availability
+esxi-01,hosted_in,net-dc1-servers,ESXi 01 on server VLAN,availability
+esxi-02,hosted_in,net-dc1-servers,ESXi 02 on server VLAN,availability
+esxi-03,hosted_in,net-dc1-servers,ESXi 03 on server VLAN,availability
+srv-web-01,hosted_in,net-dc1-dmz,Web server 01 in DMZ,availability
+srv-web-02,hosted_in,net-dc1-dmz,Web server 02 in DMZ,availability
+srv-ad-01,hosted_in,net-dc1-servers,Domain controller on server VLAN,availability
+srv-ad-02,hosted_in,net-dc1-servers,Domain controller on server VLAN,availability
+srv-file-01,hosted_in,net-dc1-servers,File server on server VLAN,availability
+net-dc1-servers,connects_to,fw-edge-01,Server VLAN to primary firewall,informational
+net-dc1-users,connects_to,fw-edge-01,User VLAN to primary firewall,informational
+net-dc1-dmz,connects_to,fw-edge-01,DMZ to primary firewall,informational
+net-dc1-servers,connects_to,fw-edge-02,Server VLAN to secondary firewall,informational
+fw-edge-01,connects_to,router-core-01,Primary firewall to core router,informational
+fw-edge-02,connects_to,router-core-02,Secondary firewall to core router,informational
+router-core-01,connects_to,switch-dc1-a,Core router to switch A,informational
+router-core-02,connects_to,switch-dc1-b,Core router to switch B,informational
+switch-dc1-a,connects_to,switch-dc1-b,Switch A to switch B,informational
+cloud-aws-prod,connects_to,fw-edge-01,AWS link via primary firewall,informational
+cloud-azure-dr,connects_to,fw-edge-02,Azure DR link via secondary firewall,informational
+erp-api-01,uses,db-erp-primary,ERP API uses primary database,availability
+erp-api-02,uses,db-erp-primary,ERP API uses primary database,availability
+erp-web,uses,erp-api-01,ERP web uses API instance 1,availability
+erp-web,uses,erp-api-02,ERP web uses API instance 2,degraded
+wms-api,uses,db-wms,WMS uses its database,availability
+tms-api,uses,db-tms,TMS uses its database,availability
+tracking-portal,uses,db-tms,Tracking reads shipment state,degraded
+billing-api,uses,db-erp-primary,Billing uses ERP database,availability
+erp-api-01,uses,redis-cache-01,ERP API uses shared cache,degraded
+erp-api-02,uses,redis-cache-01,ERP API uses shared cache,degraded
+erp-api-01,uses,mq-rabbit-01,ERP API publishes events,degraded
+wms-api,uses,mq-rabbit-01,WMS publishes events,degraded
+svc-order-to-cash,depends_on,erp-web,Order to cash depends on ERP web,availability
+svc-order-to-cash,depends_on,billing-api,Order to cash depends on billing,availability
+svc-order-to-cash,depends_on,saas-salesforce,Order to cash depends on CRM,degraded
+svc-order-to-cash,depends_on,saas-m365,Order to cash depends on email,degraded
+svc-warehouse-ops,depends_on,wms-api,Warehouse operations depend on WMS,availability
+svc-transport-planning,depends_on,tms-api,Transport planning depends on TMS,availability
+svc-customer-tracking,depends_on,tracking-portal,Customer tracking depends on portal,availability
+dns-service,provided_by,srv-app-01,DNS provider 1,availability
+dns-service,provided_by,srv-app-02,DNS provider 2,availability
+smtp-service,provided_by,srv-app-01,SMTP relay provider,availability
+ntp-service,provided_by,router-core-01,NTP provider 1,availability
+ntp-service,provided_by,router-core-02,NTP provider 2,availability
+vcenter-service,provided_by,vcenter-01,vCenter service provider,availability
+backup-service,provided_by,srv-backup-01,Backup service provider,availability
+monitoring-service,provided_by,srv-mon-01,Monitoring service provider,availability
+ldap-service,provided_by,srv-ad-01,LDAP provider 1,availability
+ldap-service,provided_by,srv-ad-02,LDAP provider 2,availability
+dhcp-service,provided_by,fw-edge-01,DHCP relay,availability
+vcenter-01,manages,esxi-01,vCenter manages ESXi 01,management
+vcenter-01,manages,esxi-02,vCenter manages ESXi 02,management
+vcenter-01,manages,esxi-03,vCenter manages ESXi 03,management
+vcenter-01,manages,vm-erp-app-01,vCenter manages ERP VM 1,management
+vcenter-01,manages,vm-erp-app-02,vCenter manages ERP VM 2,management
+srv-mon-01,monitors,esxi-01,Monitoring scrapes ESXi 01,monitoring
+srv-mon-01,monitors,srv-app-01,Monitoring scrapes app server 01,monitoring
+srv-mon-01,monitors,srv-db-01,Monitoring scrapes database server 01,monitoring
+srv-mon-01,monitors,fw-edge-01,Monitoring scrapes firewall,monitoring
+srv-app-01,depends_on,dns-service,App server needs DNS,availability
+srv-app-02,depends_on,dns-service,App server needs DNS,availability
+srv-web-01,depends_on,dns-service,Web server needs DNS,availability
+srv-web-01,depends_on,ldap-service,Web server needs LDAP,availability
+srv-app-01,depends_on,ntp-service,App server needs time sync,degraded
+srv-db-01,depends_on,ntp-service,Database needs time sync,degraded
+srv-app-01,depends_on,monitoring-service,App server is monitored,monitoring
+srv-app-01,depends_on,backup-service,App server is backed up,degraded
+vm-test-01,member_of,net-dc1-servers,Test VM is on server VLAN,informational
+srv-file-01,member_of,net-dc1-servers,File server is on server VLAN,informational
+srv-ad-01,supports,ldap-service,AD supports LDAP service,informational
+srv-ad-02,supports,ldap-service,AD supports LDAP service,informational

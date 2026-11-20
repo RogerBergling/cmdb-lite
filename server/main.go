@@ -241,10 +241,10 @@ func main() {
 		rpc:                 rpc,
 		webDir:              resolveWebDir(*webDir),
 		sessions:            make(map[string]*session),
-		loginIP:             newAttemptLimiter(10, 15*time.Minute),
-		loginUser:           newAttemptLimiter(5, 15*time.Minute),
-		mfaIP:               newAttemptLimiter(20, 15*time.Minute),
-		reauth:              newAttemptLimiter(10, 15*time.Minute),
+		loginIP:             newAttemptLimiter(demoLoginIPLimit, 15*time.Minute),
+		loginUser:           newAttemptLimiter(demoLoginUserLimit, 15*time.Minute),
+		mfaIP:               newAttemptLimiter(demoMFAIPLimit, 15*time.Minute),
+		reauth:              newAttemptLimiter(demoReauthLimit, 15*time.Minute),
 		agentEnroll:         newAttemptLimiter(10, 15*time.Minute),
 		agentReportIP:       newAttemptLimiter(240, 15*time.Minute),
 		agentReportToken:    newAttemptLimiter(60, 15*time.Minute),
@@ -448,6 +448,7 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("GET /index.html", s.handleIndex)
 	mux.HandleFunc("GET /app.js", s.handleStatic("app.js", "application/javascript"))
 	mux.HandleFunc("GET /style.css", s.handleStatic("style.css", "text/css"))
+	demoRegisterRoutes(mux, s)
 	return securityHeaders(s.serializeAPI(mux))
 }
 
@@ -509,6 +510,7 @@ func (s *server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data, _ := pageFiles.ReadFile("login.html")
+	data = demoLoginPage(data)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src data:; form-action 'self'; base-uri 'none'")
 	_, _ = w.Write(data)
@@ -1040,7 +1042,7 @@ func (s *server) handleMFA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	step, ok := validateTOTP(user.TOTPSecret, request.Code, time.Now())
-	if !ok || step <= user.TOTPLastStep {
+	if !ok || (!demoAllowTOTPReplay(user.Username) && step <= user.TOTPLastStep) {
 		s.mfaIP.fail(ipKey)
 		s.audit(user.Username, "mfa-failed", "user", user.ID, `{"method":"totp"}`)
 		writeAPIError(w, http.StatusUnauthorized, "invalid_mfa", "invalid authentication code")
@@ -1153,6 +1155,9 @@ func (s *server) handlePassword(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusUnauthorized, "auth_required", "login required")
 		return
 	}
+	if demoBlockCredentialChange(w, user) {
+		return
+	}
 	var request struct {
 		Current string `json:"current"`
 		New     string `json:"new"`
@@ -1192,6 +1197,9 @@ func (s *server) handleTOTPSetup(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusUnauthorized, "auth_required", "login required")
 		return
 	}
+	if demoBlockCredentialChange(w, user) {
+		return
+	}
 	var request struct {
 		Current string `json:"current"`
 	}
@@ -1225,7 +1233,14 @@ func (s *server) handleTOTPSetup(w http.ResponseWriter, r *http.Request) {
 func (s *server) handleTOTPConfirm(w http.ResponseWriter, r *http.Request) {
 	sess := s.sessionFromRequest(r)
 	user := s.state.findUserByID(sess.userID)
-	if user == nil || user.TOTPSecret == "" {
+	if user == nil {
+		writeAPIError(w, http.StatusUnauthorized, "auth_required", "login required")
+		return
+	}
+	if demoBlockCredentialChange(w, user) {
+		return
+	}
+	if user.TOTPSecret == "" {
 		writeAPIError(w, http.StatusBadRequest, "totp", "TOTP setup has not started")
 		return
 	}
@@ -1257,6 +1272,9 @@ func (s *server) handleRecoveryGenerate(w http.ResponseWriter, r *http.Request) 
 	user := s.userForSession(sess)
 	if user == nil {
 		writeAPIError(w, http.StatusUnauthorized, "auth_required", "login required")
+		return
+	}
+	if demoBlockCredentialChange(w, user) {
 		return
 	}
 	var request struct {
@@ -1355,6 +1373,9 @@ func (s *server) setUserDisabled(w http.ResponseWriter, r *http.Request, disable
 		writeAPIError(w, http.StatusNotFound, "not_found", "user not found")
 		return
 	}
+	if demoBlockCredentialChange(w, user) {
+		return
+	}
 	if user.IsAdmin && disabled && s.adminCount() <= 1 {
 		writeAPIError(w, http.StatusConflict, "last_admin", "cannot disable the last admin")
 		return
@@ -1386,6 +1407,9 @@ func (s *server) handleResetPassword(w http.ResponseWriter, r *http.Request) {
 	user := s.state.findUserByID(id)
 	if user == nil {
 		writeAPIError(w, http.StatusNotFound, "not_found", "user not found")
+		return
+	}
+	if demoBlockCredentialChange(w, user) {
 		return
 	}
 	suffix, err := randomHex(8)
@@ -1421,6 +1445,9 @@ func (s *server) handleResetMFA(w http.ResponseWriter, r *http.Request) {
 	user := s.state.findUserByID(id)
 	if user == nil {
 		writeAPIError(w, http.StatusNotFound, "not_found", "user not found")
+		return
+	}
+	if demoBlockCredentialChange(w, user) {
 		return
 	}
 	user.TOTPSecret = ""

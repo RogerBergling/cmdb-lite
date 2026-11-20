@@ -156,6 +156,23 @@ void test_agents(void) {
                                  &events, &event_count, &err) == 0);
   TEST_ASSERT(report_count == 2);
   TEST_ASSERT(event_count == 5);
+  {
+    size_t i;
+    int found_updated = 0;
+    for (i = 0; i < event_count; i++) {
+      if (strcmp(events[i].event_type, "updated") != 0) {
+        continue;
+      }
+      found_updated = 1;
+      TEST_ASSERT_MSG(strstr(events[i].detail, "\"name\"") == NULL,
+                      "unchanged name must not appear in the diff");
+      TEST_ASSERT_MSG(strstr(events[i].detail, "\"version\":\"5.2\"") != NULL,
+                      "updated detail must carry the old version");
+      TEST_ASSERT_MSG(strstr(events[i].detail, "\"version\":\"5.3\"") != NULL,
+                      "updated detail must carry the new version");
+    }
+    TEST_ASSERT_MSG(found_updated, "missing updated event");
+  }
   cmdb_agent_history_free(reports, events);
   reports = NULL;
   events = NULL;

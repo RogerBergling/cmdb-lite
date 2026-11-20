@@ -28,6 +28,9 @@ include(CTest)
 
 option(CMDB_BUILD_UI "Build the desktop webview application" ON)
 option(CMDB_BUILD_SERVER "Build cmdb-server and cmdb-rpc on Linux" ON)
+option(CMDB_SERVER_DEMO "Build cmdb-server with demo-only login behavior" OFF)
+# Keep the demo switch out of production packages unless explicitly requested.
+mark_as_advanced(CMDB_SERVER_DEMO)
 option(CMDB_BUILD_AGENT "Build the cmdb-agent application inventory service" OFF)
 option(CMDB_BUILD_TESTS "Build the test suite" ${BUILD_TESTING})
 option(CMDB_ENABLE_ASAN "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
@@ -425,10 +428,15 @@ if(NOT WIN32)
       file(GLOB CMDB_SERVER_SOURCES CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/server/*.go"
         "${CMAKE_CURRENT_SOURCE_DIR}/server/*.html")
+      set(CMDB_SERVER_GO_TAGS "")
+      if(CMDB_SERVER_DEMO)
+        set(CMDB_SERVER_GO_TAGS "-tags=demo")
+        message(STATUS "cmdb-server demo mode enabled")
+      endif()
       add_custom_command(
         OUTPUT "${CMAKE_BINARY_DIR}/cmdb-server"
         COMMAND "${CMAKE_COMMAND}" -E env CGO_ENABLED=0
-          "${GO_EXECUTABLE}" build -trimpath
+          "${GO_EXECUTABLE}" build -trimpath ${CMDB_SERVER_GO_TAGS}
           "-ldflags=${CMDB_SERVER_LDFLAGS}"
           -o "${CMAKE_BINARY_DIR}/cmdb-server" .
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/server"

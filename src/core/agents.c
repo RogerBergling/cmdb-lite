@@ -731,14 +731,14 @@ int cmdb_agent_auth(cmdb_db_t *db, const char *agent_token,
 
 static int agent_app_changed(const cmdb_agent_app_t *incoming,
                              sqlite3_stmt *stmt) {
-  const char *old_name = (const char *)sqlite3_column_text(stmt, 2);
-  const char *old_version = (const char *)sqlite3_column_text(stmt, 3);
-  const char *old_publisher = (const char *)sqlite3_column_text(stmt, 4);
-  const char *old_source = (const char *)sqlite3_column_text(stmt, 5);
-  const char *old_arch = (const char *)sqlite3_column_text(stmt, 6);
-  const char *old_date = (const char *)sqlite3_column_text(stmt, 7);
-  const char *old_location = (const char *)sqlite3_column_text(stmt, 8);
-  long long old_size = sqlite3_column_int64(stmt, 9);
+  const char *old_name = (const char *)sqlite3_column_text(stmt, 1);
+  const char *old_version = (const char *)sqlite3_column_text(stmt, 2);
+  const char *old_publisher = (const char *)sqlite3_column_text(stmt, 3);
+  const char *old_source = (const char *)sqlite3_column_text(stmt, 4);
+  const char *old_arch = (const char *)sqlite3_column_text(stmt, 5);
+  const char *old_date = (const char *)sqlite3_column_text(stmt, 6);
+  const char *old_location = (const char *)sqlite3_column_text(stmt, 7);
+  long long old_size = sqlite3_column_int64(stmt, 8);
 
   return strcmp(incoming->name, old_name != NULL ? old_name : "") != 0 ||
          strcmp(incoming->version, old_version != NULL ? old_version : "") != 0 ||
@@ -778,18 +778,18 @@ static char *agent_change_detail(const cmdb_agent_app_t *incoming,
     } \
   } while (0)
 
-  AGENT_CHANGE_FIELD("name", 2, incoming->name);
-  AGENT_CHANGE_FIELD("version", 3, incoming->version);
-  AGENT_CHANGE_FIELD("publisher", 4, incoming->publisher);
-  AGENT_CHANGE_FIELD("source", 5, incoming->source);
-  AGENT_CHANGE_FIELD("architecture", 6, incoming->architecture);
-  AGENT_CHANGE_FIELD("install_date", 7, incoming->install_date);
-  AGENT_CHANGE_FIELD("install_location", 8, incoming->install_location);
+  AGENT_CHANGE_FIELD("name", 1, incoming->name);
+  AGENT_CHANGE_FIELD("version", 2, incoming->version);
+  AGENT_CHANGE_FIELD("publisher", 3, incoming->publisher);
+  AGENT_CHANGE_FIELD("source", 4, incoming->source);
+  AGENT_CHANGE_FIELD("architecture", 5, incoming->architecture);
+  AGENT_CHANGE_FIELD("install_date", 6, incoming->install_date);
+  AGENT_CHANGE_FIELD("install_location", 7, incoming->install_location);
 #undef AGENT_CHANGE_FIELD
-  if (sqlite3_column_int64(stmt, 9) != incoming->size_kb) {
+  if (sqlite3_column_int64(stmt, 8) != incoming->size_kb) {
     cJSON_AddItemToArray(fields, cJSON_CreateString("size_kb"));
     cJSON_AddNumberToObject(old_values, "size_kb",
-                            (double)sqlite3_column_int64(stmt, 9));
+                            (double)sqlite3_column_int64(stmt, 8));
     cJSON_AddNumberToObject(new_values, "size_kb",
                             (double)incoming->size_kb);
   }

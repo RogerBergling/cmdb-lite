@@ -1,0 +1,12 @@
+.git
+.github
+build
+build-*
+dist
+dist-*
+*.deb
+*.rpm
+*.tar.gz
+*.zip
+*.flatpak
+docs/screenshots

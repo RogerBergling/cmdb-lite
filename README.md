@@ -557,6 +557,7 @@ binaries and web assets because the server serves the UI over HTTP:
 | Linux (.deb/RPM/TGZ) | `cmdb`, `cmdb-server`, `cmdb-rpc`, `share/cmdb-lite/web/`, systemd unit | Desktop plus single-node server. The desktop needs GTK3, WebKitGTK 4.1, expat, and system OpenSSL. SQLCipher and libsodium are linked statically when `.a` archives are available. Server-only packages omit `cmdb` and GTK/WebKit. |
 | Linux agent (.deb/RPM/TGZ) | `cmdb-agent`, `cmdb-agent.service` | Application inventory service. Runs as the unprivileged `cmdb-agent` user with systemd hardening. No desktop or server libraries required. |
 | Linux (Flatpak) | `cmdb-lite.flatpak` | Desktop only. Uses the GNOME runtime for GTK3/WebKitGTK and bundles SQLCipher, libsodium, and nmap. The GNOME runtime is installed separately by Flatpak. |
+| Demo container | `ghcr.io/rogerbergling/cmdb-lite-demo` | Server-only image with fake data, a public demo account, a fake `nmap`, and a 24-hour reset. Not a production deployment; see [`demo/README.md`](demo/README.md). |
 
 The encrypted database and its `.meta` sidecar are intentionally separate files.
 In desktop-local mode the user chooses the path. In server mode the server owns
@@ -1315,6 +1316,7 @@ packaging/           Icons, embed script, Windows resources, Flatpak, installers
 |---|---|---|
 | `CMDB_BUILD_UI` | `ON` | Build the GTK/WebView2 desktop client. |
 | `CMDB_BUILD_SERVER` | `ON` on Linux | Build `cmdb-server` and `cmdb-rpc`; requires Go 1.22+. Set `OFF` for Flatpak or a desktop-only build. |
+| `CMDB_SERVER_DEMO` | `OFF` | Build `cmdb-server` with demo-only login behavior for the public demo image. Never enable this for a real deployment. |
 | `CMDB_BUILD_AGENT` | `OFF` | Build the separate `cmdb-agent` package. Requires Go 1.22+ and must be combined with `-DCMDB_BUILD_UI=OFF -DCMDB_BUILD_SERVER=OFF`. |
 | `CMDB_BUILD_TESTS` | `ON` | Build the C test suite and register `cmdb_server_tests`/`cmdb_agent_tests` when those components are built. |
 | `CMDB_STATIC_CRYPTO` | `ON` | Link SQLCipher/libsodium statically on Unix when `.a` archives are available. |
@@ -1565,6 +1567,8 @@ GitHub Actions Windows runner.
 
 ## Documentation
 
+- [`demo/README.md`](demo/README.md) — public demo container: fake data, demo
+  login, TOTP, simulated discovery, reset policy, and GHCR publishing.
 - [`docs/import-format.md`](docs/import-format.md) — CSV/TSV contracts, examples,
   duplicate policy, and error reports.
 - [`docs/data-model.md`](docs/data-model.md) — tables, constraints, and the

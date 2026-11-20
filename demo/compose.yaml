@@ -1,0 +1,31 @@
+services:
+  cmdb-demo:
+    image: ghcr.io/rogerbergling/cmdb-lite-demo:latest
+    build:
+      context: ..
+      dockerfile: demo/Dockerfile
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      # Override these in demo/.env (see demo/.env.example).
+      CMDB_DEMO_RESET_HOURS: "${CMDB_DEMO_RESET_HOURS:-24}"
+      CMDB_PROXY: "${CMDB_PROXY:-127.0.0.1/32,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}"
+      CMDB_LISTEN: "${CMDB_LISTEN:-0.0.0.0:8080}"
+      CMDB_SESSION_IDLE: "${CMDB_SESSION_IDLE:-30m}"
+      CMDB_SESSION_ABSOLUTE: "${CMDB_SESSION_ABSOLUTE:-12h}"
+      CMDB_DB_PASSPHRASE: "${CMDB_DB_PASSPHRASE:-demo-only-public-passphrase}"
+    volumes:
+      - demo-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 1g
+    pids_limit: 256
+    restart: unless-stopped
+
+volumes:
+  demo-data:

@@ -1,0 +1,85 @@
+#!/bin/sh
+# Demo-only nmap replacement. It never touches the network; it writes a
+# deterministic nmap XML document so the discovery review flow can be used in
+# the public demo.
+set -eu
+
+output=""
+previous=""
+target=""
+for argument in "$@"; do
+  if [ "$previous" = "-oX" ]; then
+    output="$argument"
+  fi
+  previous="$argument"
+  target="$argument"
+done
+
+if [ -z "$output" ]; then
+  echo "fake-nmap: missing -oX output path" >&2
+  exit 2
+fi
+
+case "$target" in
+  */*)
+    network="${target%/*}"
+    prefix="${network%.*}"
+    first="${prefix}.10"
+    ;;
+  *)
+    first="$target"
+    prefix="${target%.*}"
+    ;;
+esac
+# Derive the remaining addresses from the same /24. The addresses use the
+# reserved TEST-NET-1 range by default and are never contacted.
+case "$prefix" in
+  *.*.*) ;;
+  *) prefix="192.0.2" ;;
+esac
+
+cat > "$output" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<nmaprun scanner="nmap" args="nmap -sT -sV -Pn -n --open" start="0" version="7.95" xmloutputversion="1.05">
+  <host>
+    <status state="up" reason="user-set"/>
+    <address addr="${first}" addrtype="ipv4"/>
+    <address addr="00:11:22:33:44:10" addrtype="mac" vendor="Demo Networks"/>
+    <hostnames><hostname name="demo-web-01.demo.invalid" type="PTR"/></hostnames>
+    <ports>
+      <port protocol="tcp" portid="22"><state state="open"/><service name="ssh" product="OpenSSH" version="9.6p1"/></port>
+      <port protocol="tcp" portid="80"><state state="open"/><service name="http" product="nginx" version="1.24.0"/></port>
+      <port protocol="tcp" portid="443"><state state="open"/><service name="https" product="nginx" version="1.24.0"/></port>
+    </ports>
+    <os><osmatch name="Linux 5.15 - 6.8"/></os>
+  </host>
+  <host>
+    <status state="up" reason="user-set"/>
+    <address addr="${prefix}.11" addrtype="ipv4"/>
+    <hostnames><hostname name="demo-db-01.demo.invalid" type="PTR"/></hostnames>
+    <ports>
+      <port protocol="tcp" portid="22"><state state="open"/><service name="ssh" product="OpenSSH" version="9.6p1"/></port>
+      <port protocol="tcp" portid="5432"><state state="open"/><service name="postgresql" product="PostgreSQL DB" version="16.4"/></port>
+    </ports>
+    <os><osmatch name="Linux 5.15 - 6.8"/></os>
+  </host>
+  <host>
+    <status state="up" reason="user-set"/>
+    <address addr="${prefix}.12" addrtype="ipv4"/>
+    <hostnames><hostname name="demo-app-01.demo.invalid" type="PTR"/></hostnames>
+    <ports>
+      <port protocol="tcp" portid="8080"><state state="open"/><service name="http-alt" product="Jetty" version="11.0.24"/></port>
+    </ports>
+  </host>
+  <host>
+    <status state="up" reason="user-set"/>
+    <address addr="${prefix}.20" addrtype="ipv4"/>
+    <hostnames><hostname name="demo-fw-01.demo.invalid" type="PTR"/></hostnames>
+    <ports>
+      <port protocol="tcp" portid="443"><state state="open"/><service name="https" product="PAN-OS" version="11.1.4"/></port>
+    </ports>
+  </host>
+</nmaprun>
+EOF
+
+exit 0

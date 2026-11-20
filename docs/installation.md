@@ -450,9 +450,14 @@ database is opened. See [`upgrading.md`](upgrading.md) and
 ## Docker and container notes
 
 Docker is not the recommended production deployment for this release. There is
-no container image in the repository, and the server is a single-node stateful
-service with a file database, a child `cmdb-rpc` process, a required passphrase,
-no TLS listener, no health endpoint, and no online backup API.
+no production container image in the repository, and the server is a single-node
+stateful service with a file database, a child `cmdb-rpc` process, a required
+passphrase, no TLS listener, no health endpoint, and no online backup API.
+
+A separate **public demo** image exists in [`../demo/`](../demo/README.md). It
+contains fake data, a public demo account, a fake `nmap`, and an automatic
+reset. It is intentionally not a production deployment and must never be
+pointed at real inventory.
 
 If your organisation mandates containers:
 
