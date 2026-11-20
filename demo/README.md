@@ -76,6 +76,29 @@ docker run --rm -p 127.0.0.1:8080:8080 \
   cmdb-lite-demo
 ```
 
+### Publish on a different host port
+
+The container always listens on **8080**, and the image healthcheck targets
+8080. To publish the demo on host port 8012, set these in `demo/.env`:
+
+```dotenv
+CMDB_HTTP_BIND=0.0.0.0
+CMDB_HTTP_PORT=8012
+CMDB_LISTEN=0.0.0.0:8080
+```
+
+Do **not** set `CMDB_LISTEN=0.0.0.0:8012`: that changes the container-side port
+while the mapping still points at 8080, so the browser and healthcheck cannot
+connect. Then recreate the container and test:
+
+```bash
+docker compose -f demo/compose.yaml up -d --force-recreate
+curl -fsS http://127.0.0.1:8012/login | head
+```
+
+For a public host, also allow the port through the host firewall and put a TLS
+reverse proxy in front of it.
+
 The image runs as UID 10001 and never as root. Docker initializes the named
 volume from the image's `/data` directory, which is owned by 10001. If you use a
 bind mount instead, create the host directory with

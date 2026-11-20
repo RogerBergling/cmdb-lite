@@ -10,7 +10,7 @@ docker build -f demo/Dockerfile -t cmdb-lite-demo .
 
 docker run --rm \
   --name cmdb-lite-demo \
-  -p 127.0.0.1:8080:8080 \
+  -p "${CMDB_HTTP_BIND:-127.0.0.1}:${CMDB_HTTP_PORT:-8080}:8080" \
   --read-only \
   --tmpfs /tmp:rw,noexec,nosuid,size=64m,mode=1777 \
   --memory 1g \
