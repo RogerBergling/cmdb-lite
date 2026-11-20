@@ -96,6 +96,10 @@ CI publishes `ghcr.io/rogerbergling/cmdb-lite-demo` from the same commit:
 - `sha-<commit>` on every non-PR build;
 - PR builds are compiled but not pushed.
 
+The compose example uses `:main`, so it works before the next release tag. Switch
+to `:latest` if you want the newest tagged release instead of the current
+default-branch build.
+
 The package must be made public once in the GitHub package settings after the
 first push. The workflow uses `GITHUB_TOKEN` with `packages: write`. If you keep
 the package private, run `docker login ghcr.io` on the demo host before pulling.

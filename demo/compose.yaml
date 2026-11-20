@@ -1,6 +1,7 @@
 services:
   cmdb-demo:
-    image: ghcr.io/rogerbergling/cmdb-lite-demo:latest
+    # :main tracks the current demo image. Switch to :latest after a v* tag.
+    image: ghcr.io/rogerbergling/cmdb-lite-demo:main
     build:
       context: ..
       dockerfile: demo/Dockerfile
