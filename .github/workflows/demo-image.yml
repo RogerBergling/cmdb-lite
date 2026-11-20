@@ -43,6 +43,9 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/rogerbergling/cmdb-lite-demo
+          labels: |
+            org.opencontainers.image.title=cmdb-lite demo
+            org.opencontainers.image.description=Public demo of cmdb-lite with fake data
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -70,7 +73,7 @@ jobs:
           provenance: ${{ github.event_name != 'pull_request' }}
           sbom: ${{ github.event_name != 'pull_request' }}
 
-      - name: Smoke test the demo image
+      - name: Smoke test the PR image
         if: github.event_name == 'pull_request'
         run: |
           set -euo pipefail
@@ -86,6 +89,39 @@ jobs:
             --read-only \
             --tmpfs /tmp:rw,noexec,nosuid,size=64m,mode=1777 \
             -v demo-smoke-data:/data \
+            --memory 1g --pids-limit 256 \
+            --security-opt no-new-privileges:true --cap-drop ALL \
+            "$image"
+          for _ in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8080/login >/dev/null 2>&1; then
+              break
+            fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8080/login | grep -q "Public demo"
+          curl -fsS http://127.0.0.1:8080/api/v1/demo/status | grep -q '"username":"guest"'
+          curl -fsS -X POST \
+            -H 'Content-Type: application/json' \
+            -d '{"username":"guest","password":"guest"}' \
+            http://127.0.0.1:8080/api/v1/auth/login | grep -q '"mfa_required":true'
+
+      - name: Smoke test the pushed image
+        if: github.event_name != 'pull_request'
+        run: |
+          set -euo pipefail
+          image="$(printf '%s\n' "${{ steps.meta.outputs.tags }}" | head -n 1)"
+          echo "Testing $image"
+          cleanup() {
+            docker logs demo-smoke-pushed 2>/dev/null || true
+            docker rm -f demo-smoke-pushed 2>/dev/null || true
+            docker volume rm demo-smoke-pushed-data 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          docker run -d --name demo-smoke-pushed \
+            -p 127.0.0.1:8080:8080 \
+            --read-only \
+            --tmpfs /tmp:rw,noexec,nosuid,size=64m,mode=1777 \
+            -v demo-smoke-pushed-data:/data \
             --memory 1g --pids-limit 256 \
             --security-opt no-new-privileges:true --cap-drop ALL \
             "$image"
