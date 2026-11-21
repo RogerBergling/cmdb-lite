@@ -182,9 +182,8 @@ Server-specific requirements and limitations:
   There is no persistent lockout or global rate limit.
 - The server API is serialized: one process, one database, one `cmdb-rpc` child.
   A long import, scan, or audit verification blocks other users.
-- There is no health/readiness endpoint, metrics, structured request log, or
-  graceful-shutdown handler in this release. Use a TCP check and external
-  supervision.
+- `/healthz` and `/readyz` are unauthenticated and expose only readiness. There
+  is no metrics endpoint, structured request log, or tracing in this release.
 - Server accounts and MFA material are inside the database backup. Protect the
   backup and passphrase separately. The server has no online backup API; stop
   the service before copying the database pair.
@@ -344,7 +343,8 @@ The monitored fallback contact is `github@bergling.net`. See
   admin-created/reset passwords are forced to change. Treat it as an
   authenticated inventory for a trusted team, not a hardened multi-tenant
   service.
-- Server mode has no health/readiness endpoint or graceful shutdown handler.
+- Server mode exposes unauthenticated `/healthz` and `/readyz` endpoints that
+  return only `{"ok":true}`.
   Use a TCP check, external supervision, and a maintenance window for backups
   and restarts.
 - Webview memory cannot be fully zeroized.

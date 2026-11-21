@@ -3,7 +3,7 @@
 A local-first, encrypted Configuration Management Database (CMDB) for Linux and
 Windows.
 
-> **Status: v0.7.1.** The repository contains the C17 core,
+> **Status: v0.7.2.** The repository contains the C17 core,
 > SQLCipher storage layer, Argon2id key derivation, CI categories/types/custom
 > fields, impact-aware typed relationships, seeded infrastructure services,
 > CSV/TSV import, dependency graph builder, `.drawio` export, an embedded
@@ -16,11 +16,15 @@ Windows.
 > WebView2 smoke test and produces the portable ZIP, MSI, and agent packages. A
 > clean-Windows-VM install/uninstall check is still recommended.
 
-> **Release status:** v0.7.1 is the latest published release. It adds the
-> public demo container and corrects application-inventory change reporting.
+> **Release status:** v0.7.2 is the latest published release. It adds the
+> production server container image, `/healthz` and `/readyz`, graceful
+> shutdown, and the public demo container, and corrects application-inventory
+> change reporting. v0.7.1 added the demo image and the agent-history fix.
 > v0.7.0 introduced authenticated server mode, server-only packages, and the
 > application inventory agent. Install from a verified release package and
-> verify `SHA256SUMS`. See [`demo/README.md`](demo/README.md),
+> verify `SHA256SUMS`. See
+> [`packaging/docker/server/README.md`](packaging/docker/server/README.md),
+> [`demo/README.md`](demo/README.md),
 > [`docs/releasing.md`](docs/releasing.md), and
 > [`docs/authentication.md`](docs/authentication.md).
 
@@ -93,7 +97,7 @@ bar after opening a database or connecting to a server. For example, a local
 Debug build shows:
 
 ```text
-v0.7.1 · build 1234 · commit abc123def456 · 2026-11-11T21:05:48Z · Linux/x86_64 · Debug
+v0.7.2 · build 1234 · commit abc123def456 · 2026-11-11T21:05:48Z · Linux/x86_64 · Debug
 ```
 
 The server exposes the same information:
@@ -154,24 +158,24 @@ latest release from:
 
 <https://github.com/RogerBergling/cmdb-lite/releases/latest>
 
-Release assets (the latest published release is v0.7.1; substitute the version
+Release assets (the latest published release is v0.7.2; substitute the version
 you download):
 
 | Platform | Files |
 |---|---|
-| Debian/Ubuntu | `cmdb-lite_0.7.1_amd64.deb` |
-| Fedora (RHEL untested) | `cmdb-lite-0.7.1-*.rpm` |
-| Portable Linux | `cmdb-lite-0.7.1-linux-x86_64.tar.gz` |
+| Debian/Ubuntu | `cmdb-lite_0.7.2_amd64.deb` |
+| Fedora (RHEL untested) | `cmdb-lite-0.7.2-*.rpm` |
+| Portable Linux | `cmdb-lite-0.7.2-linux-x86_64.tar.gz` |
 | Flatpak (Linux) | `cmdb-lite.flatpak` |
 | Windows portable | `cmdb-lite-windows-x64.zip` |
-| Windows installer | `cmdb-lite-0.7.1-windows-x64.msi` |
-| Server-only DEB (v0.7.0+) | `cmdb-lite-server_0.7.1_amd64.deb` |
-| Server-only RPM (v0.7.0+) | `cmdb-lite-server-0.7.1-*.rpm` |
-| Server-only tarball (v0.7.0+) | `cmdb-lite-server-0.7.1-linux-x86_64.tar.gz` |
-| Agent DEB (v0.7.0+) | `cmdb-lite-agent_0.7.1_amd64.deb` |
-| Agent RPM (v0.7.0+) | `cmdb-lite-agent-0.7.1-*.rpm` |
-| Agent Linux tarball (v0.7.0+) | `cmdb-lite-agent-0.7.1-linux-x86_64.tar.gz` |
-| Agent Windows ZIP/MSI (v0.7.0+) | `cmdb-lite-agent-0.7.1-windows-x64.zip`, `cmdb-lite-agent-0.7.1-windows-x64.msi` |
+| Windows installer | `cmdb-lite-0.7.2-windows-x64.msi` |
+| Server-only DEB (v0.7.0+) | `cmdb-lite-server_0.7.2_amd64.deb` |
+| Server-only RPM (v0.7.0+) | `cmdb-lite-server-0.7.2-*.rpm` |
+| Server-only tarball (v0.7.0+) | `cmdb-lite-server-0.7.2-linux-x86_64.tar.gz` |
+| Agent DEB (v0.7.0+) | `cmdb-lite-agent_0.7.2_amd64.deb` |
+| Agent RPM (v0.7.0+) | `cmdb-lite-agent-0.7.2-*.rpm` |
+| Agent Linux tarball (v0.7.0+) | `cmdb-lite-agent-0.7.2-linux-x86_64.tar.gz` |
+| Agent Windows ZIP/MSI (v0.7.0+) | `cmdb-lite-agent-0.7.2-windows-x64.zip`, `cmdb-lite-agent-0.7.2-windows-x64.msi` |
 | Checksums | `SHA256SUMS` |
 
 Verify the download before running it:
@@ -212,7 +216,7 @@ Install the dependencies first, then the package:
 ```bash
 sudo apt update
 sudo apt install -y libgtk-3-0t64 libwebkit2gtk-4.1-0 libssl3t64
-sudo apt install ./cmdb-lite_0.7.1_amd64.deb
+sudo apt install ./cmdb-lite_0.7.2_amd64.deb
 cmdb
 ```
 
@@ -227,7 +231,7 @@ Flatpak or build from source. The Flatpak is the fully self-contained option.
 Install with `dnf` so dependencies are resolved automatically:
 
 ```bash
-sudo dnf install ./cmdb-lite-0.7.1-*.rpm
+sudo dnf install ./cmdb-lite-0.7.2-*.rpm
 cmdb
 ```
 
@@ -253,21 +257,21 @@ SmartScreen warning.
 **MSI installer**
 
 ```powershell
-msiexec /i .\cmdb-lite-0.7.1-windows-x64.msi
+msiexec /i .\cmdb-lite-0.7.2-windows-x64.msi
 ```
 
 The MSI is per-machine, requires administrator elevation, and creates a Start
 Menu shortcut. Uninstall with:
 
 ```powershell
-msiexec /x .\cmdb-lite-0.7.1-windows-x64.msi
+msiexec /x .\cmdb-lite-0.7.2-windows-x64.msi
 ```
 
 ### Portable Linux tarball
 
 ```bash
-tar -xzf cmdb-lite-0.7.1-linux-x86_64.tar.gz
-./cmdb-lite-0.7.1-linux-x86_64/bin/cmdb
+tar -xzf cmdb-lite-0.7.2-linux-x86_64.tar.gz
+./cmdb-lite-0.7.2-linux-x86_64/bin/cmdb
 ```
 
 The ELF requires GTK3, WebKitGTK 4.1, expat, and the system OpenSSL 3
@@ -431,8 +435,8 @@ Application upgrades replace the executable only. Your database and `.meta`
 sidecar stay where they are. The application remembers the last database and
 shows recent databases on the unlock screen.
 
-v0.7.1 does not change the schema; a v0.7.0 database opens without migration.
-v0.7.0 migrated the database from schema version 4 to version 5. It added the
+v0.7.2 does not change the schema; a v0.7.0 or v0.7.1 database opens without
+migration. v0.7.0 migrated the database from schema version 4 to version 5. It added the
 application inventory agent tables, the Linux server package, and authenticated
 server mode. Existing databases open normally and keep the same passphrase. A
 pre-migration backup is created and its path is shown after opening. Server
@@ -450,10 +454,10 @@ backup is created first and its path is shown after opening.
 
 ```bash
 # Debian/Ubuntu
-sudo apt install ./cmdb-lite_0.7.1_amd64.deb
+sudo apt install ./cmdb-lite_0.7.2_amd64.deb
 
 # Fedora
-sudo dnf upgrade ./cmdb-lite-0.7.1-*.rpm
+sudo dnf upgrade ./cmdb-lite-0.7.2-*.rpm
 ```
 
 On Windows, install the new MSI or replace the portable executable and open the
@@ -559,6 +563,7 @@ binaries and web assets because the server serves the UI over HTTP:
 | Linux (.deb/RPM/TGZ) | `cmdb`, `cmdb-server`, `cmdb-rpc`, `share/cmdb-lite/web/`, systemd unit | Desktop plus single-node server. The desktop needs GTK3, WebKitGTK 4.1, expat, and system OpenSSL. SQLCipher and libsodium are linked statically when `.a` archives are available. Server-only packages omit `cmdb` and GTK/WebKit. |
 | Linux agent (.deb/RPM/TGZ) | `cmdb-agent`, `cmdb-agent.service` | Application inventory service. Runs as the unprivileged `cmdb-agent` user with systemd hardening. No desktop or server libraries required. |
 | Linux (Flatpak) | `cmdb-lite.flatpak` | Desktop only. Uses the GNOME runtime for GTK3/WebKitGTK and bundles SQLCipher, libsodium, and nmap. The GNOME runtime is installed separately by Flatpak. |
+| Server container | `ghcr.io/rogerbergling/cmdb-lite-server` | Production server-only image: `cmdb-server`, `cmdb-rpc`, web assets, `nmap`, health/readiness endpoints, external TLS proxy, secret-file support. See [`packaging/docker/server/README.md`](packaging/docker/server/README.md). |
 | Demo container | `ghcr.io/rogerbergling/cmdb-lite-demo` | Server-only image with fake data, a public demo account, a fake `nmap`, and a 24-hour reset. Not a production deployment; see [`demo/README.md`](demo/README.md). |
 
 The encrypted database and its `.meta` sidecar are intentionally separate files.
@@ -586,9 +591,9 @@ environments you intend to support.
 - Agent: Store/Appx, Snap, and Flatpak enumeration; per-user Windows application
   visibility; host-record deletion; application/history export; and automated
   end-to-end enrollment/report tests.
-- Server: flags/config file beyond the packaged systemd unit, health/readiness
-  endpoint, graceful shutdown, online backup/restore, browser export/download,
-  role-change UI, active-session management, and server HTTP integration tests.
+- Server: flags/config file beyond the packaged systemd unit, online
+  backup/restore, browser export/download, role-change UI, active-session
+  management, and server HTTP integration tests.
 - Windows server support and a one-click local-server launcher for the desktop
   client.
 - Role-based access control and per-CI permissions.
@@ -780,7 +785,7 @@ Before go-live:
 | Passwords | Admin-created/reset passwords are temporary and force a change | The administrator knows the temporary password; the user must replace it before inventory access. |
 | Sessions | Memory-only; no session list or global revoke UI | Restart logs everyone out; disable/reset actions revoke per user. |
 | Authorization | Admin flag only; all other accounts share inventory privileges; agent token management is admin-only | No RBAC or per-CI permissions. |
-| Operations | systemd unit packaged; no health endpoint, metrics, or request log | Enable the packaged unit and use a TCP check in [`docs/server.md`](docs/server.md); add monitoring. |
+| Operations | systemd unit and container image; `/healthz` and `/readyz`; no metrics or request log | Use the health endpoints for proxy/monitoring checks and add external supervision. |
 | Ingress | No TLS listener; proxy trust is CIDR-based | HAProxy/VPN is mandatory; configure forwarded headers or cookies/rate limits break. |
 | Agents | Dedicated enrollment/report endpoints; per-host tokens; admin-managed | Publish the HTTPS proxy to managed hosts; keep the plain HTTP listener private. Configure retention flags. |
 
@@ -796,10 +801,10 @@ assets, a systemd unit, documentation, and a sample environment file.
 
 ```bash
 # Debian/Ubuntu
-sudo apt install ./cmdb-lite-server_0.7.1_amd64.deb
+sudo apt install ./cmdb-lite-server_0.7.2_amd64.deb
 
 # Fedora
-sudo dnf install ./cmdb-lite-server-0.7.1-*.rpm
+sudo dnf install ./cmdb-lite-server-0.7.2-*.rpm
 
 # Create the root-only passphrase file from the example, then edit it.
 sudo install -d -o root -g root -m 0700 /etc/cmdb-lite
@@ -824,8 +829,8 @@ the one-time setup token to the journal. Read it, then open
 
 Install either the desktop+server package or the server-only package on a host,
 not both: they share `cmdb-server`, `cmdb-rpc`, web assets, and the systemd unit.
-The server-only package intentionally has no online backup/export feature and no
-health endpoint yet; see the limitations above and in
+The server-only package intentionally has no online backup/export feature; use
+`/healthz` and `/readyz` for monitoring. See the limitations above and in
 [`docs/server.md`](docs/server.md).
 
 ### Install the application inventory agent
@@ -843,8 +848,8 @@ On the server, sign in as an administrator, open **Applications**, and choose
 **Linux**
 
 ```bash
-sudo apt install ./cmdb-lite-agent_0.7.1_amd64.deb
-# or: sudo dnf install ./cmdb-lite-agent-0.7.1-*.rpm
+sudo apt install ./cmdb-lite-agent_0.7.2_amd64.deb
+# or: sudo dnf install ./cmdb-lite-agent-0.7.2-*.rpm
 sudo cmdb-agent enroll \
   --server https://cmdb.example.internal \
   --token <one-time-token>
@@ -853,7 +858,7 @@ sudo cmdb-agent enroll \
 **Windows**
 
 ```powershell
-msiexec /i .\cmdb-lite-agent-0.7.1-windows-x64.msi
+msiexec /i .\cmdb-lite-agent-0.7.2-windows-x64.msi
 & "C:\Program Files\cmdb-lite-agent\cmdb-agent.exe" enroll `
   --server https://cmdb.example.internal `
   --token <one-time-token>
@@ -881,7 +886,7 @@ For automated Windows deployment, the MSI accepts public `SERVER_URL` and
 `ENROLLMENT_TOKEN` properties:
 
 ```powershell
-msiexec /i .\cmdb-lite-agent-0.7.1-windows-x64.msi /qn `
+msiexec /i .\cmdb-lite-agent-0.7.2-windows-x64.msi /qn `
   SERVER_URL="https://cmdb.example.internal" `
   ENROLLMENT_TOKEN="<one-time-token>"
 ```
@@ -1526,7 +1531,7 @@ It installs the static vcpkg dependencies, builds, tests, and creates:
 
 ```text
 dist\cmdb-lite-windows-x64.zip
-dist\cmdb-lite-0.7.1-windows-x64.msi
+dist\cmdb-lite-0.7.2-windows-x64.msi
 dist\cmdb-lite-windows-x64\bin\cmdb.exe
 ```
 
@@ -1569,6 +1574,9 @@ GitHub Actions Windows runner.
 
 ## Documentation
 
+- [`packaging/docker/server/README.md`](packaging/docker/server/README.md) —
+  production server image, Compose, secrets, external TLS proxy, backup, and
+  upgrade.
 - [`demo/README.md`](demo/README.md) — public demo container: fake data, demo
   login, TOTP, simulated discovery, reset policy, and GHCR publishing.
 - [`docs/import-format.md`](docs/import-format.md) — CSV/TSV contracts, examples,
@@ -1827,9 +1835,9 @@ Ready-to-use examples are in [`examples/`](examples/):
   and copying the `.cmdb` + `.meta` pair. There is no browser download of
   inventory or `.drawio` files in server mode.
 - The server-only package installs a hardened systemd unit, but there is no
-  separate flags/config file; paths and timeouts are edited in the unit. There
-  is no health/readiness endpoint, metrics, structured request logging, or
-  graceful shutdown handler. Use a TCP check and external supervision.
+  separate flags/config file; paths and timeouts are edited in the unit. The
+  server exposes `/healthz` and `/readyz` and handles `SIGTERM` gracefully, but
+  there is no metrics endpoint, structured request log, or tracing.
 - One server process and one database. All API requests are serialized, so a
   long import, scan operation, or audit verification blocks other users. There
   is no HA or horizontal scaling.
@@ -1932,10 +1940,12 @@ is still needed before a public or enterprise production rollout.
 
 ### Release and distribution
 
-- [x] Tag and publish v0.6.0 and v0.7.0; verify all assets and `SHA256SUMS`.
+- [x] Tag and publish v0.6.0, v0.7.0, and v0.7.1; verify all assets and
+      `SHA256SUMS`.
 - [x] Release tagging/signing/SBOM is skipped for this rollout. Record the
       commit hash and verify locally built package contents/checksums.
-- [ ] Publish v0.7.1 with the demo image and verify all assets and `SHA256SUMS`.
+- [ ] Publish v0.7.2 with the production server image and verify all assets and
+      `SHA256SUMS`.
 - [x] Signing and SBOMs are not required by the rollout decision. Windows
       artifacts are unsigned and may trigger SmartScreen.
 - [ ] Pin the vcpkg baseline and GitHub Actions SHAs for reproducible builds.
@@ -1957,8 +1967,7 @@ is still needed before a public or enterprise production rollout.
 - [x] Add a server-only package with a systemd unit and passphrase example.
 - [ ] Add RBAC/per-CI permissions, a separate server flags/config file, and
       non-interactive passphrase provisioning.
-- [ ] Add an application health/readiness endpoint and align proxy checks with
-      it. The current proxy check is only TCP.
+- [x] Add `/healthz` and `/readyz` and use them for proxy/monitoring checks.
 - [ ] Deploy with the packaged `cmdb` user, `UMask=0077`, `0700` state
       directory, root-only passphrase file, and hardened systemd unit; run
       `systemd-analyze verify` on the installed unit.
@@ -2036,7 +2045,7 @@ is still needed before a public or enterprise production rollout.
 
 There is no formal long-term support policy yet. The repository is validated on
 the CI platforms listed above, and only the latest release should be considered
-tested. Server mode is v0.7.1 code and is built/tested on Linux x86_64;
+tested. Server mode is v0.7.2 code and is built/tested on Linux x86_64;
 Windows server support is not implemented. Before production use, define:
 
 - which versions receive security fixes;

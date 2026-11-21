@@ -9,11 +9,12 @@ For a single linear install walkthrough, start with
 [`installation.md`](installation.md). This document is the detailed reference for
 the server-specific parts.
 
-> **Status:** v0.7.1 ships server-only DEB/RPM/TGZ packages with a hardened
-> systemd unit and a passphrase example. It does not yet ship a separate
-> flags/config file, an online backup API, or a health endpoint. The samples
-> below cover the packaged unit and the remaining operational gaps. Validate
-> them on your target distribution before go-live.
+> **Status:** v0.7.2 ships server-only DEB/RPM/TGZ packages and a server-only
+> container image, with hardened startup, `/healthz` and `/readyz`, and
+> graceful shutdown. It does not yet ship a separate flags/config file or an
+> online backup API. The samples below cover the packaged unit, container, and
+> remaining operational gaps. Validate them on your target distribution before
+> go-live.
 
 ## What is installed
 
@@ -34,17 +35,28 @@ Flatpak and Windows packages contain only the desktop client. A Windows desktop
 client can connect to a Linux server with `CMDB_SERVER_URL`; Windows server
 support is not implemented.
 
+## Container deployment
+
+A server-only production image is published as
+`ghcr.io/rogerbergling/cmdb-lite-server`. It includes `nmap`, health/readiness
+endpoints, a read-only non-root runtime, and a Compose example with a secret
+file and external TLS proxy. See
+[`../packaging/docker/server/README.md`](../packaging/docker/server/README.md).
+
+The same single-node rules apply: one replica, one local volume, no NFS/SMB,
+stop before copying the database pair, and terminate TLS outside the container.
+
 ## Install the server-only package
 
-v0.7.0 adds server-only Linux packages that omit the desktop client and
+v0.7.0 added server-only Linux packages that omit the desktop client and
 GTK/WebKit dependencies:
 
 ```bash
 # Debian/Ubuntu
-sudo apt install ./cmdb-lite-server_0.7.1_amd64.deb
+sudo apt install ./cmdb-lite-server_0.7.2_amd64.deb
 
 # Fedora
-sudo dnf install ./cmdb-lite-server-0.7.1-*.rpm
+sudo dnf install ./cmdb-lite-server-0.7.2-*.rpm
 ```
 
 Check the installed server build with:
@@ -263,8 +275,8 @@ Notes:
   everything except the proxy.
 - Add HSTS, TLS policy, and access controls at the proxy. The server does not set
   HSTS itself.
-- There is no application health endpoint yet. The `check` above is a TCP check.
-  An HTTP-specific check can be added later.
+- Use `GET /healthz` for an HTTP liveness check and `GET /readyz` for
+  readiness. Both are unauthenticated and return only `{"ok":true}`.
 - Long imports and scans are serialized with all other API requests. Keep proxy
   server timeouts generous enough for legitimate large imports.
 
@@ -391,8 +403,8 @@ package; never open a migrated database with an older binary.
   structured request log or access log by default.
 - Authentication and inventory changes are in the encrypted `audit_log` table,
   not in the system log. Export or forward audit events if policy requires it.
-- There is no health or readiness endpoint. Use a TCP check at the proxy until
-  one is added.
+- Use `GET /healthz` for liveness and `GET /readyz` for readiness at the proxy
+  or monitoring system. They do not include inventory data.
 - There is no metrics endpoint, request ID, or tracing.
 - One server process handles one database. API requests are serialized; a long
   import, scan start, or audit verification can block other users. There is no
@@ -432,5 +444,5 @@ package; never open a migrated database with an older binary.
 - [ ] Firewall and VPN access reviewed; no direct internet exposure.
 - [ ] Dependency and Go vulnerability scanning in the release process.
 - [ ] Load and failure testing with expected user and inventory counts.
-- [ ] Application health/readiness monitoring added or accepted as a gap.
+- [x] Application health/readiness monitoring uses `/healthz` and `/readyz`.
 - [ ] Verify the packaged unit with `systemd-analyze verify` on the target host.

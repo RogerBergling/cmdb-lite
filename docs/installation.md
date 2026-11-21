@@ -390,8 +390,8 @@ Before calling the installation complete:
 - [ ] Confirm the agent services restart after a reboot.
 - [ ] Set up NTP/chrony and confirm time synchronization.
 - [ ] Configure journald retention and access controls.
-- [ ] Configure external monitoring. There is no HTTP health endpoint yet; use a
-      TCP/proxy check until one exists.
+- [ ] Configure external monitoring. Use `/healthz` for liveness and `/readyz`
+      for readiness, or a TCP/proxy check.
 - [ ] Perform a stop/copy/start backup of the `.cmdb` and `.meta` pair.
 - [ ] Restore the backup to a test host and verify login, TOTP, recovery codes,
       inventory, and application history.
@@ -449,28 +449,28 @@ database is opened. See [`upgrading.md`](upgrading.md) and
 
 ## Docker and container notes
 
-Docker is not the recommended production deployment for this release. There is
-no production container image in the repository, and the server is a single-node
-stateful service with a file database, a child `cmdb-rpc` process, a required
-passphrase, no TLS listener, no health endpoint, and no online backup API.
+A server-only production image is published as
+`ghcr.io/rogerbergling/cmdb-lite-server`. It contains `cmdb-server`,
+`cmdb-rpc`, the web assets, and `nmap`; it exposes `/healthz` and `/readyz`,
+runs as an unprivileged user with a read-only root filesystem, and supports a
+Compose secret file for the database passphrase. See
+[`../packaging/docker/server/README.md`](../packaging/docker/server/README.md)
+for the image, Compose example, external TLS proxy, backup, and upgrade
+procedure.
+
+The server is still single-node and stateful: one container, one local
+persistent volume, one `cmdb-rpc` child, no online backup API, and no TLS
+listener. Terminate TLS at the external proxy; do not publish the HTTP port
+directly. Do not use Kubernetes Deployments, Swarm scaling, or multiple
+replicas against the same volume, and do not run `cmdb-agent` in a container
+to inventory the host.
 
 A separate **public demo** image exists in [`../demo/`](../demo/README.md). It
 contains fake data, a public demo account, a fake `nmap`, and an automatic
 reset. It is intentionally not a production deployment and must never be
 pointed at real inventory.
 
-If your organisation mandates containers:
-
-- run exactly one replica;
-- use a local persistent volume for `/var/lib/cmdb-lite`;
-- keep the HTTP port unpublished and terminate TLS at a host or sidecar proxy;
-- provide the passphrase through a secret or root-only file;
-- include `nmap` in the image if server-side scanning is required;
-- stop the container before copying the database pair;
-- do not use Kubernetes Deployments, Swarm scaling, or multiple replicas;
-- do not run `cmdb-agent` in a container to inventory the host.
-
-For a normal installation, use the systemd service described above.
+For a normal package installation, use the systemd service described above.
 
 ## Documentation map
 

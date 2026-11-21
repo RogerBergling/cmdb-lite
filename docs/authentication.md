@@ -1,6 +1,6 @@
 # Authentication and server mode
 
-> **Status: released in v0.7.0; current release v0.7.1.** The Go `cmdb-server`,
+> **Status: released in v0.7.0; current release v0.7.2.** The Go `cmdb-server`,
 > the `cmdb-rpc` bridge, first-run setup, password login, TOTP, recovery codes,
 > sessions, admin user management, and server-mode audit actors are implemented.
 
@@ -417,8 +417,8 @@ recovery-code single use. Before a production rollout, also exercise:
 - No RBAC beyond the admin flag; all non-admin accounts have full inventory
   privileges.
 - No online backup, restore, or export/download in server mode.
-- No health/readiness endpoint, metrics, request log, or graceful-shutdown
-  handler. The server-only package installs a systemd unit, but there is no
+- No metrics endpoint, structured request log, request ID, or tracing. The
+  `/healthz` and `/readyz` endpoints expose only process readiness. The server-only package installs a systemd unit, but there is no
   separate flags/config file; paths and timeouts live in the unit.
 - Login rate limits are in memory, cleared on restart, and keyed by username and
   IP. A known username can be temporarily locked out by repeated failures. There

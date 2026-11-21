@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"embed"
@@ -14,9 +15,11 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"golang.org/x/term"
@@ -280,10 +283,26 @@ func main() {
 		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
+
+	shutdownSignal, stopSignals := signal.NotifyContext(context.Background(),
+		os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+	go func() {
+		<-shutdownSignal.Done()
+		log.Printf("cmdb-server shutting down")
+		shutdownContext, cancel := context.WithTimeout(context.Background(),
+			10*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shutdownContext); err != nil {
+			log.Printf("shutdown: %v", err)
+		}
+	}()
+
 	log.Printf("cmdb-server listening on http://%s", *listen)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
+	log.Printf("cmdb-server stopped")
 }
 
 func readPassphrase() (string, error) {
@@ -448,8 +467,15 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("GET /index.html", s.handleIndex)
 	mux.HandleFunc("GET /app.js", s.handleStatic("app.js", "application/javascript"))
 	mux.HandleFunc("GET /style.css", s.handleStatic("style.css", "text/css"))
+	mux.HandleFunc("GET /healthz", s.handleHealth)
+	mux.HandleFunc("GET /readyz", s.handleHealth)
 	demoRegisterRoutes(mux, s)
 	return securityHeaders(s.serializeAPI(mux))
+}
+
+func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func (s *server) serializeAPI(next http.Handler) http.Handler {

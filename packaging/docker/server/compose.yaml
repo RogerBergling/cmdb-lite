@@ -1,0 +1,48 @@
+services:
+  cmdb-server:
+    # Use an immutable version or digest in production. :main/:edge track the
+    # default branch and are intended for testing.
+    image: ghcr.io/rogerbergling/cmdb-lite-server:main
+    ports:
+      # Host-side bind address and port. The container always listens on 8080.
+      # Point the external TLS proxy at this address.
+      - "${CMDB_HTTP_BIND:-127.0.0.1}:${CMDB_HTTP_PORT:-8080}:8080"
+    environment:
+      CMDB_DB_PATH: /data/inventory.cmdb
+      CMDB_DB_PASSPHRASE_FILE: /run/secrets/cmdb_db_passphrase
+      CMDB_LISTEN: 0.0.0.0:8080
+      # Trusted proxy source CIDR as seen by the container. The default covers
+      # Docker bridge networks; narrow it to your actual proxy address.
+      CMDB_PROXY: "${CMDB_PROXY:-172.16.0.0/12}"
+      CMDB_SESSION_IDLE: "${CMDB_SESSION_IDLE:-30m}"
+      CMDB_SESSION_ABSOLUTE: "${CMDB_SESSION_ABSOLUTE:-12h}"
+      CMDB_AGENT_INTERVAL: "${CMDB_AGENT_INTERVAL:-24h}"
+      CMDB_AGENT_RETENTION_DAYS: "${CMDB_AGENT_RETENTION_DAYS:-365}"
+      CMDB_AGENT_REPORTS_PER_HOST: "${CMDB_AGENT_REPORTS_PER_HOST:-90}"
+    secrets:
+      - cmdb_db_passphrase
+    volumes:
+      - cmdb-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 1g
+    pids_limit: 256
+    stop_grace_period: 30s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  cmdb-data:
+
+secrets:
+  cmdb_db_passphrase:
+    file: ./secrets/cmdb_db_passphrase

@@ -10,3 +10,8 @@ dist-*
 *.zip
 *.flatpak
 docs/screenshots
+
+# Local secrets and environment files
+.env
+**/.env
+packaging/docker/server/secrets

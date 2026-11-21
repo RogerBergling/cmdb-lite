@@ -9,6 +9,10 @@ container host. It runs the real `cmdb-server`, the real C core through
 > and is reset automatically. Never point this image at real inventory, real
 > credentials, or a real network.
 
+The production server image is published separately as
+`ghcr.io/rogerbergling/cmdb-lite-server`; see
+[`../packaging/docker/server/README.md`](../packaging/docker/server/README.md).
+
 ## Demo login
 
 The login page shows these values and the current TOTP code:

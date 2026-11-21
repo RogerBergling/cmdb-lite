@@ -111,3 +111,7 @@ CMakeUserPresets.json
 # Flatpak build output
 *.flatpak
 repo/
+
+# Production container secrets
+packaging/docker/server/secrets/*
+!packaging/docker/server/secrets/.gitkeep
