@@ -793,6 +793,84 @@ See [`docs/server.md`](docs/server.md) for a sample systemd unit, HAProxy
 configuration, file permissions, backup/restore, upgrade/rollback, NTP, logs,
 and hardening checklist.
 
+### Production server container
+
+The server-only production image is published as
+`ghcr.io/rogerbergling/cmdb-lite-server`. It is **not** the fake-data demo
+image. It contains `cmdb-server`, `cmdb-rpc`, the web assets, and `nmap`, and it
+is intended for one Linux amd64 host behind an external TLS proxy.
+
+Requirements:
+
+- Docker Engine with the Compose plugin;
+- an external proxy that terminates TLS and forwards to the container;
+- a local persistent volume for `/data` (not NFS/SMB);
+- at least 1 GiB RAM;
+- exactly one replica.
+
+From the repository root:
+
+```bash
+cd packaging/docker/server
+cp .env.example .env
+
+# Store the database passphrase as a Compose secret file.
+install -d -m 0700 secrets
+openssl rand -base64 48 | install -m 0444 /dev/stdin secrets/cmdb_db_passphrase
+
+# Create the encrypted database once.
+docker compose run --rm cmdb-server \
+  --db /data/inventory.cmdb --create-db
+
+docker compose up -d
+docker compose logs cmdb-server | grep "FIRST-RUN SETUP TOKEN"
+```
+
+Open `https://your-host/login` through the proxy and create the first
+administrator with the setup token. Then enroll TOTP and generate recovery
+codes. The token is printed while no users exist; restrict log access during
+that window.
+
+Set `CMDB_PROXY` in `.env` to the proxy source address/CIDR **as seen by the
+container**. The proxy must set `X-Forwarded-Proto: https` and append
+`X-Forwarded-For`. The example `.env` trusts Docker bridge ranges and should be
+narrowed.
+
+The container always listens on internal port **8080**. Use
+`CMDB_HTTP_PORT` for the host port, for example:
+
+```dotenv
+CMDB_HTTP_BIND=127.0.0.1
+CMDB_HTTP_PORT=8012
+CMDB_LISTEN=0.0.0.0:8080
+```
+
+Do not set `CMDB_LISTEN` to the host port.
+
+Operations:
+
+- `GET /healthz` and `GET /readyz` return `{"ok":true}` without authentication.
+- `SIGTERM` performs an HTTP shutdown with a 10-second grace period.
+- `nmap` is included. Unprivileged `-sT` and `-sV` work; `-O` does not.
+  Restrict discovery egress to authorized networks.
+- Back up by stopping the service and copying the `/data` volume pair; restore
+  the same way. There is no online backup API.
+- Pin an immutable image tag or digest in production. `main`/`edge` track the
+  default branch; `0.7.2`, `0.7`, and `latest` are release tags.
+- The image is public and contains no secrets; the database passphrase is
+  supplied at runtime through the secret file.
+
+The demo image is separate:
+
+```text
+ghcr.io/rogerbergling/cmdb-lite-server   # production
+ghcr.io/rogerbergling/cmdb-lite-demo     # public fake-data demo
+```
+
+See [`packaging/docker/server/README.md`](packaging/docker/server/README.md)
+for the full Compose file, backup/restore commands, upgrade procedure, and
+security checklist.
+
 ### Install the server-only package
 
 The v0.7.0 release adds a server-only Linux package that does not install the
