@@ -314,8 +314,10 @@ On first start the server prints a one-time setup token. Open
 `http://127.0.0.1:8080/login`, enter the token, and create the first
 administrator. The token expires after 24 hours; while no users exist, restarting
 the server prints a new one. TOTP enrollment and at least one unused recovery
-code are mandatory before inventory access; the Security page guides this. After
-setup, create additional accounts from the **Users** page if needed.
+code are mandatory before inventory access; the Security page guides this and
+renders the `otpauth://` URI as a QR code (the secret is also shown for manual
+entry). After setup, create additional accounts from the **Users** page if
+needed.
 
 To use the desktop client against a server instead of opening a local file,
 choose **Connect to server** on the unlock screen, enter the server URL, and

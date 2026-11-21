@@ -229,6 +229,9 @@ logged after the startup line.
 
 ### TOTP
 
+During enrollment, `/security` renders the `otpauth://` URI as a QR code for
+authenticator apps and also shows the secret for manual entry.
+
 1. `POST /api/v1/auth/mfa` with the 6-digit code.
 2. The server checks the pending session, validates the code, and rejects a
    step that was already used.

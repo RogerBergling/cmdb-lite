@@ -60,6 +60,15 @@ cJSON, webview, GTK/WebKitGTK, and—for the Flatpak—nmap and libpcap.
 - The module is fetched by `go build`; its license text is available in the Go
   module cache and should be included in redistributions of the Go binaries.
 
+### github.com/skip2/go-qrcode
+
+- License: MIT
+- Copyright: Tom Harwood
+- Purpose: renders the TOTP `otpauth://` URI as a QR code during authenticator
+  enrollment in `cmdb-server`.
+- The module is fetched by `go build`; its license text is available in the Go
+  module cache and should be included in redistributions of the server binary.
+
 ### GTK 3 and WebKitGTK 4.1 (Linux)
 
 - GTK: LGPL-2.1-or-later

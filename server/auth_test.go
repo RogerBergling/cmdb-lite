@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bytes"
+	"encoding/base64"
+	"strings"
 	"testing"
 	"time"
 )
@@ -48,6 +51,25 @@ func hotpForTest(secret string, at time.Time) (string, int64, error) {
 	step := at.Unix() / totpPeriod
 	code, err := hotp(key, uint64(step))
 	return code, step, err
+}
+
+func TestTOTPQRCode(t *testing.T) {
+	uri := totpURI("cmdb-lite", "alice", "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP")
+	data, err := totpQRCodeDataURL(uri)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const prefix = "data:image/png;base64,"
+	if !strings.HasPrefix(data, prefix) {
+		t.Fatalf("unexpected data URL prefix: %q", data[:min(len(data), len(prefix))])
+	}
+	png, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(data, prefix))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasPrefix(png, []byte{0x89, 'P', 'N', 'G'}) {
+		t.Fatalf("unexpected QR image header: %x", png[:min(len(png), 4)])
+	}
 }
 
 func TestRecoveryCodes(t *testing.T) {

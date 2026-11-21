@@ -1249,11 +1249,18 @@ func (s *server) handleTOTPSetup(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, "state", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	uri := totpURI("cmdb-lite", user.Username, secret)
+	response := map[string]any{
 		"ok":     true,
 		"secret": secret,
-		"uri":    totpURI("cmdb-lite", user.Username, secret),
-	})
+		"uri":    uri,
+	}
+	if qr, qrErr := totpQRCodeDataURL(uri); qrErr == nil {
+		response["qr"] = qr
+	} else {
+		log.Printf("totp qr: %v", qrErr)
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *server) handleTOTPConfirm(w http.ResponseWriter, r *http.Request) {

@@ -22,6 +22,7 @@ button.secondary { background:transparent; color:var(--text); border:1px solid v
 .notice { border:1px solid var(--line); border-radius:8px; padding:.6rem .7rem; background:#0e1c26; color:var(--text); font-size:.9rem; }
 .hidden { display:none !important; }
 code, .secret { font-family:ui-monospace,monospace; word-break:break-all; }
+.qr { display:block; width:220px; height:220px; margin:.6rem 0; padding:.5rem; background:#fff; border-radius:8px; }
 .row { display:flex; gap:.5rem; flex-wrap:wrap; align-items:end; }
 .row > label { flex:1 1 12rem; }
 .codes { columns:2; padding-left:1.2rem; }
@@ -43,7 +44,8 @@ code, .secret { font-family:ui-monospace,monospace; word-break:break-all; }
     </label>
     <button id="totp-start" type="button">Set up authenticator</button>
     <div id="totp-setup" class="hidden">
-      <p>Add this secret to your authenticator app, then enter the 6-digit code.</p>
+      <p>Scan the QR code with your authenticator app, or enter the secret manually, then enter the 6-digit code.</p>
+      <img id="totp-qr" class="qr hidden" alt="TOTP QR code" width="220" height="220">
       <p class="secret" id="totp-secret"></p>
       <p class="secret" id="totp-uri"></p>
       <div class="row">
@@ -115,6 +117,8 @@ async function init() {
 }
 $("totp-start").addEventListener("click", async () => {
   $("error").textContent = "";
+  $("totp-qr").classList.add("hidden");
+  $("totp-qr").removeAttribute("src");
   try {
     const data = await api("/api/v1/auth/totp/setup", {
       method: "POST",
@@ -122,6 +126,10 @@ $("totp-start").addEventListener("click", async () => {
     });
     $("totp-secret").textContent = data.secret;
     $("totp-uri").textContent = data.uri;
+    if (data.qr) {
+      $("totp-qr").src = data.qr;
+      $("totp-qr").classList.remove("hidden");
+    }
     $("reauth-password").value = "";
     $("totp-setup").classList.remove("hidden");
     $("totp-start").classList.add("hidden");
@@ -132,6 +140,8 @@ $("totp-confirm").addEventListener("click", async () => {
   try {
     await api("/api/v1/auth/totp/confirm", { method: "POST", body: JSON.stringify({ code: $("totp-code").value.trim() }) });
     $("totp-setup").classList.add("hidden");
+    $("totp-qr").classList.add("hidden");
+    $("totp-qr").removeAttribute("src");
     user.totp_enabled = true;
     refreshGuidance();
   } catch (error) { $("error").textContent = error.message; }

@@ -20,6 +20,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/skip2/go-qrcode"
 	"golang.org/x/crypto/argon2"
 )
 
@@ -198,6 +199,14 @@ func totpURI(issuer, account, secret string) string {
 	values.Set("digits", strconv.Itoa(totpDigits))
 	values.Set("period", strconv.Itoa(totpPeriod))
 	return "otpauth://totp/" + url.PathEscape(issuer+":"+account) + "?" + values.Encode()
+}
+
+func totpQRCodeDataURL(uri string) (string, error) {
+	png, err := qrcode.Encode(uri, qrcode.Medium, 256)
+	if err != nil {
+		return "", err
+	}
+	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(png), nil
 }
 
 func validateTOTP(secret, code string, at time.Time) (int64, bool) {
