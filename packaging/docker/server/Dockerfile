@@ -92,7 +92,7 @@ WORKDIR /data
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD-SHELL port="${CMDB_LISTEN##*:}"; [ -n "$port" ] || port=8080; \
+  CMD port="${CMDB_LISTEN##*:}"; [ -n "$port" ] || port=8080; \
   wget -qO- "http://127.0.0.1:$port/healthz" >/dev/null || exit 1
 
 STOPSIGNAL SIGTERM
