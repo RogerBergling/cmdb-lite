@@ -23,6 +23,44 @@ typedef struct {
   cmdb_app_t *app;
 } shell_t;
 
+/* The embedded UI has no server to answer /theme.js. Inject the configured
+   first-visit theme before the bundle's own scripts run. */
+static char *web_bundle_with_theme(void) {
+  const char *theme = getenv("APP_THEME");
+  if (theme == NULL || theme[0] == '\0' || strcmp(theme, "dark") == 0) {
+    theme = "dark";
+  } else if (strcmp(theme, "light") == 0 || strcmp(theme, "white") == 0) {
+    theme = "light";
+  } else if (strcmp(theme, "system") == 0 || strcmp(theme, "auto") == 0) {
+    theme = "system";
+  } else {
+    theme = "dark";
+  }
+
+  const char *marker = "<head>";
+  const char *head = strstr(cmdb_web_bundle_html, marker);
+  if (head == NULL) {
+    return NULL;
+  }
+  size_t prefix = (size_t)(head - cmdb_web_bundle_html) + strlen(marker);
+  const char *suffix = cmdb_web_bundle_html + prefix;
+  int extra = snprintf(NULL, 0,
+                       "<script>window.__APP_THEME__=\"%s\";</script>", theme);
+  if (extra < 0) {
+    return NULL;
+  }
+  size_t total = strlen(cmdb_web_bundle_html) + (size_t)extra + 1;
+  char *html = malloc(total);
+  if (html == NULL) {
+    return NULL;
+  }
+  memcpy(html, cmdb_web_bundle_html, prefix);
+  (void)snprintf(html + prefix, (size_t)extra + 1,
+                 "<script>window.__APP_THEME__=\"%s\";</script>", theme);
+  memcpy(html + prefix + (size_t)extra, suffix, strlen(suffix) + 1);
+  return html;
+}
+
 static void fatal_message(const char *message) {
   const char *smoke = getenv("CMDB_SMOKE_TEST");
   (void)fprintf(stderr, "cmdb-lite: %s\n", message);
@@ -385,10 +423,14 @@ static int run_application(void) {
       (void)webview_set_html(webview, error_page);
     }
     free(url);
-  } else if (webview_set_html(webview, cmdb_web_bundle_html) !=
-             WEBVIEW_ERROR_OK) {
-    fatal_message("Cannot load the embedded application UI.");
-    (void)webview_set_html(webview, error_page);
+  } else {
+    char *html = web_bundle_with_theme();
+    const char *payload = html != NULL ? html : cmdb_web_bundle_html;
+    if (webview_set_html(webview, payload) != WEBVIEW_ERROR_OK) {
+      fatal_message("Cannot load the embedded application UI.");
+      (void)webview_set_html(webview, error_page);
+    }
+    free(html);
   }
 
   (void)webview_run(webview);
