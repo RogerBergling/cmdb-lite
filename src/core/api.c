@@ -1,5 +1,7 @@
 #include "cmdb/api.h"
 
+#include <stdlib.h>
+
 #include "app_internal.h"
 #include "cmdb/agents.h"
 #include "cmdb/audit.h"
@@ -721,19 +723,32 @@ static cJSON *handle_settings_remember(cJSON *params, cmdb_error_t *err) {
   return result;
 }
 
-static cJSON *handle_prefs_get(cmdb_app_t *app, cmdb_error_t *err) {  char theme[16] = "system";
+static const char *theme_default(void) {
+  const char *value = getenv("APP_THEME");
+  if (value != NULL) {
+    if (strcmp(value, "light") == 0 || strcmp(value, "white") == 0) {
+      return "light";
+    }
+    if (strcmp(value, "system") == 0 || strcmp(value, "auto") == 0) {
+      return "system";
+    }
+  }
+  return "dark";
+}
+
+static cJSON *handle_prefs_get(cmdb_app_t *app, cmdb_error_t *err) {
+  char theme[16];
   int persisted = 0;
   cJSON *result;
 
   (void)err;
+  (void)cmdb_str_copy(theme, sizeof(theme), theme_default());
   if (app->db != NULL) {
     cmdb_error_t local;
     cmdb_error_clear(&local);
     if (cmdb_schema_meta_get(app->db, "ui.theme", theme, sizeof(theme),
                              &local) == 0) {
       persisted = 1;
-    } else {
-      (void)cmdb_str_copy(theme, sizeof(theme), "system");
     }
   }
   result = cJSON_CreateObject();

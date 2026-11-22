@@ -109,6 +109,8 @@ sudo install -o root -g root -m 0600 /dev/null /etc/cmdb-lite/server.env
 
 ```bash
 CMDB_DB_PASSPHRASE='replace-with-a-long-random-phrase'
+# First-visit theme: dark, light or system. A saved preference wins.
+APP_THEME=dark
 ```
 
 Keep the file root-owned and mode `0600`; systemd reads it as root and passes

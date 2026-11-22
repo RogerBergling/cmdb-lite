@@ -130,6 +130,26 @@ cmake -S . -B build -G Ninja \
 The build label is the reliable way to tell two packages with the same semantic
 version apart.
 
+## Theme modes
+
+`APP_THEME` sets the first-visit theme. A saved preference in the database
+(`ui.theme`) or browser `localStorage` overrides it.
+
+| Value | Behavior |
+|---|---|
+| `dark` | Dark theme (default) |
+| `light` | Light/white theme |
+| `system` | Follow the browser/OS `prefers-color-scheme` |
+
+For the server, put it in the systemd `EnvironmentFile`:
+
+```ini
+Environment="APP_THEME=dark"
+```
+
+Invalid values fall back to `dark`. The server serves the pre-paint resolver at
+`/theme.js`, so there is no theme flash.
+
 ## Screenshots
 
 | Inventory | Network discovery |
@@ -380,6 +400,7 @@ Windows, use a per-user folder; the POSIX `0600` protection does not apply.
 | Variable | Applies to | Purpose |
 |---|---|---|
 | `CMDB_DB_PASSPHRASE` | `cmdb-server` | Database passphrase for non-interactive start. The server unsets it after reading. Prefer a root-only environment file/systemd `EnvironmentFile`, never a command line or shell history. |
+| `APP_THEME` | server, desktop | First-visit theme: `dark`, `light` or `system`. A saved preference in the database or browser overrides it. |
 | `CMDB_SERVER_URL` | desktop `cmdb` | Non-interactive alternative to **Connect to server**. Use HTTPS for anything except loopback. |
 | `CMDB_NMAP` | scanner | Full path to `nmap`/`nmap.exe` when it is not on `PATH`. |
 | `CMDB_CONFIG_DIR` | desktop-local | Override the per-user config directory used for recent database paths. |

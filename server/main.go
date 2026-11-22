@@ -95,6 +95,7 @@ type server struct {
 	agentRetentionDays  int
 	agentReportsPerHost int
 	proxies             []*net.IPNet
+	appTheme            string
 }
 
 type attemptLimiter struct {
@@ -256,6 +257,7 @@ func main() {
 		agentInterval:       *agentInterval,
 		agentRetentionDays:  *agentRetentionDays,
 		agentReportsPerHost: *agentReportsPerHost,
+		appTheme:            themeDefault(),
 	}
 	s.proxies, err = parseProxies(*proxyList)
 	if err != nil {
@@ -465,6 +467,7 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/rpc", s.requireReady(s.handleRPC))
 	mux.HandleFunc("GET /", s.handleIndex)
 	mux.HandleFunc("GET /index.html", s.handleIndex)
+	mux.HandleFunc("GET /theme.js", s.handleTheme)
 	mux.HandleFunc("GET /app.js", s.handleStatic("app.js", "application/javascript"))
 	mux.HandleFunc("GET /style.css", s.handleStatic("style.css", "text/css"))
 	mux.HandleFunc("GET /healthz", s.handleHealth)
@@ -589,6 +592,41 @@ func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	path := filepath.Join(s.webDir, "index.html")
 	http.ServeFile(w, r, path)
+}
+
+func themeDefault() string {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("APP_THEME"))) {
+	case "light", "white":
+		return "light"
+	case "system", "auto":
+		return "system"
+	default:
+		return "dark"
+	}
+}
+
+func (s *server) handleTheme(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	script := `(function () {
+  var root = document.documentElement;
+  var theme = null;
+  try {
+    var saved = localStorage.getItem("cmdb.theme");
+    if (saved === "light" || saved === "dark" || saved === "system") theme = saved;
+  } catch (e) { /* storage can be unavailable */ }
+  if (!theme) {
+    var configured = "` + s.appTheme + `";
+    if (configured === "light" || configured === "dark" || configured === "system") {
+      theme = configured;
+    } else {
+      theme = "dark";
+    }
+  }
+  root.setAttribute("data-theme", theme);
+})();
+`
+	_, _ = io.WriteString(w, script)
 }
 
 func (s *server) handleStatic(name, contentType string) http.HandlerFunc {

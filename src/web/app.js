@@ -245,8 +245,8 @@ function storedTheme() {
   }
 }
 
-function applyTheme(theme) {
-  const value = ["system", "light", "dark"].includes(theme) ? theme : "system";
+function applyTheme(theme, persist = true) {
+  const value = ["system", "light", "dark"].includes(theme) ? theme : "dark";
   state.theme = value;
   document.documentElement.setAttribute("data-theme", value);
   for (const id of ["theme-app", "theme-unlock"]) {
@@ -255,10 +255,12 @@ function applyTheme(theme) {
       select.value = value;
     }
   }
-  try {
-    window.localStorage.setItem("cmdb.theme", value);
-  } catch (error) {
-    /* The embedded webview may not expose localStorage. */
+  if (persist) {
+    try {
+      window.localStorage.setItem("cmdb.theme", value);
+    } catch (error) {
+      /* The embedded webview may not expose localStorage. */
+    }
   }
 }
 
@@ -279,10 +281,9 @@ async function loadThemePreference() {
   try {
     const prefs = await api("prefs.get");
     if (prefs && prefs.persisted && prefs.theme) {
-      applyTheme(prefs.theme);
-    } else {
-      await api("prefs.set", { theme: state.theme });
+      applyTheme(prefs.theme, false);
     }
+    /* Otherwise keep the pre-paint theme: saved local choice or APP_THEME. */
   } catch (error) {
     /* Keep the locally selected/system theme. */
   }
@@ -3505,7 +3506,7 @@ async function serverInit() {
 }
 
 async function init() {
-  applyTheme(storedTheme() || "system");
+  applyTheme(storedTheme() || window.__APP_THEME__ || "dark", false);
   bindEvents();
   try {
     const savedServer = window.localStorage.getItem("cmdb.serverUrl");
