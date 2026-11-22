@@ -452,9 +452,9 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/auth/recovery", s.handleRecovery)
 	mux.HandleFunc("POST /api/v1/auth/logout", s.handleLogout)
 	mux.HandleFunc("GET /api/v1/auth/session", s.handleSession)
-	mux.HandleFunc("POST /api/v1/auth/password", s.requireAuth(s.handlePassword))
-	mux.HandleFunc("POST /api/v1/auth/totp/setup", s.requireAuth(s.handleTOTPSetup))
-	mux.HandleFunc("POST /api/v1/auth/totp/confirm", s.requireAuth(s.handleTOTPConfirm))
+	mux.HandleFunc("POST /api/v1/auth/password", s.requireSetupAuth(s.handlePassword))
+	mux.HandleFunc("POST /api/v1/auth/totp/setup", s.requireSetupAuth(s.handleTOTPSetup))
+	mux.HandleFunc("POST /api/v1/auth/totp/confirm", s.requireSetupAuth(s.handleTOTPConfirm))
 	mux.HandleFunc("POST /api/v1/auth/recovery/generate", s.requireMFAReady(s.handleRecoveryGenerate))
 	mux.HandleFunc("POST /api/v1/agent/enroll", s.handleAgentEnroll)
 	mux.HandleFunc("POST /api/v1/agent/report", s.handleAgentReport)
@@ -546,7 +546,7 @@ func (s *server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleSecurityPage(w http.ResponseWriter, r *http.Request) {
-	if s.fullSession(r) == nil {
+	if s.sessionFromRequest(r) == nil {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
@@ -677,6 +677,21 @@ func (s *server) sessionFromRequest(r *http.Request) *session {
 func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sess := s.fullSession(r)
+		if sess == nil {
+			writeAPIError(w, http.StatusUnauthorized, "auth_required", "login required")
+			return
+		}
+		if r.Method != http.MethodGet && !s.validCSRF(r, sess) {
+			writeAPIError(w, http.StatusForbidden, "csrf", "invalid CSRF token")
+			return
+		}
+		next(w, r)
+	}
+}
+
+func (s *server) requireSetupAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sess := s.sessionFromRequest(r)
 		if sess == nil {
 			writeAPIError(w, http.StatusUnauthorized, "auth_required", "login required")
 			return
@@ -1011,16 +1026,17 @@ func (s *server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.setupHash = ""
-	sess, err := s.createSession(w, r, &s.state.Users[0], true, s.absolute)
+	sess, err := s.createSession(w, r, &s.state.Users[0], false, pendingTTL)
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "session", err.Error())
 		return
 	}
 	s.audit(user.Username, "setup", "user", user.ID, `{"role":"admin"}`)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":   true,
-		"user": userView(&s.state.Users[0]),
-		"csrf": sess.csrf,
+		"ok":                      true,
+		"mfa_enrollment_required": true,
+		"user":                    userView(&s.state.Users[0]),
+		"csrf":                    sess.csrf,
 	})
 }
 
@@ -1069,16 +1085,18 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	sess, err := s.createSession(w, r, user, true, s.absolute)
+	sess, err := s.createSession(w, r, user, false, pendingTTL)
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "session", err.Error())
 		return
 	}
-	s.audit(user.Username, "login", "user", user.ID, `{"mfa":"none"}`)
+	s.audit(user.Username, "login", "user", user.ID, `{"mfa":"enrollment_required"}`)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":   true,
-		"user": userView(user),
-		"csrf": sess.csrf,
+		"ok":                      true,
+		"mfa_required":            true,
+		"mfa_enrollment_required": true,
+		"user":                    userView(user),
+		"csrf":                    sess.csrf,
 	})
 }
 
@@ -1195,12 +1213,28 @@ func (s *server) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleSession(w http.ResponseWriter, r *http.Request) {
 	sess := s.sessionFromRequest(r)
-	if sess == nil || !sess.mfaVerified || sess.pending {
+	if sess == nil {
 		writeAPIError(w, http.StatusUnauthorized, "auth_required", "login required")
 		return
 	}
 	user := s.state.findUserByID(sess.userID)
 	if user == nil {
+		writeAPIError(w, http.StatusUnauthorized, "auth_required", "login required")
+		return
+	}
+	if !sess.mfaVerified || sess.pending {
+		// A pending session is only usable for first-time MFA enrollment.
+		if sess.pending && !user.TOTPConfirmed {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"authenticated":           false,
+				"mfa_required":            true,
+				"mfa_enrollment_required": true,
+				"user":                    userView(user),
+				"csrf":                    sess.csrf,
+				"server":                  serverBuildInfo(),
+			})
+			return
+		}
 		writeAPIError(w, http.StatusUnauthorized, "auth_required", "login required")
 		return
 	}
@@ -1335,7 +1369,16 @@ func (s *server) handleTOTPConfirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(user.Username, "totp-enroll", "user", user.ID, `{}`)
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	// Enrollment upgrades the short-lived setup session to a full session.
+	// Revoke every old session so a password-only session cannot survive MFA
+	// enrollment.
+	s.revokeUserSessions(user.ID)
+	newSess, err := s.createSession(w, r, user, true, s.absolute)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "session", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "csrf": newSess.csrf})
 }
 
 func (s *server) handleRecoveryGenerate(w http.ResponseWriter, r *http.Request) {

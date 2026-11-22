@@ -1,10 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"net"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestClientIPUsesRightmostForwardedEntry(t *testing.T) {
@@ -69,6 +72,50 @@ func TestDecodeJSONRequiresJSONContentType(t *testing.T) {
 	var value map[string]any
 	if err := decodeJSON(request, &value); err == nil {
 		t.Fatal("non-JSON Content-Type accepted")
+	}
+}
+
+func TestPendingEnrollmentSessionCanReachSecurityOnly(t *testing.T) {
+	const token = "pending-enrollment-token"
+	user := userRecord{ID: "user-1", Username: "admin"}
+	s := &server{
+		sessions: map[string]*session{
+			sha256Hex(token): {
+				tokenHash:       sha256Hex(token),
+				userID:          user.ID,
+				username:        user.Username,
+				csrf:            "csrf-token",
+				mfaVerified:     false,
+				pending:         true,
+				idleExpires:     time.Now().Add(time.Minute),
+				absoluteExpires: time.Now().Add(time.Minute),
+			},
+		},
+		state: authState{Users: []userRecord{user}},
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/auth/session", nil)
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
+	recorder := httptest.NewRecorder()
+	s.handleSession(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("pending enrollment session got %d, want 200", recorder.Code)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["authenticated"] != false || body["mfa_enrollment_required"] != true {
+		t.Fatalf("unexpected pending session body: %v", body)
+	}
+
+	// The same pending session must not pass the inventory gate.
+	nextCalled := false
+	handler := s.requireReady(func(http.ResponseWriter, *http.Request) { nextCalled = true })
+	recorder = httptest.NewRecorder()
+	handler(recorder, request)
+	if recorder.Code != http.StatusUnauthorized || nextCalled {
+		t.Fatalf("pending session reached inventory: status=%d next=%v", recorder.Code, nextCalled)
 	}
 }
 

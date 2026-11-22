@@ -138,7 +138,8 @@ $("totp-start").addEventListener("click", async () => {
 $("totp-confirm").addEventListener("click", async () => {
   $("error").textContent = "";
   try {
-    await api("/api/v1/auth/totp/confirm", { method: "POST", body: JSON.stringify({ code: $("totp-code").value.trim() }) });
+    const data = await api("/api/v1/auth/totp/confirm", { method: "POST", body: JSON.stringify({ code: $("totp-code").value.trim() }) });
+    if (data.csrf) csrf = data.csrf;
     $("totp-setup").classList.add("hidden");
     $("totp-qr").classList.add("hidden");
     $("totp-qr").removeAttribute("src");
