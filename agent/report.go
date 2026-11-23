@@ -17,14 +17,19 @@ import (
 )
 
 type HostFacts struct {
-	DisplayName  string `json:"display_name"`
-	Hostname     string `json:"hostname"`
-	MachineID    string `json:"machine_id"`
-	OSFamily     string `json:"os_family"`
-	OSName       string `json:"os_name"`
-	OSVersion    string `json:"os_version"`
-	Architecture string `json:"architecture"`
-	AgentVersion string `json:"agent_version"`
+	DisplayName   string `json:"display_name"`
+	Hostname      string `json:"hostname"`
+	MachineID     string `json:"machine_id"`
+	OSFamily      string `json:"os_family"`
+	OSName        string `json:"os_name"`
+	OSVersion     string `json:"os_version"`
+	Architecture  string `json:"architecture"`
+	AgentVersion  string `json:"agent_version"`
+	IPAddress     string `json:"ip_address"`
+	SerialNumber  string `json:"serial_number"`
+	CPUCores      int    `json:"cpu_cores"`
+	MemoryMB      int64  `json:"memory_mb"`
+	KernelVersion string `json:"kernel_version"`
 }
 
 type Application struct {

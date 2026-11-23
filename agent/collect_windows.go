@@ -4,11 +4,14 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"runtime"
 	"strconv"
 	"strings"
+	"unsafe"
 
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
 
@@ -62,11 +65,58 @@ func collectHostFacts() (HostFacts, error) {
 		OSVersion:    cleanText(osVersion, 127),
 		Architecture: normalizedArchitecture(runtime.GOARCH),
 		AgentVersion: version,
+		IPAddress:    primaryIPAddress(),
+		SerialNumber: windowsSerialNumber(),
+		CPUCores:     runtime.NumCPU(),
+		MemoryMB:     windowsMemoryMB(),
+		KernelVersion: func() string {
+			info := windows.RtlGetVersion()
+			return fmt.Sprintf("%d.%d.%d", info.MajorVersion,
+				info.MinorVersion, info.BuildNumber)
+		}(),
 	}
 	if facts.Hostname == "" && facts.MachineID == "" {
 		return facts, errors.New("cannot determine the host identity")
 	}
 	return facts, nil
+}
+
+type memoryStatusEx struct {
+	Length               uint32
+	MemoryLoad           uint32
+	TotalPhys            uint64
+	AvailPhys            uint64
+	TotalPageFile        uint64
+	AvailPageFile        uint64
+	TotalVirtual         uint64
+	AvailVirtual         uint64
+	AvailExtendedVirtual uint64
+}
+
+var (
+	kernel32             = windows.NewLazySystemDLL("kernel32.dll")
+	globalMemoryStatusEx = kernel32.NewProc("GlobalMemoryStatusEx")
+)
+
+func windowsMemoryMB() int64 {
+	var status memoryStatusEx
+	status.Length = uint32(unsafe.Sizeof(status))
+	result, _, _ := globalMemoryStatusEx.Call(uintptr(unsafe.Pointer(&status)))
+	if result == 0 {
+		return 0
+	}
+	return int64(status.TotalPhys / (1024 * 1024))
+}
+
+func windowsSerialNumber() string {
+	key, err := registry.OpenKey(registry.LOCAL_MACHINE,
+		`HARDWARE\DESCRIPTION\System\BIOS`,
+		registry.QUERY_VALUE|registry.WOW64_64KEY)
+	if err != nil {
+		return ""
+	}
+	defer key.Close()
+	return cleanSerial(stringValue(key, "SystemSerialNumber"))
 }
 
 func stringValue(key registry.Key, name string) string {

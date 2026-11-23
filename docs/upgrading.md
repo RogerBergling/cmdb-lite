@@ -44,7 +44,13 @@ wrong.
 
 ## Database compatibility
 
-v0.7.3 does not change the schema; a v0.7.0, v0.7.1, or v0.7.2 database opens
+The current source tree uses schema version 6. A v5 database opens with a
+migration that adds the agent IP address, serial number, CPU, memory, and kernel
+fields, and adds a `kernel_version` attribute to the seeded Linux Server,
+Windows Server, and Virtual Machine types. Existing agent, inventory,
+relationship, diagram, scan, authentication, and audit data is preserved.
+
+v0.7.3 did not change the schema; a v0.7.0, v0.7.1, or v0.7.2 database opens
 without migration. v0.7.0 migrated the schema from version 4 to version 5. It added the application
 inventory agent tables (`agents`, `agent_enrollment_tokens`, `agent_reports`,
 `agent_apps`, and `agent_app_events`). Existing inventory, relationships,
@@ -60,8 +66,8 @@ Backups already include `auth.state` and the agent tables; no additional
 authentication file is needed. Opening a server-managed database in local
 desktop mode bypasses application logins.
 
-Existing databases open on schema v5. Do not open the upgraded database with a
-v0.6.0 or earlier application; restore the pre-upgrade backup pair to roll back.
+Existing databases open on schema v6. Do not open the upgraded database with an
+older application; restore the pre-upgrade backup pair to roll back.
 
 v0.6.0 migrates the schema from version 3 to version 4. It adds relationship
 impact classes, new management/monitoring/provider relationship types, and the

@@ -31,6 +31,11 @@ typedef struct {
   char enrolled_at[21];
   char last_report_at[21];
   char last_seen_ip[64];
+  char ip_address[64];
+  char serial_number[128];
+  int cpu_cores;
+  int memory_mb;
+  char kernel_version[128];
   char ci_id[37];
   char ci_name[256];
   char suggested_ci_id[37];
@@ -100,6 +105,11 @@ typedef struct {
   char architecture[32];
   char agent_version[64];
   char last_seen_ip[64];
+  char ip_address[64];
+  char serial_number[128];
+  int cpu_cores;
+  int memory_mb;
+  char kernel_version[128];
 } cmdb_agent_facts_t;
 
 /* Enrollment-token lifecycle. The plaintext token is returned once and never
@@ -112,6 +122,10 @@ int cmdb_agent_token_list(cmdb_db_t *db, cmdb_agent_token_t **out,
                           size_t *count, cmdb_error_t *err);
 int cmdb_agent_token_revoke(cmdb_db_t *db, const char *token_id,
                             cmdb_error_t *err);
+/* Removes used, revoked, and expired token records. Active tokens are kept so
+ * clearing history cannot silently invalidate a pending enrollment. */
+int cmdb_agent_token_clear(cmdb_db_t *db, size_t *deleted,
+                           cmdb_error_t *err);
 void cmdb_agent_tokens_free(cmdb_agent_token_t *tokens);
 
 /* Enrollment exchanges a short-lived enrollment token for a per-host agent
@@ -147,6 +161,11 @@ int cmdb_agent_history(cmdb_db_t *db, const char *agent_id,
                        cmdb_error_t *err);
 int cmdb_agent_link_ci(cmdb_db_t *db, const char *agent_id,
                        const char *ci_id, cmdb_error_t *err);
+/* One-shot copy of the latest reported host facts into the linked CI's
+ * attributes. Other CI fields and relationships are left untouched. */
+int cmdb_agent_fill_ci(cmdb_db_t *db, const char *agent_id,
+                       char ci_id_out[37], size_t *updated,
+                       cmdb_error_t *err);
 int cmdb_agent_revoke(cmdb_db_t *db, const char *agent_id,
                       cmdb_error_t *err);
 int cmdb_agent_delete(cmdb_db_t *db, const char *agent_id,

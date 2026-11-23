@@ -60,6 +60,19 @@ Description: held package
 	}
 }
 
+func TestMemTotalMB(t *testing.T) {
+	path := t.TempDir() + "/meminfo"
+	if err := writeFixture(path, "MemTotal:       16316372 kB\nMemFree:         1234567 kB\n"); err != nil {
+		t.Fatal(err)
+	}
+	if got := memTotalMB(path); got != 15933 {
+		t.Fatalf("memTotalMB = %d, want 15933", got)
+	}
+	if got := memTotalMB(path + ".missing"); got != 0 {
+		t.Fatalf("missing meminfo = %d", got)
+	}
+}
+
 func TestReadDpkgEmpty(t *testing.T) {
 	path := t.TempDir() + "/status"
 	if err := writeFixture(path, ""); err != nil {

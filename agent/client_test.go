@@ -28,7 +28,12 @@ func TestEnrollAndReport(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Errorf("decode enroll: %v", err)
 			}
-			if body.Token != strings.Repeat("ab", 32) || body.Host.Hostname != "app01" {
+			if body.Token != strings.Repeat("ab", 32) ||
+				body.Host.Hostname != "app01" ||
+				body.Host.IPAddress != "10.20.0.10" ||
+				body.Host.CPUCores != 8 ||
+				body.Host.MemoryMB != 16384 ||
+				body.Host.KernelVersion != "6.8.0" {
 				t.Errorf("unexpected enroll body: %#v", body)
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -81,14 +86,19 @@ func TestEnrollAndReport(t *testing.T) {
 		t.Fatal(err)
 	}
 	host := HostFacts{
-		DisplayName:  "app01",
-		Hostname:     "app01",
-		MachineID:    "machine-1",
-		OSFamily:     "linux",
-		OSName:       "Ubuntu",
-		OSVersion:    "24.04",
-		Architecture: "x86_64",
-		AgentVersion: "test",
+		DisplayName:   "app01",
+		Hostname:      "app01",
+		MachineID:     "machine-1",
+		OSFamily:      "linux",
+		OSName:        "Ubuntu",
+		OSVersion:     "24.04",
+		Architecture:  "x86_64",
+		AgentVersion:  "test",
+		IPAddress:     "10.20.0.10",
+		SerialNumber:  "SN-0001",
+		CPUCores:      8,
+		MemoryMB:      16384,
+		KernelVersion: "6.8.0",
 	}
 	enrolled, err := client.enroll(context.Background(), strings.Repeat("ab", 32), host)
 	if err != nil {

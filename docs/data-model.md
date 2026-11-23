@@ -1,12 +1,13 @@
 # Data model
 
 The database is a single SQLCipher file. All tables live in the same encrypted
-file. Schema version 5 is created and migrated by `src/core/schema.c`.
+file. Schema version 6 is created and migrated by `src/core/schema.c`.
 
-Schema v5 adds the application-inventory agent tables. Schema v4 added the
-relationship impact fields, the Service CI type, and the managed category
-tables. Authentication state is still a JSON document in `app_meta`, not a typed
-table set.
+Schema v6 adds host facts to the agent record and a `kernel_version` field to the
+seeded compute CI types. Schema v5 added the application-inventory agent tables.
+Schema v4 added the relationship impact fields, the Service CI type, and the
+managed category tables. Authentication state is still a JSON document in
+`app_meta`, not a typed table set.
 
 ## `app_meta`
 
@@ -14,7 +15,7 @@ Key/value application metadata stored inside the encrypted database.
 
 | Key | Meaning |
 |---|---|
-| `schema_version` | Integer schema version; currently `5`. |
+| `schema_version` | Integer schema version; currently `6`. |
 | `created_at` | Database creation timestamp (UTC). |
 | `app_version` | Application version that created/updated the schema. |
 | `ui.theme` | Optional `system`, `light`, or `dark` preference. |
@@ -165,7 +166,7 @@ UUID and may carry a relationship type; connecting nodes creates a real row in
 
 ## Authentication state
 
-Server-mode accounts do **not** add a schema version. Schema v5 keeps the same
+Server-mode accounts do **not** add a schema version. Schema v6 keeps the same
 `auth.state` JSON document in the existing `app_meta` table:
 
 | Key | Contents |
@@ -216,7 +217,7 @@ inventory.
 
 ## Application inventory
 
-Schema v5 adds five tables for the endpoint agent. They store machine identity,
+Schema v5 added five tables for the endpoint agent. They store machine identity,
 hashed credentials, report metadata, current software, and append-only change
 events.
 
@@ -236,6 +237,10 @@ One row per enrolled host.
 | `status` | TEXT | `active` or `revoked`. |
 | `enrolled_at` | TEXT | ISO 8601 UTC. |
 | `last_report_at`, `last_seen_ip` | TEXT | Latest successful report metadata. |
+| `ip_address` | TEXT | Primary IP address reported by the agent, if available. |
+| `serial_number` | TEXT | Hardware serial number where readable. |
+| `cpu_cores`, `memory_mb` | INTEGER | Logical CPU count and total memory in MiB. |
+| `kernel_version` | TEXT | Linux kernel release or Windows NT build. |
 | `ci_id` | TEXT | Optional linked CI; cleared by a trigger when the CI is deleted. |
 | `created_at`, `updated_at` | TEXT | ISO 8601 UTC. |
 

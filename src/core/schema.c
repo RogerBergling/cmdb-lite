@@ -188,6 +188,11 @@ static const char agents_schema_sql[] =
   "  enrolled_at TEXT NOT NULL,\n"
   "  last_report_at TEXT NOT NULL DEFAULT '',\n"
   "  last_seen_ip TEXT NOT NULL DEFAULT '',\n"
+  "  ip_address TEXT NOT NULL DEFAULT '',\n"
+  "  serial_number TEXT NOT NULL DEFAULT '',\n"
+  "  cpu_cores INTEGER NOT NULL DEFAULT 0,\n"
+  "  memory_mb INTEGER NOT NULL DEFAULT 0,\n"
+  "  kernel_version TEXT NOT NULL DEFAULT '',\n"
   "  ci_id TEXT NOT NULL DEFAULT '',\n"
   "  created_at TEXT NOT NULL,\n"
   "  updated_at TEXT NOT NULL\n"
@@ -351,17 +356,20 @@ static const seed_field_t seed_fields[] = {
   {"11111111-1111-4111-8111-111111111111", "hostname", "Hostname", "text", 0, 40},
   {"11111111-1111-4111-8111-111111111111", "cpu_cores", "CPU Cores", "number", 0, 50},
   {"11111111-1111-4111-8111-111111111111", "memory_gb", "Memory (GB)", "number", 0, 60},
+  {"11111111-1111-4111-8111-111111111111", "kernel_version", "Kernel Version", "text", 0, 70},
   {"22222222-2222-4222-8222-222222222222", "ip_address", "IP Address", "text", 0, 10},
   {"22222222-2222-4222-8222-222222222222", "serial_number", "Serial Number", "text", 0, 20},
   {"22222222-2222-4222-8222-222222222222", "os_version", "OS Version", "text", 0, 30},
   {"22222222-2222-4222-8222-222222222222", "hostname", "Hostname", "text", 0, 40},
   {"22222222-2222-4222-8222-222222222222", "cpu_cores", "CPU Cores", "number", 0, 50},
   {"22222222-2222-4222-8222-222222222222", "memory_gb", "Memory (GB)", "number", 0, 60},
+  {"22222222-2222-4222-8222-222222222222", "kernel_version", "Kernel Version", "text", 0, 70},
   {"33333333-3333-4333-8333-333333333333", "hypervisor", "Hypervisor", "text", 0, 10},
   {"33333333-3333-4333-8333-333333333333", "vcpu", "vCPU", "number", 0, 20},
   {"33333333-3333-4333-8333-333333333333", "memory_gb", "Memory (GB)", "number", 0, 30},
   {"33333333-3333-4333-8333-333333333333", "disk_gb", "Disk (GB)", "number", 0, 40},
   {"33333333-3333-4333-8333-333333333333", "ip_address", "IP Address", "text", 0, 50},
+  {"33333333-3333-4333-8333-333333333333", "kernel_version", "Kernel Version", "text", 0, 60},
   {"33333333-3333-4333-8333-333333333333", "serial_number", "Serial Number", "text", 0, 60},
   {"44444444-4444-4444-8444-444444444444", "management_ip", "Management IP", "text", 0, 10},
   {"44444444-4444-4444-8444-444444444444", "vendor", "Vendor", "text", 0, 20},
@@ -923,6 +931,103 @@ static int schema_migrate_v4(cmdb_db_t *db, const char *now,
     err);
 }
 
+static int schema_agent_column_exists(cmdb_db_t *db, const char *name,
+                                      int *exists, cmdb_error_t *err) {
+  sqlite3_stmt *stmt = NULL;
+  int rc;
+
+  *exists = 0;
+  if (sqlite3_prepare_v2(cmdb_db_sqlite(db), "PRAGMA table_info(agents);",
+                         -1, &stmt, NULL) != SQLITE_OK) {
+    cmdb_error_set(err, CMDB_ERR_DATABASE,
+                   "Cannot inspect the agent table");
+    return -1;
+  }
+  while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+    const unsigned char *column = sqlite3_column_text(stmt, 1);
+    if (column != NULL && strcmp((const char *)column, name) == 0) {
+      *exists = 1;
+      break;
+    }
+  }
+  sqlite3_finalize(stmt);
+  if (rc != SQLITE_DONE && rc != SQLITE_ROW) {
+    cmdb_error_set(err, CMDB_ERR_DATABASE,
+                   "Cannot inspect the agent table");
+    return -1;
+  }
+  return 0;
+}
+
+static int schema_migrate_v6(cmdb_db_t *db, cmdb_error_t *err) {
+  static const struct {
+    const char *name;
+    const char *definition;
+  } columns[] = {
+    {"ip_address", "TEXT NOT NULL DEFAULT ''"},
+    {"serial_number", "TEXT NOT NULL DEFAULT ''"},
+    {"cpu_cores", "INTEGER NOT NULL DEFAULT 0"},
+    {"memory_mb", "INTEGER NOT NULL DEFAULT 0"},
+    {"kernel_version", "TEXT NOT NULL DEFAULT ''"},
+  };
+  static const char *compute_types[] = {
+    "11111111-1111-4111-8111-111111111111",
+    "22222222-2222-4222-8222-222222222222",
+    "33333333-3333-4333-8333-333333333333",
+  };
+  sqlite3_stmt *stmt = NULL;
+  size_t i;
+
+  for (i = 0; i < sizeof(columns) / sizeof(columns[0]); i++) {
+    int exists = 0;
+    char sql[256];
+    if (schema_agent_column_exists(db, columns[i].name, &exists, err) != 0) {
+      return -1;
+    }
+    if (exists) {
+      continue;
+    }
+    (void)snprintf(sql, sizeof(sql), "ALTER TABLE agents ADD COLUMN %s %s;",
+                   columns[i].name, columns[i].definition);
+    if (cmdb_db_exec(db, sql, err) != 0) {
+      return -1;
+    }
+  }
+
+  if (sqlite3_prepare_v2(
+        cmdb_db_sqlite(db),
+        "INSERT OR IGNORE INTO ci_type_fields"
+        "(id, type_id, field_key, label, field_type, required, options_json, "
+        " sort_order) "
+        "SELECT ?, id, 'kernel_version', 'Kernel Version', 'text', 0, '[]', 70 "
+        "FROM ci_types WHERE id = ?;",
+        -1, &stmt, NULL) != SQLITE_OK) {
+    cmdb_error_set(err, CMDB_ERR_DATABASE,
+                   "Cannot prepare agent kernel field migration");
+    return -1;
+  }
+  for (i = 0; i < sizeof(compute_types) / sizeof(compute_types[0]); i++) {
+    char field_id[37];
+    if (cmdb_random_uuid(field_id) != 0) {
+      sqlite3_finalize(stmt);
+      cmdb_error_set(err, CMDB_ERR_INTERNAL, "Cannot generate field ID");
+      return -1;
+    }
+    sqlite3_reset(stmt);
+    sqlite3_clear_bindings(stmt);
+    sqlite3_bind_text(stmt, 1, field_id, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, compute_types[i], -1, SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) != SQLITE_DONE) {
+      sqlite3_finalize(stmt);
+      cmdb_error_set(err, CMDB_ERR_DATABASE,
+                     "Cannot migrate the kernel field");
+      return -1;
+    }
+  }
+  sqlite3_finalize(stmt);
+  return 0;
+}
+
 int cmdb_schema_migrate(cmdb_db_t *db, cmdb_error_t *err) {
   char value[64];
   int version = 0;
@@ -1000,6 +1105,12 @@ int cmdb_schema_migrate(cmdb_db_t *db, cmdb_error_t *err) {
   }
   if (version < 5) {
     if (cmdb_db_exec(db, agents_schema_sql, err) != 0) {
+      (void)cmdb_db_rollback(db, NULL);
+      return -1;
+    }
+  }
+  if (version < 6) {
+    if (schema_migrate_v6(db, err) != 0) {
       (void)cmdb_db_rollback(db, NULL);
       return -1;
     }

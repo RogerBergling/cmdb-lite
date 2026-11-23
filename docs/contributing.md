@@ -115,7 +115,7 @@ platforms; the Linux development host cannot substitute for them.
   software, change events, and history.
 - Verify retention with `--agent-retention-days` and
   `--agent-reports-per-host`.
-- Verify that backups and restores include the schema v5 agent tables and that
+- Verify that backups and restores include the schema v6 agent tables and that
   existing pre-upgrade backups still open.
 
 ## Security review checklist

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"sort"
 	"strings"
 	"time"
@@ -86,6 +87,71 @@ func finishApplications(apps []Application, errs []string) ([]Application, []str
 		errs = errs[:32]
 	}
 	return filtered, errs
+}
+
+func primaryIPAddress() string {
+	for _, network := range []string{"udp4", "udp6"} {
+		address := "192.0.2.1:9"
+		if network == "udp6" {
+			address = "[2001:db8::1]:9"
+		}
+		conn, err := net.Dial(network, address)
+		if err != nil {
+			continue
+		}
+		udp, ok := conn.LocalAddr().(*net.UDPAddr)
+		conn.Close()
+		if ok && usableIP(udp.IP) {
+			return udp.IP.String()
+		}
+	}
+	var ipv4, ipv6 string
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+	for _, iface := range interfaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addresses, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, address := range addresses {
+			ip, _, err := net.ParseCIDR(address.String())
+			if err != nil || !usableIP(ip) {
+				continue
+			}
+			if ip.To4() != nil {
+				if ipv4 == "" {
+					ipv4 = ip.String()
+				}
+			} else if ipv6 == "" {
+				ipv6 = ip.String()
+			}
+		}
+	}
+	if ipv4 != "" {
+		return ipv4
+	}
+	return ipv6
+}
+
+func usableIP(ip net.IP) bool {
+	return ip != nil && !ip.IsLoopback() && !ip.IsUnspecified() &&
+		!ip.IsLinkLocalUnicast() && !ip.IsLinkLocalMulticast()
+}
+
+func cleanSerial(value string) string {
+	value = cleanText(value, 127)
+	switch strings.ToLower(value) {
+	case "", "none", "unknown", "not applicable", "not available", "n/a",
+		"default string", "system serial number", "to be filled by o.e.m.",
+		"to be filled by oem":
+		return ""
+	}
+	return value
 }
 
 func collectNow(now time.Time) Collection {

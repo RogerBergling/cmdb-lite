@@ -146,9 +146,10 @@ Installed layout:
 
 ## Storage model
 
-Authentication state is **not** a typed SQL table set. Schema v5 adds the
-application-inventory agent tables, but user accounts remain one JSON document in
-the existing `app_meta` table under the key `auth.state`:
+Authentication state is **not** a typed SQL table set. Schema v5 added the
+application-inventory agent tables and schema v6 adds reported host facts, but
+user accounts remain one JSON document in the existing `app_meta` table under the
+key `auth.state`:
 
 ```json
 {

@@ -24,6 +24,24 @@ static void agent_test_facts(cmdb_agent_facts_t *facts, const char *hostname,
                       "x86_64");
   (void)cmdb_str_copy(facts->agent_version, sizeof(facts->agent_version),
                       "0.7.0");
+  (void)cmdb_str_copy(facts->ip_address, sizeof(facts->ip_address),
+                      "10.20.0.10");
+  (void)cmdb_str_copy(facts->serial_number, sizeof(facts->serial_number),
+                      "SN-0001");
+  facts->cpu_cores = 8;
+  facts->memory_mb = 16384;
+  (void)cmdb_str_copy(facts->kernel_version, sizeof(facts->kernel_version),
+                      "6.8.0-test");
+}
+
+static const char *agent_test_attr(const cmdb_ci_t *ci, const char *key) {
+  size_t i;
+  for (i = 0; i < ci->attr_count; i++) {
+    if (strcmp(ci->attrs[i].key, key) == 0) {
+      return ci->attrs[i].value;
+    }
+  }
+  return NULL;
 }
 
 static void agent_test_app(cmdb_agent_app_t *app, const char *key,
@@ -80,7 +98,7 @@ void test_agents(void) {
   }
   TEST_ASSERT(cmdb_schema_meta_get(db, "schema_version", schema,
                                    sizeof(schema), &err) == 0);
-  TEST_ASSERT(strcmp(schema, "5") == 0);
+  TEST_ASSERT(strcmp(schema, "6") == 0);
 
   TEST_ASSERT(cmdb_agent_token_create(db, "test enrollment", "tester", 3600,
                                       enrollment_token, &token, &err) == 0);
@@ -128,6 +146,32 @@ void test_agents(void) {
   TEST_ASSERT(report.removed_count == 0);
   TEST_ASSERT(report.updated_count == 0);
   TEST_ASSERT(report.complete == 1);
+
+  {
+    char filled_ci[37];
+    size_t filled = 0;
+    cmdb_ci_t filled_ci_obj;
+    TEST_ASSERT_MSG(cmdb_agent_fill_ci(db, agent.id, filled_ci, &filled,
+                                       &err) == 0, err.message);
+    TEST_ASSERT(strcmp(filled_ci, ci_id) == 0);
+    TEST_ASSERT(filled == 7);
+    TEST_ASSERT_MSG(cmdb_ci_get(db, ci_id, &filled_ci_obj, &err) == 0,
+                    err.message);
+    TEST_ASSERT(strcmp(agent_test_attr(&filled_ci_obj, "hostname"), "app01") ==
+                0);
+    TEST_ASSERT(strcmp(agent_test_attr(&filled_ci_obj, "ip_address"),
+                       "10.20.0.10") == 0);
+    TEST_ASSERT(strcmp(agent_test_attr(&filled_ci_obj, "serial_number"),
+                       "SN-0001") == 0);
+    TEST_ASSERT(strcmp(agent_test_attr(&filled_ci_obj, "os_version"),
+                       "Ubuntu 24.04") == 0);
+    TEST_ASSERT(strcmp(agent_test_attr(&filled_ci_obj, "cpu_cores"), "8") == 0);
+    TEST_ASSERT(strcmp(agent_test_attr(&filled_ci_obj, "memory_gb"), "16") ==
+                0);
+    TEST_ASSERT(strcmp(agent_test_attr(&filled_ci_obj, "kernel_version"),
+                       "6.8.0-test") == 0);
+    cmdb_ci_free(&filled_ci_obj);
+  }
 
   agent_test_app(&apps[0], "deb:bash:amd64", "bash", "5.3");
   agent_test_app(&apps[1], "deb:vim:amd64", "vim", "9.1");
@@ -241,6 +285,25 @@ void test_agents(void) {
   TEST_ASSERT(cmdb_agent_enroll(db, enrollment_token, &facts, agent_token,
                                 &agent, &reused, &err) != 0);
 
+  /* Clearing history removes used, revoked, and expired tokens but keeps an
+   * unused token usable for a pending enrollment. */
+  TEST_ASSERT(cmdb_agent_token_create(db, "keep active", "tester", 3600,
+                                      enrollment_token, &token, &err) == 0);
+  {
+    size_t cleared = 0;
+    TEST_ASSERT_MSG(cmdb_agent_token_clear(db, &cleared, &err) == 0,
+                    err.message);
+    TEST_ASSERT(cleared == 3);
+    TEST_ASSERT(cmdb_agent_token_list(db, &tokens, &token_count, &err) == 0);
+    TEST_ASSERT(token_count == 1);
+    TEST_ASSERT(strcmp(tokens[0].label, "keep active") == 0);
+    cmdb_agent_tokens_free(tokens);
+    tokens = NULL;
+    TEST_ASSERT_MSG(cmdb_agent_token_clear(db, &cleared, &err) == 0,
+                    err.message);
+    TEST_ASSERT(cleared == 0);
+  }
+
   TEST_ASSERT_MSG(cmdb_agent_delete(db, delete_id, &err) == 0, err.message);
   TEST_ASSERT(cmdb_agent_get(db, delete_id, &agent, &err) != 0);
   TEST_ASSERT(cmdb_agent_history(db, delete_id, 10, 50, &reports,
@@ -256,7 +319,8 @@ void test_agents(void) {
   cmdb_agent_list_free(agents);
   agents = NULL;
 
-  /* Simulate a v4 database and verify the v5 agent-table migration. */
+  /* Simulate a v4 database and verify the v5 agent tables and v6 host-fact
+   * migration, including the seeded kernel field. */
   TEST_ASSERT_MSG(cmdb_db_exec(
                 db,
                 "DROP TABLE agent_app_events;"
@@ -264,20 +328,77 @@ void test_agents(void) {
                 "DROP TABLE agent_reports;"
                 "DROP TABLE agent_enrollment_tokens;"
                 "DROP TABLE agents;"
-                "DROP INDEX IF EXISTS idx_ci_attributes_lookup;",
+                "DROP INDEX IF EXISTS idx_ci_attributes_lookup;"
+                "DELETE FROM ci_type_fields WHERE field_key = 'kernel_version';",
                 &err) == 0, err.detail);
   TEST_ASSERT(cmdb_schema_meta_set(db, "schema_version", "4", &err) == 0);
   cmdb_db_close(db);
   db = test_open_db(path);
   TEST_ASSERT(db != NULL);
   if (db != NULL) {
+    cmdb_ci_type_t linux_type;
+    cmdb_type_field_t *migrated_fields = NULL;
+    size_t migrated_count = 0;
+    size_t i;
+    int found_kernel = 0;
     TEST_ASSERT(cmdb_schema_meta_get(db, "schema_version", schema,
                                      sizeof(schema), &err) == 0);
-    TEST_ASSERT(strcmp(schema, "5") == 0);
+    TEST_ASSERT(strcmp(schema, "6") == 0);
     TEST_ASSERT(cmdb_agent_list(db, &agents, &agent_count, &err) == 0);
     TEST_ASSERT(agent_count == 0);
     cmdb_agent_list_free(agents);
     agents = NULL;
+    TEST_ASSERT(cmdb_types_find_by_name(db, "Linux Server", &linux_type,
+                                        &err) == 0);
+    TEST_ASSERT(cmdb_type_fields_list(db, linux_type.id, &migrated_fields,
+                                      &migrated_count, &err) == 0);
+    for (i = 0; i < migrated_count; i++) {
+      if (strcmp(migrated_fields[i].key, "kernel_version") == 0) {
+        found_kernel = 1;
+      }
+    }
+    cmdb_type_fields_free(migrated_fields);
+    TEST_ASSERT(found_kernel);
+  }
+
+  /* Simulate a v5 database without the new host-fact columns. */
+  TEST_ASSERT_MSG(cmdb_db_exec(
+                db,
+                "ALTER TABLE agents DROP COLUMN ip_address;"
+                "ALTER TABLE agents DROP COLUMN serial_number;"
+                "ALTER TABLE agents DROP COLUMN cpu_cores;"
+                "ALTER TABLE agents DROP COLUMN memory_mb;"
+                "ALTER TABLE agents DROP COLUMN kernel_version;"
+                "DELETE FROM ci_type_fields WHERE field_key = 'kernel_version';",
+                &err) == 0, err.detail);
+  TEST_ASSERT(cmdb_schema_meta_set(db, "schema_version", "5", &err) == 0);
+  cmdb_db_close(db);
+  db = test_open_db(path);
+  TEST_ASSERT(db != NULL);
+  if (db != NULL) {
+    cmdb_ci_type_t windows_type;
+    cmdb_type_field_t *migrated_fields = NULL;
+    size_t migrated_count = 0;
+    size_t i;
+    int found_kernel = 0;
+    TEST_ASSERT(cmdb_schema_meta_get(db, "schema_version", schema,
+                                     sizeof(schema), &err) == 0);
+    TEST_ASSERT(strcmp(schema, "6") == 0);
+    TEST_ASSERT(cmdb_agent_list(db, &agents, &agent_count, &err) == 0);
+    TEST_ASSERT(agent_count == 0);
+    cmdb_agent_list_free(agents);
+    agents = NULL;
+    TEST_ASSERT(cmdb_types_find_by_name(db, "Windows Server", &windows_type,
+                                        &err) == 0);
+    TEST_ASSERT(cmdb_type_fields_list(db, windows_type.id, &migrated_fields,
+                                      &migrated_count, &err) == 0);
+    for (i = 0; i < migrated_count; i++) {
+      if (strcmp(migrated_fields[i].key, "kernel_version") == 0) {
+        found_kernel = 1;
+      }
+    }
+    cmdb_type_fields_free(migrated_fields);
+    TEST_ASSERT(found_kernel);
   }
 
   cmdb_db_close(db);

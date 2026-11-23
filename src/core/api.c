@@ -3201,6 +3201,11 @@ static cJSON *agent_to_json(const cmdb_agent_t *agent) {
   cJSON_AddStringToObject(obj, "enrolled_at", agent->enrolled_at);
   cJSON_AddStringToObject(obj, "last_report_at", agent->last_report_at);
   cJSON_AddStringToObject(obj, "last_seen_ip", agent->last_seen_ip);
+  cJSON_AddStringToObject(obj, "ip_address", agent->ip_address);
+  cJSON_AddStringToObject(obj, "serial_number", agent->serial_number);
+  cJSON_AddNumberToObject(obj, "cpu_cores", (double)agent->cpu_cores);
+  cJSON_AddNumberToObject(obj, "memory_mb", (double)agent->memory_mb);
+  cJSON_AddStringToObject(obj, "kernel_version", agent->kernel_version);
   cJSON_AddStringToObject(obj, "ci_id", agent->ci_id);
   cJSON_AddStringToObject(obj, "ci_name", agent->ci_name);
   cJSON_AddStringToObject(obj, "suggested_ci_id", agent->suggested_ci_id);
@@ -3332,7 +3337,17 @@ static int parse_agent_facts(cJSON *params, cmdb_agent_facts_t *facts,
       get_bounded_string(params, "agent_version", facts->agent_version,
                          sizeof(facts->agent_version), 0, err) != 0 ||
       get_bounded_string(params, "last_seen_ip", facts->last_seen_ip,
-                         sizeof(facts->last_seen_ip), 0, err) != 0) {
+                         sizeof(facts->last_seen_ip), 0, err) != 0 ||
+      get_bounded_string(params, "ip_address", facts->ip_address,
+                         sizeof(facts->ip_address), 0, err) != 0 ||
+      get_bounded_string(params, "serial_number", facts->serial_number,
+                         sizeof(facts->serial_number), 0, err) != 0 ||
+      get_bounded_string(params, "kernel_version", facts->kernel_version,
+                         sizeof(facts->kernel_version), 0, err) != 0 ||
+      get_int(params, "cpu_cores", 0, 0, 65536, &facts->cpu_cores,
+              err) != 0 ||
+      get_int(params, "memory_mb", 0, 0, 16777216, &facts->memory_mb,
+              err) != 0) {
     return -1;
   }
   return 0;
@@ -3506,6 +3521,31 @@ static cJSON *handle_agents_token_revoke(cmdb_app_t *app, cJSON *params,
   return result;
 }
 
+static cJSON *handle_agents_token_clear(cmdb_app_t *app, cJSON *params,
+                                        cmdb_error_t *err) {
+  size_t deleted = 0;
+  char detail[64];
+  cJSON *result;
+
+  if (require_params(params, err) != 0) {
+    return NULL;
+  }
+  if (cmdb_agent_token_clear(app->db, &deleted, err) != 0) {
+    return NULL;
+  }
+  result = cJSON_CreateObject();
+  if (result == NULL) {
+    cmdb_error_set(err, CMDB_ERR_INTERNAL,
+                   "Cannot create enrollment token cleanup response");
+    return NULL;
+  }
+  cJSON_AddNumberToObject(result, "deleted", (double)deleted);
+  (void)snprintf(detail, sizeof(detail), "{\"deleted\":%zu}", deleted);
+  (void)cmdb_audit_add(app->db, cmdb_audit_actor(), "clear",
+                       "agent_enrollment_token", "", detail, NULL);
+  return result;
+}
+
 static cJSON *handle_agents_list(cmdb_app_t *app, cmdb_error_t *err) {
   cmdb_agent_t *agents = NULL;
   size_t count = 0;
@@ -3666,6 +3706,51 @@ static cJSON *handle_agents_link_ci(cmdb_app_t *app, cJSON *params,
   cJSON_AddItemToObject(result, "agent", agent_json);
   (void)cmdb_audit_add(app->db, cmdb_audit_actor(), "link-ci", "agent", id,
                        "{}", NULL);
+  return result;
+}
+
+static cJSON *handle_agents_fill_ci(cmdb_app_t *app, cJSON *params,
+                                    cmdb_error_t *err) {
+  const char *id = NULL;
+  cmdb_agent_t agent;
+  cmdb_ci_t ci;
+  char ci_id[37];
+  char detail[160];
+  size_t updated = 0;
+  cJSON *result;
+  cJSON *agent_json;
+
+  if (require_params(params, err) != 0 ||
+      get_string(params, "id", &id, 1, err) != 0) {
+    return NULL;
+  }
+  if (cmdb_agent_fill_ci(app->db, id, ci_id, &updated, err) != 0 ||
+      cmdb_agent_get(app->db, id, &agent, err) != 0) {
+    return NULL;
+  }
+  memset(&ci, 0, sizeof(ci));
+  if (ci_id[0] != '\0' && cmdb_ci_get(app->db, ci_id, &ci, err) != 0) {
+    return NULL;
+  }
+  result = cJSON_CreateObject();
+  agent_json = agent_to_json(&agent);
+  if (result == NULL || agent_json == NULL) {
+    cJSON_Delete(result);
+    cJSON_Delete(agent_json);
+    cmdb_ci_free(&ci);
+    cmdb_error_set(err, CMDB_ERR_INTERNAL,
+                   "Cannot create agent CI fill response");
+    return NULL;
+  }
+  cJSON_AddItemToObject(result, "agent", agent_json);
+  cJSON_AddStringToObject(result, "ci_id", ci_id);
+  cJSON_AddStringToObject(result, "ci_name", ci.name);
+  cJSON_AddNumberToObject(result, "updated", (double)updated);
+  cmdb_ci_free(&ci);
+  (void)snprintf(detail, sizeof(detail),
+                 "{\"updated\":%zu,\"agent_id\":\"%s\"}", updated, id);
+  (void)cmdb_audit_add(app->db, cmdb_audit_actor(), "fill-from-agent", "ci",
+                       ci_id, detail, NULL);
   return result;
 }
 
@@ -4074,6 +4159,10 @@ cJSON *cmdb_api_handle(cmdb_app_t *app, cJSON *request) {
     if (require_db(app, &err) == 0) {
       result = handle_agents_token_revoke(app, params, &err);
     }
+  } else if (strcmp(method, "agents.token_clear") == 0) {
+    if (require_db(app, &err) == 0) {
+      result = handle_agents_token_clear(app, params, &err);
+    }
   } else if (strcmp(method, "agents.list") == 0) {
     if (require_db(app, &err) == 0) {
       result = handle_agents_list(app, &err);
@@ -4089,6 +4178,10 @@ cJSON *cmdb_api_handle(cmdb_app_t *app, cJSON *request) {
   } else if (strcmp(method, "agents.link_ci") == 0) {
     if (require_db(app, &err) == 0) {
       result = handle_agents_link_ci(app, params, &err);
+    }
+  } else if (strcmp(method, "agents.fill_ci") == 0) {
+    if (require_db(app, &err) == 0) {
+      result = handle_agents_fill_ci(app, params, &err);
     }
   } else if (strcmp(method, "agents.revoke") == 0) {
     if (require_db(app, &err) == 0) {

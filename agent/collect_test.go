@@ -21,6 +21,17 @@ func TestCleanText(t *testing.T) {
 	}
 }
 
+func TestCleanSerial(t *testing.T) {
+	if got := cleanSerial("  SN-1234  "); got != "SN-1234" {
+		t.Fatalf("cleanSerial = %q", got)
+	}
+	for _, placeholder := range []string{"", "None", "unknown", "To be filled by O.E.M."} {
+		if got := cleanSerial(placeholder); got != "" {
+			t.Fatalf("cleanSerial(%q) = %q", placeholder, got)
+		}
+	}
+}
+
 func TestFinishApplications(t *testing.T) {
 	apps, errs := finishApplications([]Application{
 		{Key: "b", Name: "Beta", Version: "2"},

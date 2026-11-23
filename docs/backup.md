@@ -24,7 +24,7 @@ never written to disk.
 Server-mode accounts, TOTP secrets, and recovery-code hashes live in the same
 encrypted database under the `app_meta` key `auth.state`. Application inventory,
 agent credentials (as hashes), report history, and change events live in the
-schema v5 agent tables. A database backup therefore includes authentication
+schema v6 agent tables. A database backup therefore includes authentication
 state, agent identity, current software, and history. Restore tests must include
 login, TOTP, recovery-code validation, and the Applications view. Sessions are
 memory-only and are not part of a backup; restarting the server logs everyone

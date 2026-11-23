@@ -2905,6 +2905,17 @@ function agentStatusInfo(agent) {
   return { label: "Active", css: "active" };
 }
 
+function formatMemoryMB(value) {
+  const gigabytes = Number(value) / 1024;
+  if (!Number.isFinite(gigabytes) || gigabytes <= 0) {
+    return "\u2014";
+  }
+  const text = gigabytes >= 100
+    ? gigabytes.toFixed(0)
+    : gigabytes.toFixed(1).replace(/\.0$/, "");
+  return `${text} GB`;
+}
+
 function formatSize(kilobytes) {
   if (!kilobytes || kilobytes <= 0) {
     return "\u2014";
@@ -3013,6 +3024,11 @@ function renderAgentDetail() {
     `${agent.os_name || ""} ${agent.os_version || ""}`.trim(),
     agent.architecture,
     agent.agent_version ? `agent ${agent.agent_version}` : "",
+    agent.ip_address ? `ip ${agent.ip_address}` : "",
+    agent.cpu_cores ? `${agent.cpu_cores} cores` : "",
+    agent.memory_mb ? formatMemoryMB(agent.memory_mb) : "",
+    agent.kernel_version ? `kernel ${agent.kernel_version}` : "",
+    agent.serial_number ? `serial ${agent.serial_number}` : "",
     agent.last_seen_ip ? `last seen ${agent.last_seen_ip}` : ""
   ].filter(Boolean).join(" \u00b7 ");
 
@@ -3033,6 +3049,7 @@ function renderAgentDetail() {
   $("agent-revoke").classList.toggle("hidden",
     !(canManageAgents() && agent.status !== "revoked"));
   $("agent-delete").classList.toggle("hidden", !canManageAgents());
+  $("agent-fill-ci").disabled = !agent.ci_id;
   populateAgentCiSelect(agent);
   renderAgentApps();
   renderAgentHistory();
@@ -3161,6 +3178,39 @@ async function saveAgentLink() {
     renderAgentDetail();
   } catch (error) {
     toast(formatError(error), "error");
+  }
+}
+
+async function fillAgentCi() {
+  if (!state.agentDetail || !state.agentDetail.ci_id) {
+    return;
+  }
+  const ciName = state.agentDetail.ci_name || state.agentDetail.ci_id;
+  const confirmed = await askConfirm(
+    "Fill CI from agent",
+    `Copy the latest agent facts into "${ciName}"? Matching attributes such as hostname, IP, serial number, OS version, CPU, memory, and kernel are updated; other CI fields are preserved. This is a one-time update, not a sync.`,
+    "Fill CI"
+  );
+  if (!confirmed) {
+    return;
+  }
+  const button = $("agent-fill-ci");
+  button.disabled = true;
+  try {
+    const result = await api("agents.fill_ci", { id: state.agentDetail.id });
+    state.agentDetail = result.agent || state.agentDetail;
+    const updated = Number(result.updated) || 0;
+    if (updated === 1) {
+      toast(`Updated 1 CI field on ${result.ci_name || ciName}.`, "success");
+    } else if (updated > 1) {
+      toast(`Updated ${updated} CI fields on ${result.ci_name || ciName}.`, "success");
+    } else {
+      toast("No matching CI fields were updated.", "info");
+    }
+    renderAgentDetail();
+  } catch (error) {
+    toast(formatError(error), "error");
+    renderAgentDetail();
   }
 }
 
@@ -3321,6 +3371,37 @@ function renderAgentTokens() {
     ]));
   }
   $("agent-token-empty").classList.toggle("hidden", state.agentTokens.length !== 0);
+  $("agent-token-clear").disabled = !state.agentTokens.some(
+    (token) => token.used || token.revoked || token.expired
+  );
+}
+
+async function clearEnrollmentTokens() {
+  const removable = state.agentTokens.filter(
+    (token) => token.used || token.revoked || token.expired
+  ).length;
+  if (removable === 0) {
+    toast("No used, expired, or revoked enrollment tokens to clear.", "success");
+    return;
+  }
+  const confirmed = await askConfirm(
+    "Clear enrollment token history",
+    `Remove ${removable} used, expired, or revoked token${removable === 1 ? "" : "s"}? Active tokens are kept.`,
+    "Clear history"
+  );
+  if (!confirmed) {
+    return;
+  }
+  try {
+    const result = await api("agents.token_clear");
+    const deleted = Number(result.deleted) || 0;
+    toast(deleted === 1
+      ? "Cleared 1 enrollment token."
+      : `Cleared ${deleted} enrollment tokens.`, "success");
+    await loadAgentTokens();
+  } catch (error) {
+    toast(formatError(error), "error");
+  }
 }
 
 async function revokeEnrollmentToken(token) {
@@ -3366,11 +3447,13 @@ function bindEvents() {
   $("agent-enrollment").addEventListener("click", openEnrollmentPanel);
   $("agent-token-close").addEventListener("click", closeEnrollmentPanel);
   $("agent-token-create").addEventListener("click", createEnrollmentToken);
+  $("agent-token-clear").addEventListener("click", clearEnrollmentTokens);
   $("agent-token-copy").addEventListener("click", copyAgentToken);
   $("agent-view-software").addEventListener("click", () => setAgentView("software"));
   $("agent-view-history").addEventListener("click", () => setAgentView("history"));
   $("agent-app-search").addEventListener("input", renderAgentApps);
   $("agent-link-save").addEventListener("click", saveAgentLink);
+  $("agent-fill-ci").addEventListener("click", fillAgentCi);
   $("agent-revoke").addEventListener("click", revokeSelectedAgent);
   $("agent-delete").addEventListener("click", deleteSelectedAgent);
 

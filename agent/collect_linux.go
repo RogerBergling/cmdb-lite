@@ -26,8 +26,9 @@ func collectHostFacts() (HostFacts, error) {
 		machineID = readFirstLine("/var/lib/dbus/machine-id")
 	}
 	osName, osVersion := linuxOSRelease()
+	kernelVersion := cleanText(readFirstLine("/proc/sys/kernel/osrelease"), 127)
 	if osVersion == "" {
-		osVersion = readFirstLine("/proc/sys/kernel/osrelease")
+		osVersion = kernelVersion
 	}
 	facts := HostFacts{
 		DisplayName:  hostname,
@@ -38,6 +39,15 @@ func collectHostFacts() (HostFacts, error) {
 		OSVersion:    osVersion,
 		Architecture: normalizedArchitecture(runtime.GOARCH),
 		AgentVersion: version,
+		IPAddress:    primaryIPAddress(),
+		SerialNumber: cleanSerial(firstNonEmptyLine(
+			"/sys/class/dmi/id/product_serial",
+			"/sys/class/dmi/id/board_serial",
+			"/sys/devices/virtual/dmi/id/product_serial",
+		)),
+		CPUCores:      runtime.NumCPU(),
+		MemoryMB:      memTotalMB("/proc/meminfo"),
+		KernelVersion: kernelVersion,
 	}
 	if facts.Hostname == "" && facts.MachineID == "" {
 		return facts, errors.New("cannot determine the host identity")
@@ -56,6 +66,36 @@ func readFirstLine(path string) string {
 		return strings.TrimSpace(scanner.Text())
 	}
 	return ""
+}
+
+func firstNonEmptyLine(paths ...string) string {
+	for _, path := range paths {
+		if value := strings.TrimSpace(readFirstLine(path)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func memTotalMB(path string) int64 {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(io.LimitReader(file, 64<<10))
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) < 2 || fields[0] != "MemTotal:" {
+			continue
+		}
+		kilobytes, err := strconv.ParseInt(fields[1], 10, 64)
+		if err != nil || kilobytes <= 0 {
+			return 0
+		}
+		return kilobytes / 1024
+	}
+	return 0
 }
 
 func linuxOSRelease() (string, string) {

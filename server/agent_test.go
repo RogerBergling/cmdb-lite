@@ -8,14 +8,19 @@ import (
 
 func validAgentHost() agentHost {
 	return agentHost{
-		DisplayName:  "app01",
-		Hostname:     "app01",
-		MachineID:    "machine-1",
-		OSFamily:     "linux",
-		OSName:       "Ubuntu",
-		OSVersion:    "24.04",
-		Architecture: "x86_64",
-		AgentVersion: "0.7.0",
+		DisplayName:   "app01",
+		Hostname:      "app01",
+		MachineID:     "machine-1",
+		OSFamily:      "linux",
+		OSName:        "Ubuntu",
+		OSVersion:     "24.04",
+		Architecture:  "x86_64",
+		AgentVersion:  "0.7.0",
+		IPAddress:     "10.20.0.10",
+		SerialNumber:  "SN-0001",
+		CPUCores:      8,
+		MemoryMB:      16384,
+		KernelVersion: "6.8.0",
 	}
 }
 
@@ -27,6 +32,16 @@ func TestAgentHostValidation(t *testing.T) {
 	host.Hostname = "bad\nhost"
 	if err := host.validate(); err == nil {
 		t.Fatal("control character accepted")
+	}
+	host = validAgentHost()
+	host.IPAddress = "not-an-ip"
+	if err := host.validate(); err == nil {
+		t.Fatal("invalid IP address accepted")
+	}
+	host = validAgentHost()
+	host.CPUCores = -1
+	if err := host.validate(); err == nil {
+		t.Fatal("negative CPU count accepted")
 	}
 	host = agentHost{}
 	if err := host.validate(); err == nil {

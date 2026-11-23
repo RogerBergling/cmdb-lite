@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"strings"
 	"unicode"
@@ -19,14 +20,19 @@ const (
 )
 
 type agentHost struct {
-	DisplayName  string `json:"display_name"`
-	Hostname     string `json:"hostname"`
-	MachineID    string `json:"machine_id"`
-	OSFamily     string `json:"os_family"`
-	OSName       string `json:"os_name"`
-	OSVersion    string `json:"os_version"`
-	Architecture string `json:"architecture"`
-	AgentVersion string `json:"agent_version"`
+	DisplayName   string `json:"display_name"`
+	Hostname      string `json:"hostname"`
+	MachineID     string `json:"machine_id"`
+	OSFamily      string `json:"os_family"`
+	OSName        string `json:"os_name"`
+	OSVersion     string `json:"os_version"`
+	Architecture  string `json:"architecture"`
+	AgentVersion  string `json:"agent_version"`
+	IPAddress     string `json:"ip_address"`
+	SerialNumber  string `json:"serial_number"`
+	CPUCores      int    `json:"cpu_cores"`
+	MemoryMB      int64  `json:"memory_mb"`
+	KernelVersion string `json:"kernel_version"`
 }
 
 type agentApp struct {
@@ -88,8 +94,18 @@ func (h *agentHost) validate() error {
 		!agentTextOK(h.OSName, 127) ||
 		!agentTextOK(h.OSVersion, 127) ||
 		!agentTextOK(h.Architecture, 31) ||
-		!agentTextOK(h.AgentVersion, 63) {
+		!agentTextOK(h.AgentVersion, 63) ||
+		!agentTextOK(h.IPAddress, 63) ||
+		!agentTextOK(h.SerialNumber, 127) ||
+		!agentTextOK(h.KernelVersion, 127) {
 		return errors.New("host facts contain invalid characters or are too long")
+	}
+	if h.IPAddress != "" && net.ParseIP(h.IPAddress) == nil {
+		return errors.New("host IP address is invalid")
+	}
+	if h.CPUCores < 0 || h.CPUCores > 65536 ||
+		h.MemoryMB < 0 || h.MemoryMB > 16777216 {
+		return errors.New("host CPU or memory facts are out of range")
 	}
 	if h.DisplayName == "" && h.Hostname == "" && h.MachineID == "" {
 		return errors.New("host facts need a hostname, display name, or machine ID")
@@ -131,14 +147,19 @@ func (r *agentReportRequest) validate() error {
 
 func agentHostParams(host *agentHost) map[string]any {
 	return map[string]any{
-		"display_name":  host.DisplayName,
-		"hostname":      host.Hostname,
-		"machine_id":    host.MachineID,
-		"os_family":     host.OSFamily,
-		"os_name":       host.OSName,
-		"os_version":    host.OSVersion,
-		"architecture":  host.Architecture,
-		"agent_version": host.AgentVersion,
+		"display_name":   host.DisplayName,
+		"hostname":       host.Hostname,
+		"machine_id":     host.MachineID,
+		"os_family":      host.OSFamily,
+		"os_name":        host.OSName,
+		"os_version":     host.OSVersion,
+		"architecture":   host.Architecture,
+		"agent_version":  host.AgentVersion,
+		"ip_address":     host.IPAddress,
+		"serial_number":  host.SerialNumber,
+		"cpu_cores":      host.CPUCores,
+		"memory_mb":      host.MemoryMB,
+		"kernel_version": host.KernelVersion,
 	}
 }
 

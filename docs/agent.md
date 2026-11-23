@@ -37,10 +37,18 @@ invisible to the service account.
 Each report contains host facts and an application list:
 
 - host: display name, hostname, machine ID (`/etc/machine-id` or Windows
-  `MachineGuid`), OS family/name/version, architecture, agent version;
+  `MachineGuid`), OS family/name/version, architecture, agent version, primary
+  IP address, serial number where readable, logical CPU count, total memory,
+  and kernel/build version;
 - application: stable source key, name, version, publisher, source (`deb`,
   `rpm`, or `windows`), architecture, install date where available, install
   location where available, and size in KiB.
+
+Linux serial numbers come from DMI (`/sys/class/dmi/id/product_serial`). Many
+distributions restrict that file to root, so an unprivileged agent may report no
+serial number. Windows reads `SystemSerialNumber` from the BIOS registry key.
+IP collection selects the address used for the default route, falling back to
+the first non-loopback interface.
 
 Linux package keys are `deb:<package>:<architecture>` and
 `rpm:<name>:<architecture>`. Windows keys are
@@ -228,10 +236,12 @@ authenticated RPC path:
 | `agents.token_create` | yes | Create a one-time enrollment token. |
 | `agents.token_list` | yes | List token metadata, never plaintext tokens. |
 | `agents.token_revoke` | yes | Revoke an unused enrollment token. |
+| `agents.token_clear` | yes | Remove used, expired, and revoked token history; active tokens are kept. |
 | `agents.list` | no | List managed hosts. |
 | `agents.get` | no | Host detail and current applications. |
 | `agents.history` | no | Reports and application change events. |
 | `agents.link_ci` | no | Link or unlink a CI. |
+| `agents.fill_ci` | no | Copy the latest host facts into the linked CI. One-shot, no sync. |
 | `agents.revoke` | yes | Revoke a host token. |
 | `agents.delete` | yes | Delete a host and cascade its software, reports, and events. |
 | `agents.prune` | yes | Apply retention immediately. |
@@ -251,7 +261,12 @@ values on every report; change them with `--agent-retention-days` and
 report and event history is pruned.
 
 The **Applications** tab shows the host list, current software with search,
-linked/suggested CI, the change timeline, and the report list. Removing an
+linked/suggested CI, the change timeline, and the report list. **Fill CI from
+agent** copies the latest host facts into the linked CI's matching attributes
+(hostname, IP address, serial number, OS version, CPU cores, memory, kernel
+version, and architecture where the CI type declares them). It is a one-time
+update: it does not create a sync, does not touch relationships or other CI
+fields, and leaves attributes without a matching agent value unchanged. Removing an
 application from a host generates a `removed` event and removes it from current
 software; reinstalling it generates a new `added` event. Reports that could not
 read the complete package database are marked **partial** and do not remove

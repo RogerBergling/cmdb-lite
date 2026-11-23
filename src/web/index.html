@@ -184,7 +184,10 @@
             </div>
             <pre id="agent-token-command" class="code-block"></pre>
           </div>
-          <h4>Recent enrollment tokens</h4>
+          <div class="detail-heading">
+            <h4>Recent enrollment tokens</h4>
+            <button id="agent-token-clear" type="button" class="secondary small" disabled>Clear history</button>
+          </div>
           <div class="table-wrap compact">
             <table>
               <thead>
@@ -238,6 +241,7 @@
             <label for="agent-ci-link">Linked CI</label>
             <select id="agent-ci-link"></select>
             <button id="agent-link-save" type="button" class="secondary small">Save link</button>
+            <button id="agent-fill-ci" type="button" class="secondary small" disabled>Fill CI from agent</button>
           </div>
           <div class="segmented agent-view-tabs" role="tablist" aria-label="Application detail view">
             <button id="agent-view-software" type="button" class="segment active" role="tab" aria-selected="true">Software</button>

@@ -459,8 +459,11 @@ Application upgrades replace the executable only. Your database and `.meta`
 sidecar stay where they are. The application remembers the last database and
 shows recent databases on the unlock screen.
 
-v0.7.3 does not change the schema; a v0.7.0, v0.7.1, or v0.7.2 database opens
-without migration. v0.7.0 migrated the database from schema version 4 to version 5. It added the
+Schema version 6 is current. A v5 database opens with a one-time migration that
+adds the agent IP address, serial number, CPU, memory, and kernel fields, plus a
+`kernel_version` attribute on the seeded compute CI types. v0.7.3 did not change
+the schema; a v0.7.0, v0.7.1, or v0.7.2 database opens without migration. v0.7.0
+migrated the database from schema version 4 to version 5. It added the
 application inventory agent tables, the Linux server package, and authenticated
 server mode. Existing databases open normally and keep the same passphrase. A
 pre-migration backup is created and its path is shown after opening. Server
@@ -550,8 +553,8 @@ password vault instead.
 - **Application inventory agent** for Windows 11/Server 2019+, Ubuntu, Kali, and
   Fedora: installed DEB/RPM packages and Windows uninstall registry entries,
   per-host token enrollment, revocable access, current software, a bounded
-  added/removed/updated timeline, optional CI linking, and a dedicated
-  Applications view.
+  added/removed/updated timeline, optional CI linking with a one-shot
+  **Fill CI from agent** action, and a dedicated Applications view.
 - **Encrypted database backup** from the application; the backup is consistent
   while the database is open and includes the matching `.meta` sidecar.
 - **Restore to a new database path** from the unlock screen.
@@ -764,8 +767,9 @@ The Linux package provides a Go `cmdb-server` and the C `cmdb-rpc` bridge:
 - application inventory agents use a separate per-host bearer-token path, not
   user sessions; enrollment tokens are administrator-issued and single-use.
 
-Authentication state is JSON in `app_meta`; schema v5 adds the agent inventory
-tables but leaves user authentication state in that JSON document. Sessions are
+Authentication state is JSON in `app_meta`; schema v5 added the agent inventory
+tables and schema v6 adds reported host facts, but user authentication state
+stays in that JSON document. Sessions are
 memory-only. The desktop client does not start the server automatically, and
 Windows server support is future work. See
 [`docs/authentication.md`](docs/authentication.md) for architecture, flags,
@@ -989,10 +993,16 @@ Store/Appx, Snap, Flatpak, per-user Windows applications, running processes, and
 services are not collected in this version.
 
 The **Applications** tab shows each host's current software with search, an
-optional CI link, an added/removed/updated timeline, and report history.
-Administrators can revoke a host token or delete the host record; deleting
-removes its software, reports, and history but leaves linked CIs and audit
-entries intact. Reports
+optional CI link, an added/removed/updated timeline, and report history. **Fill
+CI from agent** copies the latest host facts (hostname, IP address, serial
+number, OS version, CPU cores, memory, kernel version, and architecture where
+the CI type declares them) into the linked CI. It is a one-time update: it does
+not sync continuously, does not touch relationships or other CI fields, and
+leaves fields without matching agent data unchanged. Administrators can revoke a
+host token or delete the host record; deleting removes its software, reports,
+and history but leaves linked CIs and audit entries intact. Used, expired, and
+revoked enrollment-token records can be cleared from the enrollment panel
+without affecting active tokens. Reports
 that could not read the complete package database are marked **Partial** and do
 not remove applications that were absent from that report. Default retention is
 90 reports per host and 365 days, configurable on the server with
@@ -1874,7 +1884,7 @@ API, reopen it, and verify data and `.meta` handling.
 The agent tests cover dpkg and RPM parsing (including held packages), config
 permissions, URL/token validation, the HTTP enroll/report contract, and the C
 core token lifecycle, report diff, partial-report retention behavior, CI link,
-revocation, re-enrollment, and schema v4→v5 migration. The agent DEB/TGZ package
+revocation, re-enrollment, and schema v4→v6 and v5→v6 migrations. The agent DEB/TGZ package
 was built and inspected: it contains `/usr/bin/cmdb-agent`, the hardened
 `cmdb-agent.service`, docs, and the DEB control scripts, and does not contain
 the desktop or server binaries. The full desktop+server DEB/TGZ and server-only

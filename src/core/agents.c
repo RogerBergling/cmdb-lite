@@ -1,6 +1,8 @@
 #include "cmdb/agents.h"
 
+#include "cmdb/ci.h"
 #include "cmdb/crypto.h"
+#include "cmdb/types.h"
 #include "cmdb/util.h"
 
 #include "cJSON.h"
@@ -110,9 +112,18 @@ static int agent_facts_valid(const cmdb_agent_facts_t *facts,
       !agent_text_valid(facts->os_version, 127) ||
       !agent_text_valid(facts->architecture, 31) ||
       !agent_text_valid(facts->agent_version, 63) ||
-      !agent_text_valid(facts->last_seen_ip, 63)) {
+      !agent_text_valid(facts->last_seen_ip, 63) ||
+      !agent_text_valid(facts->ip_address, 63) ||
+      !agent_text_valid(facts->serial_number, 127) ||
+      !agent_text_valid(facts->kernel_version, 127)) {
     cmdb_error_set(err, CMDB_ERR_VALIDATION,
                    "Agent host facts contain invalid characters or are too long");
+    return -1;
+  }
+  if (facts->cpu_cores < 0 || facts->cpu_cores > 65536 ||
+      facts->memory_mb < 0 || facts->memory_mb > 16777216) {
+    cmdb_error_set(err, CMDB_ERR_VALIDATION,
+                   "Agent host CPU or memory facts are out of range");
     return -1;
   }
   if (facts->display_name[0] == '\0' && facts->hostname[0] == '\0' &&
@@ -188,6 +199,14 @@ static void agent_copy_row(sqlite3_stmt *stmt, cmdb_agent_t *out) {
             (const char *)sqlite3_column_text(stmt, 17));
   agent_str(out->updated_at, sizeof(out->updated_at),
             (const char *)sqlite3_column_text(stmt, 18));
+  agent_str(out->ip_address, sizeof(out->ip_address),
+            (const char *)sqlite3_column_text(stmt, 19));
+  agent_str(out->serial_number, sizeof(out->serial_number),
+            (const char *)sqlite3_column_text(stmt, 20));
+  out->cpu_cores = sqlite3_column_int(stmt, 21);
+  out->memory_mb = sqlite3_column_int(stmt, 22);
+  agent_str(out->kernel_version, sizeof(out->kernel_version),
+            (const char *)sqlite3_column_text(stmt, 23));
 }
 
 static int agent_suggest_ci(cmdb_db_t *db, cmdb_agent_t *agent,
@@ -389,6 +408,43 @@ void cmdb_agent_tokens_free(cmdb_agent_token_t *tokens) {
   free(tokens);
 }
 
+int cmdb_agent_token_clear(cmdb_db_t *db, size_t *deleted,
+                           cmdb_error_t *err) {
+  sqlite3_stmt *stmt = NULL;
+  char now[21];
+  int rc;
+
+  if (db == NULL) {
+    cmdb_error_set(err, CMDB_ERR_INVALID_ARGUMENT, "Invalid database");
+    return -1;
+  }
+  if (deleted != NULL) {
+    *deleted = 0;
+  }
+  cmdb_iso8601_now(now);
+  if (sqlite3_prepare_v2(
+        cmdb_db_sqlite(db),
+        "DELETE FROM agent_enrollment_tokens "
+        "WHERE used_at <> '' OR revoked_at <> '' OR expires_at <= ?;",
+        -1, &stmt, NULL) != SQLITE_OK) {
+    cmdb_error_set(err, CMDB_ERR_DATABASE,
+                   "Cannot prepare enrollment token cleanup");
+    return -1;
+  }
+  sqlite3_bind_text(stmt, 1, now, -1, SQLITE_TRANSIENT);
+  rc = sqlite3_step(stmt);
+  sqlite3_finalize(stmt);
+  if (rc != SQLITE_DONE) {
+    cmdb_error_set(err, CMDB_ERR_DATABASE,
+                   "Cannot clear enrollment token history");
+    return -1;
+  }
+  if (deleted != NULL) {
+    *deleted = (size_t)cmdb_db_changes(db);
+  }
+  return 0;
+}
+
 int cmdb_agent_token_revoke(cmdb_db_t *db, const char *token_id,
                             cmdb_error_t *err) {
   sqlite3_stmt *stmt = NULL;
@@ -585,8 +641,9 @@ int cmdb_agent_enroll(cmdb_db_t *db, const char *enrollment_token,
           "UPDATE agents SET display_name = ?, hostname = ?, machine_id = ?, "
           "  os_family = ?, os_name = ?, os_version = ?, architecture = ?, "
           "  agent_version = ?, token_hash = ?, token_prefix = ?, "
-          "  status = 'active', last_seen_ip = ?, updated_at = ? "
-          "WHERE id = ?;",
+          "  status = 'active', last_seen_ip = ?, ip_address = ?, "
+          "  serial_number = ?, cpu_cores = ?, memory_mb = ?, "
+          "  kernel_version = ?, updated_at = ? WHERE id = ?;",
           -1, &stmt, NULL) != SQLITE_OK) {
       cmdb_error_set(err, CMDB_ERR_DATABASE,
                      "Cannot prepare agent enrollment update");
@@ -603,8 +660,13 @@ int cmdb_agent_enroll(cmdb_db_t *db, const char *enrollment_token,
     sqlite3_bind_text(stmt, 9, agent_hash, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 10, agent_prefix, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 11, facts->last_seen_ip, -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 12, now, -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 13, agent_id, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 12, facts->ip_address, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 13, facts->serial_number, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 14, facts->cpu_cores);
+    sqlite3_bind_int(stmt, 15, facts->memory_mb);
+    sqlite3_bind_text(stmt, 16, facts->kernel_version, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 17, now, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 18, agent_id, -1, SQLITE_TRANSIENT);
     is_reused = 1;
   } else {
     if (cmdb_random_uuid(agent_id) != 0) {
@@ -617,9 +679,10 @@ int cmdb_agent_enroll(cmdb_db_t *db, const char *enrollment_token,
           "(id, display_name, hostname, machine_id, os_family, os_name, "
           " os_version, architecture, agent_version, token_hash, token_prefix, "
           " status, enrolled_at, last_report_at, last_seen_ip, ci_id, "
+          " ip_address, serial_number, cpu_cores, memory_mb, kernel_version, "
           " created_at, updated_at) "
           "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, '', ?, '', "
-          "        ?, ?);",
+          "        ?, ?, ?, ?, ?, ?, ?);",
           -1, &stmt, NULL) != SQLITE_OK) {
       cmdb_error_set(err, CMDB_ERR_DATABASE,
                      "Cannot prepare agent enrollment insert");
@@ -638,8 +701,13 @@ int cmdb_agent_enroll(cmdb_db_t *db, const char *enrollment_token,
     sqlite3_bind_text(stmt, 11, agent_prefix, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 12, now, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 13, facts->last_seen_ip, -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 14, now, -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 15, now, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 14, facts->ip_address, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 15, facts->serial_number, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 16, facts->cpu_cores);
+    sqlite3_bind_int(stmt, 17, facts->memory_mb);
+    sqlite3_bind_text(stmt, 18, facts->kernel_version, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 19, now, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 20, now, -1, SQLITE_TRANSIENT);
   }
   rc = sqlite3_step(stmt);
   sqlite3_finalize(stmt);
@@ -706,7 +774,8 @@ int cmdb_agent_auth(cmdb_db_t *db, const char *agent_token,
         "       (SELECT COUNT(*) FROM agent_apps ap "
         "         WHERE ap.agent_id = a.id AND ap.removed_at = ''), "
         "       (SELECT COUNT(*) FROM agent_reports r WHERE r.agent_id = a.id), "
-        "       a.created_at, a.updated_at "
+        "       a.created_at, a.updated_at, a.ip_address, a.serial_number, "
+        "       a.cpu_cores, a.memory_mb, a.kernel_version "
         "FROM agents a LEFT JOIN cis c ON c.id = a.ci_id "
         "WHERE a.token_hash = ? AND a.status = 'active';",
         -1, &stmt, NULL) != SQLITE_OK) {
@@ -1287,7 +1356,9 @@ int cmdb_agent_report(cmdb_db_t *db, const char *agent_id,
         cmdb_db_sqlite(db),
         "UPDATE agents SET display_name = ?, hostname = ?, os_family = ?, "
         " os_name = ?, os_version = ?, architecture = ?, agent_version = ?, "
-        " last_report_at = ?, last_seen_ip = ?, updated_at = ? WHERE id = ?;",
+        " last_report_at = ?, last_seen_ip = ?, ip_address = ?, "
+        " serial_number = ?, cpu_cores = ?, memory_mb = ?, "
+        " kernel_version = ?, updated_at = ? WHERE id = ?;",
         -1, &stmt, NULL) != SQLITE_OK) {
     cmdb_error_set(err, CMDB_ERR_DATABASE,
                    "Cannot prepare agent report metadata update");
@@ -1305,8 +1376,13 @@ int cmdb_agent_report(cmdb_db_t *db, const char *agent_id,
   sqlite3_bind_text(stmt, 7, facts->agent_version, -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(stmt, 8, now, -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(stmt, 9, facts->last_seen_ip, -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(stmt, 10, now, -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(stmt, 11, agent_id, -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 10, facts->ip_address, -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 11, facts->serial_number, -1, SQLITE_TRANSIENT);
+  sqlite3_bind_int(stmt, 12, facts->cpu_cores);
+  sqlite3_bind_int(stmt, 13, facts->memory_mb);
+  sqlite3_bind_text(stmt, 14, facts->kernel_version, -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 15, now, -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 16, agent_id, -1, SQLITE_TRANSIENT);
   if (sqlite3_step(stmt) != SQLITE_DONE) {
     cmdb_error_set(err, CMDB_ERR_DATABASE,
                    "Cannot update agent report metadata");
@@ -1388,7 +1464,8 @@ int cmdb_agent_list(cmdb_db_t *db, cmdb_agent_t **out, size_t *count,
         "       (SELECT COUNT(*) FROM agent_apps ap "
         "         WHERE ap.agent_id = a.id AND ap.removed_at = ''), "
         "       (SELECT COUNT(*) FROM agent_reports r WHERE r.agent_id = a.id), "
-        "       a.created_at, a.updated_at "
+        "       a.created_at, a.updated_at, a.ip_address, a.serial_number, "
+        "       a.cpu_cores, a.memory_mb, a.kernel_version "
         "FROM agents a LEFT JOIN cis c ON c.id = a.ci_id "
         "ORDER BY a.last_report_at DESC, a.display_name COLLATE NOCASE;",
         -1, &stmt, NULL) != SQLITE_OK) {
@@ -1442,7 +1519,8 @@ int cmdb_agent_get(cmdb_db_t *db, const char *agent_id, cmdb_agent_t *out,
         "       (SELECT COUNT(*) FROM agent_apps ap "
         "         WHERE ap.agent_id = a.id AND ap.removed_at = ''), "
         "       (SELECT COUNT(*) FROM agent_reports r WHERE r.agent_id = a.id), "
-        "       a.created_at, a.updated_at "
+        "       a.created_at, a.updated_at, a.ip_address, a.serial_number, "
+        "       a.cpu_cores, a.memory_mb, a.kernel_version "
         "FROM agents a LEFT JOIN cis c ON c.id = a.ci_id WHERE a.id = ?;",
         -1, &stmt, NULL) != SQLITE_OK) {
     cmdb_error_set(err, CMDB_ERR_DATABASE, "Cannot prepare agent lookup");
@@ -1726,6 +1804,238 @@ int cmdb_agent_link_ci(cmdb_db_t *db, const char *agent_id,
     return -1;
   }
   return 0;
+}
+
+static int agent_field_declared(const cmdb_type_field_t *fields, size_t count,
+                                const char *key) {
+  size_t i;
+  if (key == NULL) {
+    return 0;
+  }
+  for (i = 0; i < count; i++) {
+    if (strcmp(fields[i].key, key) == 0) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static const char *agent_fill_key(const cmdb_type_field_t *fields, size_t count,
+                                  const char *first, const char *second) {
+  if (first != NULL && agent_field_declared(fields, count, first)) {
+    return first;
+  }
+  if (second != NULL && agent_field_declared(fields, count, second)) {
+    return second;
+  }
+  return NULL;
+}
+
+static void agent_fill_os_version(const cmdb_agent_t *agent, int separate_name,
+                                  char *out, size_t out_size) {
+  if (separate_name != 0) {
+    agent_str(out, out_size, agent->os_version);
+    return;
+  }
+  if (agent->os_name[0] == '\0') {
+    agent_str(out, out_size, agent->os_version);
+    return;
+  }
+  if (agent->os_version[0] == '\0' ||
+      strstr(agent->os_name, agent->os_version) != NULL) {
+    agent_str(out, out_size, agent->os_name);
+    return;
+  }
+  (void)snprintf(out, out_size, "%s %s", agent->os_name, agent->os_version);
+}
+
+static void agent_fill_memory_gb(int memory_mb, char *out, size_t out_size) {
+  double gigabytes;
+  if (memory_mb <= 0) {
+    out[0] = '\0';
+    return;
+  }
+  gigabytes = (double)memory_mb / 1024.0;
+  if (gigabytes == (double)((long long)gigabytes)) {
+    (void)snprintf(out, out_size, "%.0f", gigabytes);
+  } else {
+    (void)snprintf(out, out_size, "%.1f", gigabytes);
+  }
+}
+
+int cmdb_agent_fill_ci(cmdb_db_t *db, const char *agent_id,
+                       char ci_id_out[37], size_t *updated,
+                       cmdb_error_t *err) {
+  typedef struct {
+    const char *key;
+    const char *value;
+  } fill_entry_t;
+  sqlite3_stmt *stmt = NULL;
+  cmdb_agent_t agent;
+  cmdb_ci_t ci;
+  cmdb_type_field_t *fields = NULL;
+  size_t field_count = 0;
+  fill_entry_t entries[10];
+  size_t entry_count = 0;
+  char ip[64];
+  char serial[128];
+  char kernel[128];
+  char hostname[256];
+  char architecture[32];
+  char os_name[128];
+  char os_version[288];
+  char cpu[32];
+  char memory[32];
+  size_t i;
+  int rc;
+
+  if (ci_id_out != NULL) {
+    ci_id_out[0] = '\0';
+  }
+  if (updated != NULL) {
+    *updated = 0;
+  }
+  if (db == NULL || !cmdb_uuid_valid(agent_id)) {
+    cmdb_error_set(err, CMDB_ERR_INVALID_ARGUMENT, "Invalid agent ID");
+    return -1;
+  }
+  if (cmdb_agent_get(db, agent_id, &agent, err) != 0) {
+    return -1;
+  }
+  if (agent.ci_id[0] == '\0') {
+    cmdb_error_set(err, CMDB_ERR_VALIDATION,
+                   "Link a CI to this agent before filling it");
+    return -1;
+  }
+  memset(&ci, 0, sizeof(ci));
+  if (cmdb_ci_get(db, agent.ci_id, &ci, err) != 0) {
+    return -1;
+  }
+  if (cmdb_type_fields_list(db, ci.type_id, &fields, &field_count, err) != 0) {
+    cmdb_ci_free(&ci);
+    return -1;
+  }
+
+  agent_str(hostname, sizeof(hostname), agent.hostname);
+  agent_str(serial, sizeof(serial), agent.serial_number);
+  agent_str(kernel, sizeof(kernel), agent.kernel_version);
+  agent_str(architecture, sizeof(architecture), agent.architecture);
+  agent_str(os_name, sizeof(os_name), agent.os_name);
+  if (agent.ip_address[0] != '\0') {
+    agent_str(ip, sizeof(ip), agent.ip_address);
+  } else {
+    agent_str(ip, sizeof(ip), agent.last_seen_ip);
+  }
+  if (agent.cpu_cores > 0) {
+    (void)snprintf(cpu, sizeof(cpu), "%d", agent.cpu_cores);
+  } else {
+    cpu[0] = '\0';
+  }
+  agent_fill_memory_gb(agent.memory_mb, memory, sizeof(memory));
+
+  {
+    const char *os_name_key = agent_fill_key(fields, field_count, "os_name",
+                                             "operating_system");
+    agent_fill_os_version(&agent, os_name_key != NULL, os_version,
+                          sizeof(os_version));
+#define ADD_FILL(candidates_first, candidates_second, field_value)          \
+  do {                                                                      \
+    const char *fill_key = agent_fill_key(fields, field_count,               \
+                                          candidates_first,                  \
+                                          candidates_second);                \
+    if (fill_key != NULL && (field_value)[0] != '\0' && entry_count < 10) {  \
+      entries[entry_count].key = fill_key;                                   \
+      entries[entry_count].value = (field_value);                            \
+      entry_count++;                                                         \
+    }                                                                        \
+  } while (0)
+    ADD_FILL("hostname", NULL, hostname);
+    ADD_FILL("ip_address", "management_ip", ip);
+    ADD_FILL("serial_number", NULL, serial);
+    ADD_FILL("os_version", NULL, os_version);
+    ADD_FILL("cpu_cores", "vcpu", cpu);
+    ADD_FILL("memory_gb", NULL, memory);
+    ADD_FILL("kernel_version", "kernel", kernel);
+    ADD_FILL("architecture", "arch", architecture);
+    ADD_FILL("os_name", "operating_system", os_name);
+#undef ADD_FILL
+  }
+
+  if (entry_count > 0) {
+    char now[21];
+    if (cmdb_db_begin(db, err) != 0) {
+      cmdb_type_fields_free(fields);
+      cmdb_ci_free(&ci);
+      return -1;
+    }
+    if (sqlite3_prepare_v2(
+          cmdb_db_sqlite(db),
+          "INSERT OR REPLACE INTO ci_attributes(ci_id, field_key, value) "
+          "VALUES(?, ?, ?);",
+          -1, &stmt, NULL) != SQLITE_OK) {
+      cmdb_error_set(err, CMDB_ERR_DATABASE,
+                     "Cannot prepare CI fill");
+      goto fail;
+    }
+    for (i = 0; i < entry_count; i++) {
+      sqlite3_reset(stmt);
+      sqlite3_clear_bindings(stmt);
+      sqlite3_bind_text(stmt, 1, ci.id, -1, SQLITE_TRANSIENT);
+      sqlite3_bind_text(stmt, 2, entries[i].key, -1, SQLITE_TRANSIENT);
+      sqlite3_bind_text(stmt, 3, entries[i].value, -1, SQLITE_TRANSIENT);
+      rc = sqlite3_step(stmt);
+      if (rc != SQLITE_DONE) {
+        cmdb_error_set(err, CMDB_ERR_DATABASE,
+                       "Cannot fill CI attributes");
+        goto fail;
+      }
+    }
+    sqlite3_finalize(stmt);
+    stmt = NULL;
+    cmdb_iso8601_now(now);
+    if (sqlite3_prepare_v2(cmdb_db_sqlite(db),
+                           "UPDATE cis SET updated_at = ? WHERE id = ?;",
+                           -1, &stmt, NULL) != SQLITE_OK) {
+      cmdb_error_set(err, CMDB_ERR_DATABASE,
+                     "Cannot prepare CI fill timestamp");
+      goto fail;
+    }
+    sqlite3_bind_text(stmt, 1, now, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, ci.id, -1, SQLITE_TRANSIENT);
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    stmt = NULL;
+    if (rc != SQLITE_DONE) {
+      cmdb_error_set(err, CMDB_ERR_DATABASE,
+                     "Cannot update CI fill timestamp");
+      goto fail;
+    }
+    if (cmdb_db_commit(db, err) != 0) {
+      (void)cmdb_db_rollback(db, NULL);
+      cmdb_type_fields_free(fields);
+      cmdb_ci_free(&ci);
+      return -1;
+    }
+  }
+
+  if (ci_id_out != NULL) {
+    agent_str(ci_id_out, 37, ci.id);
+  }
+  if (updated != NULL) {
+    *updated = entry_count;
+  }
+  cmdb_type_fields_free(fields);
+  cmdb_ci_free(&ci);
+  return 0;
+
+fail:
+  if (stmt != NULL) {
+    sqlite3_finalize(stmt);
+  }
+  (void)cmdb_db_rollback(db, NULL);
+  cmdb_type_fields_free(fields);
+  cmdb_ci_free(&ci);
+  return -1;
 }
 
 int cmdb_agent_revoke(cmdb_db_t *db, const char *agent_id, cmdb_error_t *err) {
