@@ -3032,6 +3032,7 @@ function renderAgentDetail() {
 
   $("agent-revoke").classList.toggle("hidden",
     !(canManageAgents() && agent.status !== "revoked"));
+  $("agent-delete").classList.toggle("hidden", !canManageAgents());
   populateAgentCiSelect(agent);
   renderAgentApps();
   renderAgentHistory();
@@ -3181,6 +3182,33 @@ async function revokeSelectedAgent() {
     toast("Agent revoked.", "success");
     await loadAgents();
     renderAgentDetail();
+  } catch (error) {
+    toast(formatError(error), "error");
+  }
+}
+
+async function deleteSelectedAgent() {
+  if (!state.agentDetail) {
+    return;
+  }
+  const name = state.agentDetail.display_name || state.agentDetail.hostname || state.agentDetail.id;
+  const confirmed = await askConfirm(
+    "Delete host",
+    `Delete "${name}" and its software inventory, reports, and history? Its token stops working immediately. Linked CIs, relationships, and audit entries are not deleted. This cannot be undone.`,
+    "Delete host"
+  );
+  if (!confirmed) {
+    return;
+  }
+  try {
+    await api("agents.delete", { id: state.agentDetail.id });
+    toast("Agent host deleted.", "success");
+    state.selectedAgentId = null;
+    state.agentDetail = null;
+    state.agentApps = [];
+    state.agentHistory = null;
+    hide($("agent-detail"));
+    await loadAgents();
   } catch (error) {
     toast(formatError(error), "error");
   }
@@ -3344,6 +3372,7 @@ function bindEvents() {
   $("agent-app-search").addEventListener("input", renderAgentApps);
   $("agent-link-save").addEventListener("click", saveAgentLink);
   $("agent-revoke").addEventListener("click", revokeSelectedAgent);
+  $("agent-delete").addEventListener("click", deleteSelectedAgent);
 
   for (const tab of document.querySelectorAll(".tab")) {
     tab.addEventListener("click", () => activateTab(tab.dataset.tab));

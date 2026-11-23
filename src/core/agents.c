@@ -1762,6 +1762,61 @@ int cmdb_agent_revoke(cmdb_db_t *db, const char *agent_id, cmdb_error_t *err) {
   return 0;
 }
 
+int cmdb_agent_delete(cmdb_db_t *db, const char *agent_id,
+                      cmdb_error_t *err) {
+  sqlite3_stmt *stmt = NULL;
+  static const char *statements[] = {
+    "DELETE FROM agent_app_events WHERE agent_id = ?;",
+    "DELETE FROM agent_apps WHERE agent_id = ?;",
+    "DELETE FROM agent_reports WHERE agent_id = ?;",
+    "DELETE FROM agents WHERE id = ?;",
+  };
+  size_t i;
+  int rc;
+
+  if (db == NULL || !cmdb_uuid_valid(agent_id)) {
+    cmdb_error_set(err, CMDB_ERR_INVALID_ARGUMENT,
+                   "Invalid agent ID");
+    return -1;
+  }
+  if (cmdb_db_begin(db, err) != 0) {
+    return -1;
+  }
+  for (i = 0; i < sizeof(statements) / sizeof(statements[0]); i++) {
+    if (sqlite3_prepare_v2(cmdb_db_sqlite(db), statements[i], -1, &stmt,
+                           NULL) != SQLITE_OK) {
+      cmdb_error_set(err, CMDB_ERR_DATABASE,
+                     "Cannot prepare agent deletion");
+      goto fail;
+    }
+    sqlite3_bind_text(stmt, 1, agent_id, -1, SQLITE_TRANSIENT);
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    stmt = NULL;
+    if (rc != SQLITE_DONE) {
+      cmdb_error_set(err, CMDB_ERR_DATABASE,
+                     "Cannot delete agent data");
+      goto fail;
+    }
+  }
+  if (cmdb_db_changes(db) == 0) {
+    cmdb_error_set(err, CMDB_ERR_NOT_FOUND, "Agent not found");
+    goto fail;
+  }
+  if (cmdb_db_commit(db, err) != 0) {
+    (void)cmdb_db_rollback(db, NULL);
+    return -1;
+  }
+  return 0;
+
+fail:
+  if (stmt != NULL) {
+    sqlite3_finalize(stmt);
+  }
+  (void)cmdb_db_rollback(db, NULL);
+  return -1;
+}
+
 int cmdb_agent_prune(cmdb_db_t *db, int retention_days, int max_reports,
                      size_t *deleted, cmdb_error_t *err) {
   sqlite3_stmt *stmt = NULL;

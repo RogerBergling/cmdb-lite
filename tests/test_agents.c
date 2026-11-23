@@ -51,6 +51,7 @@ void test_agents(void) {
   size_t token_count = 0;
   cmdb_agent_facts_t facts;
   cmdb_agent_t agent;
+  char delete_id[37];
   cmdb_agent_t *agents = NULL;
   size_t agent_count = 0;
   cmdb_agent_app_t apps[3];
@@ -236,8 +237,24 @@ void test_agents(void) {
   TEST_ASSERT(reused == 1);
   TEST_ASSERT(strcmp(agent.status, "active") == 0);
   TEST_ASSERT(strcmp(agent.ci_id, ci_id) == 0);
+  (void)cmdb_str_copy(delete_id, sizeof(delete_id), agent.id);
   TEST_ASSERT(cmdb_agent_enroll(db, enrollment_token, &facts, agent_token,
                                 &agent, &reused, &err) != 0);
+
+  TEST_ASSERT_MSG(cmdb_agent_delete(db, delete_id, &err) == 0, err.message);
+  TEST_ASSERT(cmdb_agent_get(db, delete_id, &agent, &err) != 0);
+  TEST_ASSERT(cmdb_agent_history(db, delete_id, 10, 50, &reports,
+                                 &report_count, &events, &event_count,
+                                 &err) == 0);
+  TEST_ASSERT(report_count == 0);
+  TEST_ASSERT(event_count == 0);
+  cmdb_agent_history_free(reports, events);
+  reports = NULL;
+  events = NULL;
+  TEST_ASSERT(cmdb_agent_list(db, &agents, &agent_count, &err) == 0);
+  TEST_ASSERT(agent_count == 0);
+  cmdb_agent_list_free(agents);
+  agents = NULL;
 
   /* Simulate a v4 database and verify the v5 agent-table migration. */
   TEST_ASSERT_MSG(cmdb_db_exec(

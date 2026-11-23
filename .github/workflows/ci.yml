@@ -617,6 +617,7 @@ jobs:
           cp release/windows/dist/*.msi release/assets/
           cp release/windows-agent/*.zip release/assets/
           cp release/windows-agent/*.msi release/assets/
+          cp packaging/agent/install-agent.sh release/assets/
           cd release/assets
           sha256sum * > SHA256SUMS
           ls -lh

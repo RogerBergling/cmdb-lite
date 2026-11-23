@@ -3699,6 +3699,27 @@ static cJSON *handle_agents_revoke(cmdb_app_t *app, cJSON *params,
   return result;
 }
 
+static cJSON *handle_agents_delete(cmdb_app_t *app, cJSON *params,
+                                   cmdb_error_t *err) {
+  const char *id = NULL;
+  cJSON *result;
+
+  if (require_params(params, err) != 0 ||
+      get_string(params, "id", &id, 1, err) != 0) {
+    return NULL;
+  }
+  if (cmdb_agent_delete(app->db, id, err) != 0) {
+    return NULL;
+  }
+  result = cJSON_CreateObject();
+  if (result != NULL) {
+    cJSON_AddBoolToObject(result, "deleted", 1);
+  }
+  (void)cmdb_audit_add(app->db, cmdb_audit_actor(), "delete", "agent", id,
+                       "{}", NULL);
+  return result;
+}
+
 static cJSON *handle_agents_enroll(cmdb_app_t *app, cJSON *params,
                                    cmdb_error_t *err) {
   const char *token = NULL;
@@ -4072,6 +4093,10 @@ cJSON *cmdb_api_handle(cmdb_app_t *app, cJSON *request) {
   } else if (strcmp(method, "agents.revoke") == 0) {
     if (require_db(app, &err) == 0) {
       result = handle_agents_revoke(app, params, &err);
+    }
+  } else if (strcmp(method, "agents.delete") == 0) {
+    if (require_db(app, &err) == 0) {
+      result = handle_agents_delete(app, params, &err);
     }
   } else if (strcmp(method, "agents.enroll") == 0) {
     if (require_db(app, &err) == 0) {

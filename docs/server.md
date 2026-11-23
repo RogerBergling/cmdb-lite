@@ -213,8 +213,10 @@ Retention is controlled at server start:
 | `--agent-reports-per-host` | `90` | Keep at most this many reports per host. |
 
 The server applies both retention bounds on every report. Current application
-rows and the `agents` record remain until the host is deleted by a future
-feature; revoke the token and remove the record when decommissioning a host.
+rows and the `agents` record remain after a token is revoked. Administrators
+can delete the host record from **Applications**, which removes its current
+software and report/event history but leaves linked CIs and audit entries
+intact. Revoke first, then delete when decommissioning a host.
 
 Create enrollment tokens in the **Applications** tab as an administrator. The
 plaintext token is shown once. The server stores only its hash, along with the

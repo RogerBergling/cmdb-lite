@@ -117,6 +117,31 @@ The DEB/RPM post-install scripts create the `cmdb-agent` user/group and the
 same user/group before running `enroll` as root; otherwise the configuration
 cannot be made readable by the service.
 
+### Unattended DEB rollout
+
+`apt`/`dpkg` do not pass arbitrary flags to Debian maintainer scripts, so a DEB
+cannot accept `--server`/`--token` directly. Use the DEB-only helper instead:
+
+```bash
+sudo ./install-agent.sh \
+  --server https://cmdb.example.internal \
+  --token-file /root/cmdb-agent-token
+```
+
+The helper:
+
+1. resolves a release (or accepts `--version`/`--deb`),
+2. downloads `cmdb-lite-agent_<version>_amd64.deb`,
+3. verifies it against the release `SHA256SUMS`,
+4. installs it with `apt-get`,
+5. runs `cmdb-agent enroll` with the supplied server, token, and optional
+   `--ca-file`.
+
+Use `--no-start` to write the configuration without starting the service. Only
+amd64 DEB packages are supported. Pass the token with `--token-file` rather
+than `--token` to keep it out of shell history. The helper is kept at
+`packaging/agent/install-agent.sh` and is included in release assets.
+
 ### Windows
 
 Install the MSI and enroll from an elevated prompt:
@@ -202,6 +227,7 @@ authenticated RPC path:
 | `agents.history` | no | Reports and application change events. |
 | `agents.link_ci` | no | Link or unlink a CI. |
 | `agents.revoke` | yes | Revoke a host token. |
+| `agents.delete` | yes | Delete a host and cascade its software, reports, and events. |
 | `agents.prune` | yes | Apply retention immediately. |
 
 ## History and retention
@@ -243,7 +269,8 @@ applications that were absent from that report.
   token from ordinary users. Root/Administrator or malware on the host can read
   it, as with any local service credential.
 - An agent token does not expire automatically; revoke it when decommissioning a
-  host. Re-enrollment rotates the token.
+  host. Re-enrollment rotates the token. Administrators can delete the host
+  record from **Applications**; linked CIs and audit entries remain.
 - Application names and versions are displayed as text; the UI never interprets
   them as HTML.
 
@@ -269,6 +296,7 @@ applications that were absent from that report.
 | `cmdb-lite-agent-<version>-linux-x86_64.tar.gz` | Binary, unit, docs; no package scripts. |
 | `cmdb-lite-agent-<version>-windows-x64.zip` | `cmdb-agent.exe` and docs; no service registration. |
 | `cmdb-lite-agent-<version>-windows-x64.msi` | Per-machine installer with optional `SERVER_URL`/`ENROLLMENT_TOKEN` enrollment. |
+| `install-agent.sh` | DEB-only unattended install/enroll helper; verifies `SHA256SUMS`. |
 
 Upgrading the agent package replaces the binary and unit. The configuration and
 server-side history are unchanged. Uninstalling the Linux package disables and

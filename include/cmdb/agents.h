@@ -149,6 +149,8 @@ int cmdb_agent_link_ci(cmdb_db_t *db, const char *agent_id,
                        const char *ci_id, cmdb_error_t *err);
 int cmdb_agent_revoke(cmdb_db_t *db, const char *agent_id,
                       cmdb_error_t *err);
+int cmdb_agent_delete(cmdb_db_t *db, const char *agent_id,
+                      cmdb_error_t *err);
 int cmdb_agent_prune(cmdb_db_t *db, int retention_days, int max_reports,
                      size_t *deleted, cmdb_error_t *err);
 

@@ -34,7 +34,8 @@ func TestClientIPUsesRightmostForwardedEntry(t *testing.T) {
 
 func TestServerRPCAllowlist(t *testing.T) {
 	allowed := []string{"cis.list", "scan.start", "import.preview", "prefs.get",
-		"agents.list", "agents.get", "agents.history", "agents.token_create"}
+		"agents.list", "agents.get", "agents.history", "agents.token_create",
+		"agents.delete"}
 	for _, method := range allowed {
 		if !serverRPCAllowed[method] {
 			t.Fatalf("%s should be allowed", method)
@@ -52,7 +53,7 @@ func TestServerRPCAllowlist(t *testing.T) {
 
 func TestAgentAdminRPC(t *testing.T) {
 	admin := []string{"agents.token_create", "agents.token_list",
-		"agents.token_revoke", "agents.revoke", "agents.prune"}
+		"agents.token_revoke", "agents.revoke", "agents.prune", "agents.delete"}
 	for _, method := range admin {
 		if !serverAdminRPC[method] {
 			t.Fatalf("%s should require admin", method)

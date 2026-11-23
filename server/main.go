@@ -1600,6 +1600,7 @@ var serverRPCAllowed = map[string]bool{
 	"security.info":            true,
 	"audit.list":               true,
 	"audit.verify":             true,
+	"agents.delete":            true,
 	"agents.get":               true,
 	"agents.history":           true,
 	"agents.link_ci":           true,
@@ -1648,6 +1649,7 @@ var serverRPCAllowed = map[string]bool{
 }
 
 var serverAdminRPC = map[string]bool{
+	"agents.delete":       true,
 	"agents.prune":        true,
 	"agents.revoke":       true,
 	"agents.token_create": true,

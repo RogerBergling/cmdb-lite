@@ -612,8 +612,8 @@ environments you intend to support.
 ### Next milestones
 
 - Agent: Store/Appx, Snap, and Flatpak enumeration; per-user Windows application
-  visibility; host-record deletion; application/history export; and automated
-  end-to-end enrollment/report tests.
+  visibility; application/history export; and automated end-to-end
+  enrollment/report tests.
 - Server: flags/config file beyond the packaged systemd unit, online
   backup/restore, browser export/download, role-change UI, active-session
   management, and server HTTP integration tests.
@@ -956,6 +956,19 @@ sudo cmdb-agent enroll \
   --token <one-time-token>
 ```
 
+For unattended DEB rollout, use the repository helper (also published with
+release assets):
+
+```bash
+sudo ./packaging/agent/install-agent.sh \
+  --server https://cmdb.example.internal \
+  --token-file /root/cmdb-agent-token
+```
+
+It verifies the release DEB against `SHA256SUMS`, installs it, and runs
+`cmdb-agent enroll`. See [`docs/agent.md`](docs/agent.md) for `--deb`,
+`--version`, private CA, and `--no-start` options.
+
 **Windows**
 
 ```powershell
@@ -975,7 +988,10 @@ Store/Appx, Snap, Flatpak, per-user Windows applications, running processes, and
 services are not collected in this version.
 
 The **Applications** tab shows each host's current software with search, an
-optional CI link, an added/removed/updated timeline, and report history. Reports
+optional CI link, an added/removed/updated timeline, and report history.
+Administrators can revoke a host token or delete the host record; deleting
+removes its software, reports, and history but leaves linked CIs and audit
+entries intact. Reports
 that could not read the complete package database are marked **Partial** and do
 not remove applications that were absent from that report. Default retention is
 90 reports per host and 365 days, configurable on the server with
@@ -1970,7 +1986,9 @@ Ready-to-use examples are in [`examples/`](examples/):
 - There is no bulk agent installer or directory/OU integration; MSI properties
   and the `cmdb-agent enroll` command cover automated deployment.
 - Agent tokens do not expire automatically; revoke them when decommissioning a
-  host. There is no agent-record delete UI yet.
+  host. Administrators can then delete the host record from **Applications**;
+  this removes its software, reports, and history but not linked CIs or audit
+  entries.
 - Agent history retention is global, not per-host, and the UI has no export of
   application inventory/history yet.
 - The MSI `SERVER_URL`/`ENROLLMENT_TOKEN` properties can appear in installation
@@ -2101,8 +2119,8 @@ is still needed before a public or enterprise production rollout.
       installation logs retain the one-time token in the target environment.
 - [ ] Perform an agent backup/restore drill and verify current software, change
       events, linked CIs, and audit entries survive.
-- [ ] Define agent retention and decommissioning policy; revoke tokens and plan
-      for host-record deletion.
+- [ ] Define agent retention and decommissioning policy; revoke tokens and
+      delete host records when decommissioning.
 - [ ] Confirm that collecting package inventories is permitted by endpoint
       monitoring and privacy policy.
 - [ ] Run `govulncheck` and update the Go module dependencies, which currently
