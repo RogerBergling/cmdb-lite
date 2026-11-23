@@ -110,9 +110,9 @@ jobs:
             fi
             sleep 2
           done
-          curl -fsS http://127.0.0.1:8080/healthz | grep -q '"ok":true'
-          curl -fsS http://127.0.0.1:8080/readyz | grep -q '"ok":true'
-          curl -fsS http://127.0.0.1:8080/api/v1/auth/status | grep -q '"setup_required":true'
-          docker exec cmdb-smoke nmap --version | grep -q 'Nmap version'
+          curl -fsS http://127.0.0.1:8080/healthz | grep -F '"ok":true' >/dev/null
+          curl -fsS http://127.0.0.1:8080/readyz | grep -F '"ok":true' >/dev/null
+          curl -fsS http://127.0.0.1:8080/api/v1/auth/status | grep -F '"setup_required":true' >/dev/null
+          docker exec cmdb-smoke nmap --version | grep -F 'Nmap version' >/dev/null
           docker exec cmdb-smoke nmap -sT -Pn -n -p 8080 127.0.0.1 \
-            | grep -q '8080/tcp open'
+            | grep -F '8080/tcp open' >/dev/null

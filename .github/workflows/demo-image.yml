@@ -98,12 +98,12 @@ jobs:
             fi
             sleep 2
           done
-          curl -fsS http://127.0.0.1:8080/login | grep -q "Public demo"
-          curl -fsS http://127.0.0.1:8080/api/v1/demo/status | grep -q '"username":"guest"'
+          curl -fsS http://127.0.0.1:8080/login | grep -F "Public demo" >/dev/null
+          curl -fsS http://127.0.0.1:8080/api/v1/demo/status | grep -F '"username":"guest"' >/dev/null
           curl -fsS -X POST \
             -H 'Content-Type: application/json' \
             -d '{"username":"guest","password":"guest"}' \
-            http://127.0.0.1:8080/api/v1/auth/login | grep -q '"mfa_required":true'
+            http://127.0.0.1:8080/api/v1/auth/login | grep -F '"mfa_required":true' >/dev/null
 
       - name: Smoke test the pushed image
         if: github.event_name != 'pull_request'
@@ -131,9 +131,9 @@ jobs:
             fi
             sleep 2
           done
-          curl -fsS http://127.0.0.1:8080/login | grep -q "Public demo"
-          curl -fsS http://127.0.0.1:8080/api/v1/demo/status | grep -q '"username":"guest"'
+          curl -fsS http://127.0.0.1:8080/login | grep -F "Public demo" >/dev/null
+          curl -fsS http://127.0.0.1:8080/api/v1/demo/status | grep -F '"username":"guest"' >/dev/null
           curl -fsS -X POST \
             -H 'Content-Type: application/json' \
             -d '{"username":"guest","password":"guest"}' \
-            http://127.0.0.1:8080/api/v1/auth/login | grep -q '"mfa_required":true'
+            http://127.0.0.1:8080/api/v1/auth/login | grep -F '"mfa_required":true' >/dev/null
