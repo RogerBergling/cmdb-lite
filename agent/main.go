@@ -174,6 +174,9 @@ func cmdEnroll(args []string) error {
 		Hostname:        host.Hostname,
 		MachineID:       host.MachineID,
 	}
+	if response.Reused {
+		log.Printf("WARNING: machine ID %q is already enrolled; the existing agent record was updated. If this is a cloned host, generate a unique machine ID (systemd-machine-id-setup) and re-enroll with a new token.", host.MachineID)
+	}
 	if err := saveConfig(*configPath, cfg); err != nil {
 		return err
 	}

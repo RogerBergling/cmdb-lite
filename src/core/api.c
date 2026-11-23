@@ -3754,7 +3754,7 @@ static cJSON *handle_agents_enroll(cmdb_app_t *app, cJSON *params,
   cJSON_AddBoolToObject(result, "reused", reused);
   cmdb_crypto_wipe(agent_token, sizeof(agent_token));
   (void)cmdb_audit_add(app->db, cmdb_audit_actor(), "enroll", "agent",
-                       agent.id, "{}", NULL);
+                       agent.id, reused ? "{\"reused\":true}" : "{}", NULL);
   return result;
 }
 

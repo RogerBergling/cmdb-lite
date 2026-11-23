@@ -999,6 +999,12 @@ not remove applications that were absent from that report. Default retention is
 [`docs/agent.md`](docs/agent.md) for enrollment, service hardening, the MSI
 property form, TLS/CA configuration, and troubleshooting.
 
+If the machine ID already belongs to an enrolled host, enrollment updates that
+record and prints a warning. This normally means the host was cloned from
+another server or a golden image. Run `systemd-machine-id-setup` to generate a
+unique ID and re-enroll with a fresh token; otherwise separate servers overwrite
+each other under **Applications**.
+
 For automated Windows deployment, the MSI accepts public `SERVER_URL` and
 `ENROLLMENT_TOKEN` properties:
 

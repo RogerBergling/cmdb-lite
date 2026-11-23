@@ -89,6 +89,12 @@ The server stores only the token hash. Re-enrolling the same machine ID rotates
 the token and preserves the existing host record, current software, history, and
 CI link.
 
+If the machine ID already belongs to an agent record, the server updates that
+record and `cmdb-agent enroll` prints a warning. This usually means the host was
+cloned from another server or a golden image. Generate a unique
+`/etc/machine-id` before re-enrolling; otherwise separate servers overwrite each
+other under **Applications**.
+
 ### Linux
 
 Install the packaged service, then enroll as root:

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"unicode"
@@ -224,6 +225,10 @@ func (s *server) handleAgentEnroll(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, "agent_failed",
 			"invalid enrollment response")
 		return
+	}
+	if reused, _ := result["reused"].(bool); reused {
+		log.Printf("WARNING: agent enrollment reused an existing record for machine ID %q (hostname %q); check for cloned hosts sharing /etc/machine-id",
+			request.Host.MachineID, request.Host.Hostname)
 	}
 	result["interval_seconds"] = int(s.agentInterval.Seconds())
 	writeJSON(w, http.StatusOK, result)
