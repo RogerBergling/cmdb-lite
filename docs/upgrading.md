@@ -44,8 +44,8 @@ wrong.
 
 ## Database compatibility
 
-v0.7.2 does not change the schema; a v0.7.0 or v0.7.1 database opens without
-migration. v0.7.0 migrated the schema from version 4 to version 5. It added the application
+v0.7.3 does not change the schema; a v0.7.0, v0.7.1, or v0.7.2 database opens
+without migration. v0.7.0 migrated the schema from version 4 to version 5. It added the application
 inventory agent tables (`agents`, `agent_enrollment_tokens`, `agent_reports`,
 `agent_apps`, and `agent_app_events`). Existing inventory, relationships,
 diagrams, scans, authentication state, and audit rows are preserved. The
@@ -112,7 +112,7 @@ For future releases:
 
 ```bash
 # Stop any running instance, then install the new package over the old one.
-sudo apt install ./cmdb-lite_0.7.2_amd64.deb
+sudo apt install ./cmdb-lite_0.7.3_amd64.deb
 ```
 
 `apt` replaces `/usr/bin/cmdb`, `/usr/bin/cmdb-server`, `/usr/bin/cmdb-rpc`, and
@@ -138,7 +138,7 @@ dpkg -s cmdb-lite | grep '^Version:'
 ## Fedora / RHEL (`.rpm`)
 
 ```bash
-sudo dnf upgrade ./cmdb-lite-0.7.2-1.x86_64.rpm
+sudo dnf upgrade ./cmdb-lite-0.7.3-1.x86_64.rpm
 ```
 
 or, if the RPM is in a repository:
@@ -164,8 +164,8 @@ The portable archive contains `cmdb`, `cmdb-server`, `cmdb-rpc`, and the server
 web assets. Keep the old binaries until the new ones start successfully:
 
 ```bash
-tar -xzf cmdb-lite-0.7.2-linux-x86_64.tar.gz
-./cmdb-lite-0.7.2-linux-x86_64/bin/cmdb
+tar -xzf cmdb-lite-0.7.3-linux-x86_64.tar.gz
+./cmdb-lite-0.7.3-linux-x86_64/bin/cmdb
 ```
 
 The database is opened from the path you choose in the application or from the
@@ -217,7 +217,7 @@ executable does not store the database next to itself.
 ## Windows MSI
 
 ```powershell
-msiexec /i .\cmdb-lite-0.7.2-windows-x64.msi
+msiexec /i .\cmdb-lite-0.7.3-windows-x64.msi
 ```
 
 The per-machine MSI upgrades the installed executable and Start Menu shortcut.
@@ -227,7 +227,7 @@ required.
 To uninstall:
 
 ```powershell
-msiexec /x .\cmdb-lite-0.7.2-windows-x64.msi
+msiexec /x .\cmdb-lite-0.7.3-windows-x64.msi
 ```
 
 Uninstalling removes the application only. Back up your database first if you

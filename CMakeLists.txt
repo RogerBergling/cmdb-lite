@@ -5,7 +5,7 @@ if(POLICY CMP0135)
 endif()
 
 project(cmdb-lite
-  VERSION 0.7.2
+  VERSION 0.7.3
   DESCRIPTION "Local-first encrypted Configuration Management Database"
   LANGUAGES C)
 

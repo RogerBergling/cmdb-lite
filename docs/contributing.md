@@ -92,8 +92,8 @@ Windows. A `v*` tag additionally runs the release job and publishes the
 artifacts and `SHA256SUMS`:
 
 ```bash
-git tag -a v0.7.2 -m "cmdb-lite v0.7.2"
-git push origin v0.7.2
+git tag -a v0.7.3 -m "cmdb-lite v0.7.3"
+git push origin v0.7.3
 ```
 
 Before a release, complete the platform checks in

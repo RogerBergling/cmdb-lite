@@ -9,7 +9,7 @@ For a single linear install walkthrough, start with
 [`installation.md`](installation.md). This document is the detailed reference for
 the server-specific parts.
 
-> **Status:** v0.7.2 ships server-only DEB/RPM/TGZ packages and a server-only
+> **Status:** v0.7.3 ships server-only DEB/RPM/TGZ packages and a server-only
 > container image, with hardened startup, `/healthz` and `/readyz`, and
 > graceful shutdown. It does not yet ship a separate flags/config file or an
 > online backup API. The samples below cover the packaged unit, container, and
@@ -53,10 +53,10 @@ GTK/WebKit dependencies:
 
 ```bash
 # Debian/Ubuntu
-sudo apt install ./cmdb-lite-server_0.7.2_amd64.deb
+sudo apt install ./cmdb-lite-server_0.7.3_amd64.deb
 
 # Fedora
-sudo dnf install ./cmdb-lite-server-0.7.2-*.rpm
+sudo dnf install ./cmdb-lite-server-0.7.3-*.rpm
 ```
 
 Check the installed server build with:

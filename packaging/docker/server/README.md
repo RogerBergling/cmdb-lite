@@ -133,7 +133,7 @@ scanner workflow if OS detection is required.
 
 - `main` / `edge`: builds from the default branch, for testing;
 - `sha-<commit>`: immutable build;
-- `0.7.2`, `0.7`, `latest`: published from release tags;
+- `0.7.3`, `0.7`, `latest`: published from release tags;
 - pin a version or digest in production; do not use `latest` blindly.
 
 The package is public. The image contains no secrets; the database passphrase
