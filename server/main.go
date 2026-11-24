@@ -1600,6 +1600,7 @@ var serverRPCAllowed = map[string]bool{
 	"security.info":            true,
 	"audit.list":               true,
 	"audit.verify":             true,
+	"agents.apps_search":       true,
 	"agents.delete":            true,
 	"agents.fill_ci":           true,
 	"agents.get":               true,

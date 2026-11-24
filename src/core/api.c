@@ -3623,6 +3623,73 @@ static cJSON *handle_agents_get(cmdb_app_t *app, cJSON *params,
   return result;
 }
 
+static cJSON *agent_fleet_app_to_json(const cmdb_agent_fleet_app_t *app) {
+  cJSON *obj = cJSON_CreateObject();
+  if (obj == NULL) {
+    return NULL;
+  }
+  cJSON_AddStringToObject(obj, "agent_id", app->agent_id);
+  cJSON_AddStringToObject(obj, "display_name", app->display_name);
+  cJSON_AddStringToObject(obj, "hostname", app->hostname);
+  cJSON_AddStringToObject(obj, "key", app->app_key);
+  cJSON_AddStringToObject(obj, "name", app->name);
+  cJSON_AddStringToObject(obj, "version", app->version);
+  cJSON_AddStringToObject(obj, "publisher", app->publisher);
+  cJSON_AddStringToObject(obj, "source", app->source);
+  cJSON_AddStringToObject(obj, "architecture", app->architecture);
+  cJSON_AddStringToObject(obj, "install_date", app->install_date);
+  cJSON_AddNumberToObject(obj, "size_kb", (double)app->size_kb);
+  cJSON_AddStringToObject(obj, "last_seen_at", app->last_seen_at);
+  return obj;
+}
+
+static cJSON *handle_agents_apps_search(cmdb_app_t *app, cJSON *params,
+                                        cmdb_error_t *err) {
+  const char *query = NULL;
+  int limit = 200;
+  int offset = 0;
+  cmdb_agent_fleet_app_t *apps = NULL;
+  size_t count = 0;
+  size_t total = 0;
+  size_t i;
+  cJSON *result;
+  cJSON *items;
+
+  if (require_params(params, err) != 0 ||
+      get_string(params, "query", &query, 1, err) != 0 ||
+      get_int(params, "limit", 200, 1, (int)CMDB_MAX_LIST_LIMIT,
+              &limit, err) != 0 ||
+      get_int(params, "offset", 0, 0, 1000000, &offset, err) != 0) {
+    return NULL;
+  }
+  if (cmdb_agent_search_apps(app->db, query, (size_t)limit, (size_t)offset,
+                             &apps, &count, &total, err) != 0) {
+    return NULL;
+  }
+  result = cJSON_CreateObject();
+  items = cJSON_CreateArray();
+  if (result == NULL || items == NULL) {
+    cJSON_Delete(result);
+    cJSON_Delete(items);
+    cmdb_agent_fleet_apps_free(apps);
+    cmdb_error_set(err, CMDB_ERR_INTERNAL,
+                   "Cannot create application search response");
+    return NULL;
+  }
+  for (i = 0; i < count; i++) {
+    cJSON *item = agent_fleet_app_to_json(&apps[i]);
+    if (item != NULL) {
+      cJSON_AddItemToArray(items, item);
+    }
+  }
+  cmdb_agent_fleet_apps_free(apps);
+  cJSON_AddItemToObject(result, "items", items);
+  cJSON_AddNumberToObject(result, "count", (double)count);
+  cJSON_AddNumberToObject(result, "total", (double)total);
+  cJSON_AddStringToObject(result, "query", query);
+  return result;
+}
+
 static cJSON *handle_agents_history(cmdb_app_t *app, cJSON *params,
                                     cmdb_error_t *err) {
   const char *id = NULL;
@@ -4173,6 +4240,10 @@ cJSON *cmdb_api_handle(cmdb_app_t *app, cJSON *request) {
   } else if (strcmp(method, "agents.get") == 0) {
     if (require_db(app, &err) == 0) {
       result = handle_agents_get(app, params, &err);
+    }
+  } else if (strcmp(method, "agents.apps_search") == 0) {
+    if (require_db(app, &err) == 0) {
+      result = handle_agents_apps_search(app, params, &err);
     }
   } else if (strcmp(method, "agents.history") == 0) {
     if (require_db(app, &err) == 0) {

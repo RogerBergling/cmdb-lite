@@ -109,6 +109,9 @@ const state = {
   agentView: "software",
   agentTokens: [],
   agentTokenValue: "",
+  fleetAppResults: [],
+  fleetAppTotal: 0,
+  fleetAppQuery: "",
   mapGraph: null,
   mapParams: null,
   mapNodeIds: new Set(),
@@ -606,6 +609,11 @@ async function lockApplication() {
   state.agentHistory = null;
   state.agentTokens = [];
   state.agentTokenValue = "";
+  state.fleetAppResults = [];
+  state.fleetAppTotal = 0;
+  state.fleetAppQuery = "";
+  $("fleet-app-search").value = "";
+  renderFleetApps();
   hide($("agent-detail"));
   hide($("agent-enrollment-panel"));
   hide($("agent-token-result"));
@@ -3168,6 +3176,91 @@ function renderAgents() {
     : `${state.agents.length} managed hosts`;
 }
 
+async function searchFleetApps() {
+  const query = $("fleet-app-search").value.trim();
+  if (query.length < 2) {
+    clearFleetAppSearch();
+    $("fleet-app-meta").textContent = "Enter at least two characters to search the fleet.";
+    return;
+  }
+  const button = $("fleet-app-search-button");
+  button.disabled = true;
+  try {
+    const result = await api("agents.apps_search", {
+      query,
+      limit: 200,
+      offset: 0
+    });
+    state.fleetAppResults = result.items || [];
+    state.fleetAppTotal = Number(result.total) || 0;
+    state.fleetAppQuery = query;
+    renderFleetApps();
+  } catch (error) {
+    toast(formatError(error), "error");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function renderFleetApps() {
+  const tbody = $("fleet-app-table");
+  clear(tbody);
+  const results = state.fleetAppResults;
+  for (const item of results) {
+    const view = el("button", {
+      type: "button",
+      class: "secondary small",
+      text: "View host",
+      onclick: async () => {
+        await selectAgent(item.agent_id);
+        $("agent-detail").scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    });
+    tbody.append(el("tr", {}, [
+      el("td", {}, [
+        el("strong", { text: item.display_name || item.hostname || item.agent_id }),
+        el("div", { class: "muted small-text", text: item.hostname || "" })
+      ]),
+      el("td", {}, [
+        el("div", { text: item.name || "\u2014" }),
+        el("div", { class: "muted small-text", text: item.key || "" })
+      ]),
+      el("td", { text: item.version || "\u2014" }),
+      el("td", { text: item.publisher || "\u2014" }),
+      el("td", { text: item.source || "\u2014" }),
+      el("td", { text: item.architecture || "\u2014" }),
+      el("td", { text: formatAgentTime(item.last_seen_at) }),
+      el("td", {}, el("div", { class: "table-actions" }, [view]))
+    ]));
+  }
+  $("fleet-app-results").classList.toggle("hidden", results.length === 0);
+  $("fleet-app-empty").classList.toggle(
+    "hidden",
+    !(state.fleetAppQuery && results.length === 0)
+  );
+  if (!state.fleetAppQuery) {
+    $("fleet-app-meta").textContent = "Enter at least two characters to search the fleet.";
+    return;
+  }
+  if (state.fleetAppTotal === 0) {
+    $("fleet-app-meta").textContent = `No installations match "${state.fleetAppQuery}".`;
+    return;
+  }
+  const suffix = state.fleetAppTotal > results.length
+    ? ` (showing the first ${results.length})`
+    : "";
+  $("fleet-app-meta").textContent =
+    `${state.fleetAppTotal} installation${state.fleetAppTotal === 1 ? "" : "s"} found${suffix}.`;
+}
+
+function clearFleetAppSearch() {
+  state.fleetAppResults = [];
+  state.fleetAppTotal = 0;
+  state.fleetAppQuery = "";
+  $("fleet-app-search").value = "";
+  renderFleetApps();
+}
+
 async function selectAgent(id) {
   state.selectedAgentId = id;
   renderAgents();
@@ -3617,6 +3710,14 @@ function bindEvents() {
   $("backup-db").addEventListener("click", backupDatabase);
   $("lock-button").addEventListener("click", lockApplication);
 
+  $("fleet-app-search-button").addEventListener("click", searchFleetApps);
+  $("fleet-app-search").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      searchFleetApps();
+    }
+  });
+  $("fleet-app-clear").addEventListener("click", clearFleetAppSearch);
   $("agent-refresh").addEventListener("click", () => {
     loadAgents();
     if (state.selectedAgentId) {

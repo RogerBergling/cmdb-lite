@@ -240,6 +240,7 @@ authenticated RPC path:
 | `agents.list` | no | List managed hosts. |
 | `agents.get` | no | Host detail and current applications. |
 | `agents.history` | no | Reports and application change events. |
+| `agents.apps_search` | no | Search current applications across active hosts. |
 | `agents.link_ci` | no | Link or unlink a CI. |
 | `agents.fill_ci` | no | Copy the latest host facts into the linked CI. One-shot, no sync. |
 | `agents.revoke` | yes | Revoke a host token. |

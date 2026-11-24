@@ -78,6 +78,9 @@ void test_agents(void) {
   cmdb_agent_report_t report;
   cmdb_agent_report_t *reports = NULL;
   cmdb_agent_event_t *events = NULL;
+  cmdb_agent_fleet_app_t *fleet_apps = NULL;
+  size_t fleet_count = 0;
+  size_t fleet_total = 0;
   size_t report_count = 0;
   size_t event_count = 0;
   cmdb_ci_type_t type;
@@ -196,6 +199,27 @@ void test_agents(void) {
   }
   cmdb_agent_apps_free(current);
   current = NULL;
+
+  TEST_ASSERT_MSG(cmdb_agent_search_apps(db, "vim", 10, 0, &fleet_apps,
+                                         &fleet_count, &fleet_total,
+                                         &err) == 0, err.message);
+  TEST_ASSERT(fleet_count == 1);
+  TEST_ASSERT(fleet_total == 1);
+  TEST_ASSERT(strcmp(fleet_apps[0].hostname, "app01") == 0);
+  TEST_ASSERT(strcmp(fleet_apps[0].name, "vim") == 0);
+  TEST_ASSERT(strcmp(fleet_apps[0].version, "9.1") == 0);
+  cmdb_agent_fleet_apps_free(fleet_apps);
+  fleet_apps = NULL;
+  TEST_ASSERT(cmdb_agent_search_apps(db, "BASH", 10, 0, &fleet_apps,
+                                     &fleet_count, &fleet_total, &err) == 0);
+  TEST_ASSERT(fleet_count == 1);
+  TEST_ASSERT(strcmp(fleet_apps[0].name, "bash") == 0);
+  cmdb_agent_fleet_apps_free(fleet_apps);
+  fleet_apps = NULL;
+  TEST_ASSERT(cmdb_agent_search_apps(db, "not-installed", 10, 0, &fleet_apps,
+                                     &fleet_count, &fleet_total, &err) == 0);
+  TEST_ASSERT(fleet_count == 0);
+  TEST_ASSERT(fleet_total == 0);
 
   TEST_ASSERT(cmdb_agent_history(db, agent.id, 10, 50, &reports, &report_count,
                                  &events, &event_count, &err) == 0);

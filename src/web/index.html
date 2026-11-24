@@ -198,6 +198,41 @@
           <p id="agent-token-empty" class="empty hidden">No enrollment tokens have been created.</p>
         </div>
 
+        <div class="card fleet-search-card">
+          <div class="detail-heading">
+            <div>
+              <h3>Find software across hosts</h3>
+              <p class="muted">Search installed applications by name, version, publisher, or package key.</p>
+            </div>
+          </div>
+          <div class="fleet-search-row">
+            <input id="fleet-app-search" type="search" placeholder="e.g. vim, openssl, 7-zip..." aria-label="Search installed applications across managed hosts">
+            <button id="fleet-app-search-button" type="button" class="primary">Search</button>
+            <button id="fleet-app-clear" type="button" class="secondary">Clear</button>
+          </div>
+          <p id="fleet-app-meta" class="hint">Enter at least two characters to search the fleet.</p>
+          <div id="fleet-app-results" class="hidden">
+            <div class="table-wrap compact">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Host</th>
+                    <th>Application</th>
+                    <th>Version</th>
+                    <th>Publisher</th>
+                    <th>Source</th>
+                    <th>Architecture</th>
+                    <th>Last seen</th>
+                    <th class="actions-col">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="fleet-app-table"></tbody>
+              </table>
+            </div>
+          </div>
+          <p id="fleet-app-empty" class="empty hidden">No installed applications match.</p>
+        </div>
+
         <div class="card">
           <div class="table-wrap">
             <table>

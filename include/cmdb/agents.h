@@ -72,6 +72,21 @@ typedef struct {
 } cmdb_agent_app_t;
 
 typedef struct {
+  char agent_id[37];
+  char display_name[256];
+  char hostname[256];
+  char app_key[256];
+  char name[512];
+  char version[256];
+  char publisher[256];
+  char source[32];
+  char architecture[32];
+  char install_date[32];
+  long long size_kb;
+  char last_seen_at[21];
+} cmdb_agent_fleet_app_t;
+
+typedef struct {
   char id[37];
   char collected_at[21];
   char received_at[21];
@@ -154,6 +169,10 @@ int cmdb_agent_get(cmdb_db_t *db, const char *agent_id, cmdb_agent_t *out,
                    cmdb_error_t *err);
 int cmdb_agent_apps(cmdb_db_t *db, const char *agent_id,
                     cmdb_agent_app_t **out, size_t *count, cmdb_error_t *err);
+int cmdb_agent_search_apps(cmdb_db_t *db, const char *query, size_t limit,
+                           size_t offset, cmdb_agent_fleet_app_t **out,
+                           size_t *count, size_t *total, cmdb_error_t *err);
+void cmdb_agent_fleet_apps_free(cmdb_agent_fleet_app_t *apps);
 int cmdb_agent_history(cmdb_db_t *db, const char *agent_id,
                        size_t report_limit, size_t event_limit,
                        cmdb_agent_report_t **reports, size_t *report_count,

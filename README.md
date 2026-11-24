@@ -996,7 +996,8 @@ packages, RPM packages, and the 64/32-bit Windows uninstall registry. Windows
 Store/Appx, Snap, Flatpak, per-user Windows applications, running processes, and
 services are not collected in this version.
 
-The **Applications** tab shows each host's current software with search, an
+The **Applications** tab shows each host's current software with search, a
+fleet-wide application search (for example, find every host with `vim`), an
 optional CI link, an added/removed/updated timeline, and report history. **Fill
 CI from agent** copies the latest host facts (hostname, IP address, serial
 number, OS version, CPU cores, memory, kernel version, and architecture where

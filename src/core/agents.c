@@ -1610,6 +1610,131 @@ int cmdb_agent_apps(cmdb_db_t *db, const char *agent_id,
   return 0;
 }
 
+int cmdb_agent_search_apps(cmdb_db_t *db, const char *query, size_t limit,
+                           size_t offset, cmdb_agent_fleet_app_t **out,
+                           size_t *count, size_t *total, cmdb_error_t *err) {
+  static const char where_sql[] =
+    " WHERE aa.removed_at = '' AND a.status = 'active' "
+    "AND (?1 = '' OR instr(lower(aa.name), lower(?1)) > 0 "
+    "OR instr(lower(aa.version), lower(?1)) > 0 "
+    "OR instr(lower(aa.publisher), lower(?1)) > 0 "
+    "OR instr(lower(aa.app_key), lower(?1)) > 0) ";
+  sqlite3_stmt *stmt = NULL;
+  cmdb_agent_fleet_app_t *apps = NULL;
+  size_t total_value = 0;
+  size_t used = 0;
+  char sql[1024];
+  int rc;
+
+  if (db == NULL || query == NULL || out == NULL || count == NULL ||
+      total == NULL) {
+    cmdb_error_set(err, CMDB_ERR_INVALID_ARGUMENT,
+                   "Invalid application search arguments");
+    return -1;
+  }
+  *out = NULL;
+  *count = 0;
+  *total = 0;
+  if (query[0] == '\0' || strlen(query) > 255) {
+    cmdb_error_set(err, CMDB_ERR_VALIDATION,
+                   "Application search query must be 1-255 characters");
+    return -1;
+  }
+  if (limit == 0 || limit > CMDB_MAX_LIST_LIMIT) {
+    limit = CMDB_MAX_LIST_LIMIT;
+  }
+  (void)snprintf(
+    sql, sizeof(sql),
+    "SELECT count(*) FROM agent_apps aa "
+    "JOIN agents a ON a.id = aa.agent_id%s;",
+    where_sql);
+  if (sqlite3_prepare_v2(cmdb_db_sqlite(db), sql, -1, &stmt, NULL) !=
+      SQLITE_OK) {
+    cmdb_error_set(err, CMDB_ERR_DATABASE,
+                   "Cannot prepare application search count");
+    return -1;
+  }
+  sqlite3_bind_text(stmt, 1, query, -1, SQLITE_TRANSIENT);
+  if (sqlite3_step(stmt) == SQLITE_ROW) {
+    total_value = (size_t)sqlite3_column_int64(stmt, 0);
+  }
+  sqlite3_finalize(stmt);
+  stmt = NULL;
+  *total = total_value;
+  if (total_value == 0) {
+    return 0;
+  }
+
+  (void)snprintf(
+    sql, sizeof(sql),
+    "SELECT aa.agent_id, a.display_name, a.hostname, aa.app_key, "
+    "       aa.name, aa.version, aa.publisher, aa.source, "
+    "       aa.architecture, aa.install_date, aa.size_kb, "
+    "       aa.last_seen_at "
+    "FROM agent_apps aa JOIN agents a ON a.id = aa.agent_id%s"
+    "ORDER BY aa.name COLLATE NOCASE, a.display_name COLLATE NOCASE, "
+    "         aa.version, aa.app_key LIMIT ?2 OFFSET ?3;",
+    where_sql);
+  if (sqlite3_prepare_v2(cmdb_db_sqlite(db), sql, -1, &stmt, NULL) !=
+      SQLITE_OK) {
+    cmdb_error_set(err, CMDB_ERR_DATABASE,
+                   "Cannot prepare application search");
+    return -1;
+  }
+  sqlite3_bind_text(stmt, 1, query, -1, SQLITE_TRANSIENT);
+  sqlite3_bind_int64(stmt, 2, (sqlite3_int64)limit);
+  sqlite3_bind_int64(stmt, 3, (sqlite3_int64)offset);
+  while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+    cmdb_agent_fleet_app_t *app;
+    if (used == 0) {
+      size_t capacity = total_value < limit ? total_value : limit;
+      apps = cmdb_calloc(capacity, sizeof(*apps));
+    }
+    app = &apps[used++];
+    memset(app, 0, sizeof(*app));
+    agent_str(app->agent_id, sizeof(app->agent_id),
+              (const char *)sqlite3_column_text(stmt, 0));
+    agent_str(app->display_name, sizeof(app->display_name),
+              (const char *)sqlite3_column_text(stmt, 1));
+    agent_str(app->hostname, sizeof(app->hostname),
+              (const char *)sqlite3_column_text(stmt, 2));
+    agent_str(app->app_key, sizeof(app->app_key),
+              (const char *)sqlite3_column_text(stmt, 3));
+    agent_str(app->name, sizeof(app->name),
+              (const char *)sqlite3_column_text(stmt, 4));
+    agent_str(app->version, sizeof(app->version),
+              (const char *)sqlite3_column_text(stmt, 5));
+    agent_str(app->publisher, sizeof(app->publisher),
+              (const char *)sqlite3_column_text(stmt, 6));
+    agent_str(app->source, sizeof(app->source),
+              (const char *)sqlite3_column_text(stmt, 7));
+    agent_str(app->architecture, sizeof(app->architecture),
+              (const char *)sqlite3_column_text(stmt, 8));
+    agent_str(app->install_date, sizeof(app->install_date),
+              (const char *)sqlite3_column_text(stmt, 9));
+    app->size_kb = sqlite3_column_int64(stmt, 10);
+    agent_str(app->last_seen_at, sizeof(app->last_seen_at),
+              (const char *)sqlite3_column_text(stmt, 11));
+    if (used >= limit || used >= total_value) {
+      break;
+    }
+  }
+  sqlite3_finalize(stmt);
+  if (rc != SQLITE_DONE && rc != SQLITE_ROW) {
+    free(apps);
+    cmdb_error_set(err, CMDB_ERR_DATABASE,
+                   "Cannot read application search results");
+    return -1;
+  }
+  *out = apps;
+  *count = used;
+  return 0;
+}
+
+void cmdb_agent_fleet_apps_free(cmdb_agent_fleet_app_t *apps) {
+  free(apps);
+}
+
 int cmdb_agent_history(cmdb_db_t *db, const char *agent_id,
                        size_t report_limit, size_t event_limit,
                        cmdb_agent_report_t **reports, size_t *report_count,

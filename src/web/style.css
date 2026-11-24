@@ -646,8 +646,25 @@ tbody tr:last-child td { border-bottom: 0; }
   max-width: 26rem;
 }
 
-.enrollment-card {
+.enrollment-card,
+.fleet-search-card {
   margin-bottom: 1rem;
+}
+
+.fleet-search-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.fleet-search-row input {
+  flex: 1;
+  min-width: 14rem;
+}
+
+.fleet-search-row button {
+  align-self: stretch;
 }
 
 .token-row {
