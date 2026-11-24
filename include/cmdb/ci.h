@@ -63,6 +63,7 @@ typedef struct {
   const char *type_id;
   size_t limit;
   size_t offset;
+  int include_attrs;
 } cmdb_ci_filter_t;
 
 int cmdb_ci_create(cmdb_db_t *db, const cmdb_ci_input_t *input,

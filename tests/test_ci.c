@@ -76,9 +76,13 @@ void test_ci(void) {
   filter.type_id = NULL;
   filter.limit = 10;
   filter.offset = 0;
+  filter.include_attrs = 1;
   TEST_ASSERT(cmdb_ci_list(db, &filter, &list, &count, &total, &err) == 0);
   TEST_ASSERT(total == 1);
   TEST_ASSERT(count == 1);
+  TEST_ASSERT(list[0].attr_count == 2);
+  TEST_ASSERT(strcmp(list[0].attrs[0].key, "ip_address") == 0);
+  TEST_ASSERT(strcmp(list[0].attrs[0].value, "10.0.0.10") == 0);
   cmdb_ci_free_list(list, count);
 
   input.description = "Updated description";

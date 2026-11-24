@@ -1193,6 +1193,7 @@ static cJSON *handle_cis_list(cmdb_app_t *app, cJSON *params,
   const char *type_id = NULL;
   int limit = 100;
   int offset = 0;
+  int include_attrs = 0;
   cmdb_ci_filter_t filter;
   cmdb_ci_t *items = NULL;
   size_t count = 0;
@@ -1206,7 +1207,8 @@ static cJSON *handle_cis_list(cmdb_app_t *app, cJSON *params,
         get_string(params, "type_id", &type_id, 0, err) != 0 ||
         get_int(params, "limit", 100, 1, (int)CMDB_MAX_LIST_LIMIT,
                 &limit, err) != 0 ||
-        get_int(params, "offset", 0, 0, 1000000, &offset, err) != 0) {
+        get_int(params, "offset", 0, 0, 1000000, &offset, err) != 0 ||
+        get_bool(params, "include_attrs", 0, &include_attrs, err) != 0) {
       return NULL;
     }
   }
@@ -1214,6 +1216,7 @@ static cJSON *handle_cis_list(cmdb_app_t *app, cJSON *params,
   filter.type_id = type_id;
   filter.limit = (size_t)limit;
   filter.offset = (size_t)offset;
+  filter.include_attrs = include_attrs;
   if (cmdb_ci_list(app->db, &filter, &items, &count, &total, err) != 0) {
     return NULL;
   }
@@ -1227,7 +1230,7 @@ static cJSON *handle_cis_list(cmdb_app_t *app, cJSON *params,
     return NULL;
   }
   for (i = 0; i < count; i++) {
-    cJSON *item = ci_to_json(&items[i], 0);
+    cJSON *item = ci_to_json(&items[i], include_attrs);
     if (item == NULL) {
       cmdb_ci_free_list(items, count);
       cJSON_Delete(result);

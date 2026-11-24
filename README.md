@@ -530,6 +530,10 @@ password vault instead.
 - User-defined CI types and per-type custom fields.
 - Dark, light, and follow-system themes with persisted preference.
 - CI records with the standard CMDB fields listed below.
+- Configurable inventory columns: choose standard fields such as type,
+  environment, owner, criticality, business service, support team, location,
+  external ID, description, and timestamps, plus CI attributes such as IP
+  address, serial number, OS version, CPU, memory, and kernel.
 - Typed relationships with duplicate and self-reference protection.
 - **Impact-aware relationships**: availability, degraded, management,
   monitoring, and informational, with per-type defaults and per-connection

@@ -16,6 +16,52 @@ const IMPACT_HINTS = {
   informational: "Documentation or association only; no runtime impact."
 };
 
+const INVENTORY_COLUMNS_KEY = "cmdb.inventory.columns";
+
+const INVENTORY_COLUMN_DEFS = [
+  { key: "name", label: "Name", always: true, value: (ci) => ci.name || "" },
+  { key: "type_name", label: "Type", value: (ci) => ci.type_name || "" },
+  { key: "environment", label: "Environment", value: (ci) => ci.environment || "\u2014" },
+  { key: "status", label: "Status", value: (ci) => ci.status || "\u2014" },
+  { key: "technical_owner", label: "Owner", value: (ci) => ci.technical_owner || "\u2014" },
+  { key: "criticality", label: "Criticality", value: (ci) => ci.criticality || "\u2014" },
+  { key: "business_service", label: "Business service", value: (ci) => ci.business_service || "\u2014" },
+  { key: "support_team", label: "Support team", value: (ci) => ci.support_team || "\u2014" },
+  { key: "hosting_location", label: "Hosting location", value: (ci) => ci.hosting_location || "\u2014" },
+  { key: "external_id", label: "External ID", value: (ci) => ci.external_id || "\u2014" },
+  { key: "description", label: "Description", className: "inventory-description", value: (ci) => ci.description || "\u2014" },
+  { key: "created_at", label: "Created", value: (ci) => formatAgentTime(ci.created_at) },
+  { key: "updated_at", label: "Updated", value: (ci) => formatAgentTime(ci.updated_at) }
+];
+
+const DEFAULT_INVENTORY_COLUMNS = [
+  "type_name",
+  "environment",
+  "status",
+  "technical_owner",
+  "criticality",
+  "updated_at"
+];
+
+const INVENTORY_ATTRIBUTE_LABELS = {
+  ip_address: "IP Address",
+  management_ip: "Management IP",
+  serial_number: "Serial Number",
+  hostname: "Hostname",
+  os_version: "OS Version",
+  cpu_cores: "CPU Cores",
+  vcpu: "vCPU",
+  memory_gb: "Memory (GB)",
+  kernel_version: "Kernel Version",
+  mac_address: "MAC Address",
+  vendor: "Vendor",
+  model: "Model",
+  architecture: "Architecture",
+  url: "URL",
+  version: "Version",
+  external_id: "External ID"
+};
+
 const state = {
   dbPath: "",
   serverMode: false,
@@ -30,6 +76,7 @@ const state = {
   relTypes: [],
   rels: [],
   ciTotal: 0,
+  inventoryColumns: [...DEFAULT_INVENTORY_COLUMNS],
   unlockMode: "open",
   selectedTypeId: null,
   selectedType: null,
@@ -603,7 +650,8 @@ async function loadCis() {
       query,
       type_id: typeId,
       limit: 200,
-      offset: 0
+      offset: 0,
+      include_attrs: true
     });
     state.cis = result.items || [];
     state.ciTotal = result.total || 0;
@@ -661,10 +709,145 @@ function renderTypeFilter() {
   }
 }
 
+function inventoryAttributeLabel(key) {
+  return INVENTORY_ATTRIBUTE_LABELS[key] ||
+    key.split(/[_\s-]+/).filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ") || key;
+}
+
+function inventoryAttributeColumnDefs() {
+  const keys = new Set();
+  for (const key of state.inventoryColumns) {
+    if (key.startsWith("attr:")) {
+      keys.add(key.slice(5));
+    }
+  }
+  for (const ci of state.cis) {
+    for (const key of Object.keys(ci.attributes || {})) {
+      keys.add(key);
+    }
+  }
+  return [...keys].sort().map((key) => ({
+    key: `attr:${key}`,
+    label: inventoryAttributeLabel(key),
+    className: "inventory-attribute",
+    value: (ci) => (ci.attributes && ci.attributes[key]) || "\u2014"
+  }));
+}
+
+function inventoryColumnDefs() {
+  return [...INVENTORY_COLUMN_DEFS, ...inventoryAttributeColumnDefs()];
+}
+
+function loadInventoryColumns() {
+  let stored = null;
+  try {
+    stored = JSON.parse(window.localStorage.getItem(INVENTORY_COLUMNS_KEY) || "null");
+  } catch (error) {
+    stored = null;
+  }
+  const valid = new Set(
+    INVENTORY_COLUMN_DEFS.filter((column) => !column.always).map((column) => column.key)
+  );
+  state.inventoryColumns = Array.isArray(stored)
+    ? [...new Set(stored.filter((key) =>
+      typeof key === "string" && (valid.has(key) || key.startsWith("attr:"))
+    ))]
+    : [...DEFAULT_INVENTORY_COLUMNS];
+}
+
+function saveInventoryColumns() {
+  try {
+    window.localStorage.setItem(
+      INVENTORY_COLUMNS_KEY,
+      JSON.stringify(state.inventoryColumns)
+    );
+  } catch (error) {
+    /* The embedded webview may not expose localStorage. */
+  }
+}
+
+function activeInventoryColumns() {
+  const selected = new Set(state.inventoryColumns);
+  return inventoryColumnDefs().filter(
+    (column) => column.always || selected.has(column.key)
+  );
+}
+
+function renderInventoryHead(columns) {
+  const row = $("ci-table-head");
+  clear(row);
+  for (const column of columns) {
+    row.append(el("th", { text: column.label }));
+  }
+  row.append(el("th", { class: "actions-col", text: "Actions" }));
+}
+
+function renderInventoryColumnOptions() {
+  const container = $("inventory-column-options");
+  clear(container);
+  const selected = new Set(state.inventoryColumns);
+  const addOption = (column) => {
+    const input = el("input", {
+      type: "checkbox",
+      checked: column.always || selected.has(column.key),
+      disabled: column.always,
+      dataset: { columnKey: column.key }
+    });
+    container.append(el("label", { class: "column-option" }, [
+      input,
+      el("span", { text: column.always ? `${column.label} (always shown)` : column.label })
+    ]));
+  };
+  for (const column of INVENTORY_COLUMN_DEFS) {
+    addOption(column);
+  }
+  const attributes = inventoryAttributeColumnDefs();
+  if (attributes.length > 0) {
+    container.append(el("div", {
+      class: "column-group-title",
+      text: "CI attributes"
+    }));
+    for (const column of attributes) {
+      addOption(column);
+    }
+  }
+}
+
+function openInventoryColumns() {
+  renderInventoryColumnOptions();
+  show($("inventory-columns-modal"));
+}
+
+function toggleInventoryColumn(key, visible) {
+  if (!key || key === "name") {
+    return;
+  }
+  const selected = new Set(state.inventoryColumns);
+  if (visible) {
+    selected.add(key);
+  } else {
+    selected.delete(key);
+  }
+  state.inventoryColumns = [...selected];
+  saveInventoryColumns();
+  renderInventory();
+}
+
+function resetInventoryColumns() {
+  state.inventoryColumns = [...DEFAULT_INVENTORY_COLUMNS];
+  saveInventoryColumns();
+  renderInventoryColumnOptions();
+  renderInventory();
+}
+
 function renderInventory() {
   const tbody = $("ci-table");
   clear(tbody);
   renderTypeFilter();
+  const columns = activeInventoryColumns();
+  renderInventoryHead(columns);
 
   for (const ci of state.cis) {
     const edit = el("button", {
@@ -679,17 +862,16 @@ function renderInventory() {
       text: "Delete",
       onclick: () => deleteCi(ci)
     });
-    const row = el("tr", {}, [
-      el("td", { text: ci.name }),
-      el("td", { text: ci.type_name || "" }),
-      el("td", { text: ci.environment || "\u2014" }),
-      el("td", { text: ci.status || "\u2014" }),
-      el("td", { text: ci.technical_owner || "\u2014" }),
-      el("td", { text: ci.criticality || "\u2014" }),
-      el("td", { text: (ci.updated_at || "").replace("T", " ").replace("Z", "") }),
-      el("td", {}, el("div", { class: "table-actions" }, [edit, remove]))
-    ]);
-    tbody.append(row);
+    const cells = columns.map((column) => {
+      const value = column.value(ci);
+      return el("td", {
+        text: value,
+        class: column.className,
+        title: column.className ? value : null
+      });
+    });
+    cells.push(el("td", {}, el("div", { class: "table-actions" }, [edit, remove])));
+    tbody.append(el("tr", {}, cells));
   }
 
   $("ci-empty").classList.toggle("hidden", state.cis.length !== 0);
@@ -3462,6 +3644,14 @@ function bindEvents() {
   }
 
   $("add-ci").addEventListener("click", () => openCiModal());
+  $("inventory-columns").addEventListener("click", openInventoryColumns);
+  $("inventory-column-options").addEventListener("change", (event) => {
+    const input = event.target.closest("[data-column-key]");
+    if (input) {
+      toggleInventoryColumn(input.dataset.columnKey, input.checked);
+    }
+  });
+  $("inventory-columns-reset").addEventListener("click", resetInventoryColumns);
   $("export-data").addEventListener("click", openExportModal);
   $("export-format").addEventListener("change", updateExportFormat);
   $("export-form").addEventListener("submit", runExport);
@@ -3619,6 +3809,7 @@ async function serverInit() {
 
 async function init() {
   applyTheme(storedTheme() || window.__APP_THEME__ || "dark", false);
+  loadInventoryColumns();
   bindEvents();
   try {
     const savedServer = window.localStorage.getItem("cmdb.serverUrl");

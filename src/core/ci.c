@@ -677,6 +677,91 @@ static const char where_clause[] =
   "OR instr(lower(c.technical_owner), lower(?1)) > 0) "
   "AND (?2 = '' OR c.type_id = ?2) ";
 
+static int load_attributes_for_list(cmdb_db_t *db, cmdb_ci_t *items,
+                                    size_t count, cmdb_error_t *err) {
+  sqlite3_stmt *stmt = NULL;
+  char sql[1024];
+  size_t length;
+  size_t i;
+  int rc;
+
+  if (count == 0) {
+    return 0;
+  }
+  length = (size_t)snprintf(
+    sql, sizeof(sql),
+    "SELECT ci_id, field_key, value FROM ci_attributes WHERE ci_id IN (");
+  for (i = 0; i < count; i++) {
+    int written = snprintf(sql + length, sizeof(sql) - length, "%s?",
+                           i == 0 ? "" : ",");
+    if (written < 0 || (size_t)written >= sizeof(sql) - length) {
+      cmdb_error_set(err, CMDB_ERR_INTERNAL,
+                     "Cannot build CI attribute list query");
+      return -1;
+    }
+    length += (size_t)written;
+  }
+  {
+    int written = snprintf(sql + length, sizeof(sql) - length,
+                           ") ORDER BY ci_id, field_key;");
+    if (written < 0 || (size_t)written >= sizeof(sql) - length) {
+      cmdb_error_set(err, CMDB_ERR_INTERNAL,
+                     "Cannot build CI attribute list query");
+      return -1;
+    }
+  }
+  if (sqlite3_prepare_v2(cmdb_db_sqlite(db), sql, -1, &stmt, NULL) !=
+      SQLITE_OK) {
+    cmdb_error_set(err, CMDB_ERR_DATABASE,
+                   "Cannot prepare CI attribute list");
+    return -1;
+  }
+  for (i = 0; i < count; i++) {
+    sqlite3_bind_text(stmt, (int)i + 1, items[i].id, -1, SQLITE_TRANSIENT);
+  }
+  while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+    const char *ci_id = (const char *)sqlite3_column_text(stmt, 0);
+    const char *key = (const char *)sqlite3_column_text(stmt, 1);
+    const char *value = (const char *)sqlite3_column_text(stmt, 2);
+    cmdb_attr_t *attrs;
+    size_t item_index;
+    for (item_index = 0; item_index < count; item_index++) {
+      if (strcmp(items[item_index].id, ci_id) == 0) {
+        break;
+      }
+    }
+    if (item_index == count) {
+      continue;
+    }
+    attrs = cmdb_realloc(items[item_index].attrs,
+                         (items[item_index].attr_count + 1) * sizeof(*attrs));
+    if (attrs == NULL) {
+      sqlite3_finalize(stmt);
+      cmdb_error_set(err, CMDB_ERR_INTERNAL,
+                     "Cannot allocate CI attributes");
+      return -1;
+    }
+    items[item_index].attrs = attrs;
+    if (cmdb_str_copy(attrs[items[item_index].attr_count].key,
+                      sizeof(attrs[items[item_index].attr_count].key),
+                      key) != 0 ||
+        cmdb_str_copy(attrs[items[item_index].attr_count].value,
+                      sizeof(attrs[items[item_index].attr_count].value),
+                      value != NULL ? value : "") != 0) {
+      sqlite3_finalize(stmt);
+      cmdb_error_set(err, CMDB_ERR_INTERNAL, "CI attribute is too long");
+      return -1;
+    }
+    items[item_index].attr_count++;
+  }
+  sqlite3_finalize(stmt);
+  if (rc != SQLITE_DONE) {
+    cmdb_error_set(err, CMDB_ERR_DATABASE, "Cannot read CI attributes");
+    return -1;
+  }
+  return 0;
+}
+
 int cmdb_ci_list(cmdb_db_t *db, const cmdb_ci_filter_t *filter,
                  cmdb_ci_t **out, size_t *count, size_t *total,
                  cmdb_error_t *err) {
@@ -758,6 +843,12 @@ int cmdb_ci_list(cmdb_db_t *db, const cmdb_ci_filter_t *filter,
     free(items);
     cmdb_error_set(err, CMDB_ERR_DATABASE, "Cannot list CIs");
     return -1;
+  }
+  if (filter != NULL && filter->include_attrs != 0) {
+    if (load_attributes_for_list(db, items, i, err) != 0) {
+      cmdb_ci_free_list(items, i);
+      return -1;
+    }
   }
   *out = items;
   *count = i;

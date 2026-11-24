@@ -348,6 +348,27 @@ void test_api(void) {
     cJSON_Delete(response);
   }
 
+  response = api_call(
+    app,
+    "{\"id\":55,\"method\":\"cis.list\",\"params\":{"
+    "\"query\":\"api-app\",\"include_attrs\":true}}");
+  TEST_ASSERT(response != NULL);
+  if (response != NULL) {
+    result = cJSON_GetObjectItemCaseSensitive(response, "result");
+    if (cJSON_IsObject(result)) {
+      cJSON *items = cJSON_GetObjectItemCaseSensitive(result, "items");
+      TEST_ASSERT(cJSON_IsArray(items));
+      if (cJSON_IsArray(items) && cJSON_GetArraySize(items) == 1) {
+        cJSON *attrs = cJSON_GetObjectItemCaseSensitive(
+          cJSON_GetArrayItem(items, 0), "attributes");
+        cJSON *ip = cJSON_GetObjectItemCaseSensitive(attrs, "ip_address");
+        TEST_ASSERT(cJSON_IsString(ip));
+        TEST_ASSERT(ip != NULL && strcmp(ip->valuestring, "10.0.0.99") == 0);
+      }
+    }
+    cJSON_Delete(response);
+  }
+
   (void)snprintf(request, sizeof(request),
                  "{\"id\":6,\"method\":\"graph.dependencies\",\"params\":{"
                  "\"ids\":[\"%s\"],\"depth\":2,\"direction\":\"both\"}}",

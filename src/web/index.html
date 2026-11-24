@@ -118,6 +118,7 @@
             <p class="muted" id="inventory-summary">Loading configuration items...</p>
           </div>
           <div class="button-row">
+            <button id="inventory-columns" type="button" class="secondary">Columns</button>
             <button id="export-data" type="button" class="secondary">Export</button>
             <button id="add-ci" type="button" class="primary">Add CI</button>
           </div>
@@ -131,16 +132,7 @@
         <div class="table-wrap">
           <table>
             <thead>
-              <tr>
-                <th>Name</th>
-                <th>Type</th>
-                <th>Environment</th>
-                <th>Status</th>
-                <th>Owner</th>
-                <th>Criticality</th>
-                <th>Updated</th>
-                <th class="actions-col">Actions</th>
-              </tr>
+              <tr id="ci-table-head"></tr>
             </thead>
             <tbody id="ci-table"></tbody>
           </table>
@@ -806,6 +798,21 @@
           <button type="submit" class="primary" id="ci-save">Save CI</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <div id="inventory-columns-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="inventory-columns-title">
+    <div class="modal small-modal">
+      <div class="modal-heading">
+        <h2 id="inventory-columns-title">Inventory columns</h2>
+        <button type="button" class="icon-button" data-close="inventory-columns-modal" aria-label="Close">&times;</button>
+      </div>
+      <p class="hint">Choose the columns shown in the inventory table. The name and Actions columns are always shown.</p>
+      <div id="inventory-column-options" class="column-options"></div>
+      <div class="modal-actions">
+        <button id="inventory-columns-reset" type="button" class="secondary">Reset</button>
+        <button type="button" class="secondary" data-close="inventory-columns-modal">Close</button>
+      </div>
     </div>
   </div>
 
