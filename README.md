@@ -362,8 +362,8 @@ Passkeys are optional. To enable them, start the server with both
 `--webauthn-rp-id` and `--webauthn-origin`:
 
 ```bash
---webauthn-rp-id cmdb.example.internal \
---webauthn-origin https://cmdb.example.internal
+--webauthn-rp-id cmdb.bergling.net \
+--webauthn-origin https://cmdb.bergling.net
 ```
 
 The origin must be the public HTTPS origin seen by the browser. For local
@@ -373,16 +373,16 @@ works.
 For the Docker deployment, set these in `packaging/docker/server/.env`:
 
 ```dotenv
-CMDB_WEBAUTHN_RP_ID=cmdb.example.internal
-CMDB_WEBAUTHN_ORIGIN=https://cmdb.example.internal
+CMDB_WEBAUTHN_RP_ID=cmdb.bergling.net
+CMDB_WEBAUTHN_ORIGIN=https://cmdb.bergling.net
 ```
 
 For a systemd install, put the same two variables in
 `/etc/cmdb-lite/server.env`:
 
 ```bash
-CMDB_WEBAUTHN_RP_ID=cmdb.example.internal
-CMDB_WEBAUTHN_ORIGIN=https://cmdb.example.internal
+CMDB_WEBAUTHN_RP_ID=cmdb.bergling.net
+CMDB_WEBAUTHN_ORIGIN=https://cmdb.bergling.net
 ```
 
 See [`packaging/docker/server/.env.example`](packaging/docker/server/.env.example)

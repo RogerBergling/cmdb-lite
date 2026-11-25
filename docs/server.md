@@ -112,11 +112,11 @@ CMDB_DB_PASSPHRASE='replace-with-a-long-random-phrase'
 # First-visit theme: dark, light or system. A saved preference wins.
 APP_THEME=dark
 
-# Optional passkeys. Uncomment and replace both values with the exact public
-# HTTPS origin. The RP ID is the hostname only, without a scheme or port.
-# Leave both commented to keep passkeys disabled.
-# CMDB_WEBAUTHN_RP_ID=cmdb.example.internal
-# CMDB_WEBAUTHN_ORIGIN=https://cmdb.example.internal
+# Passkeys. Update both values if your public HTTPS hostname differs. The RP ID
+# is the hostname only, without a scheme or port. Comment both out to disable
+# passkeys.
+CMDB_WEBAUTHN_RP_ID=cmdb.bergling.net
+CMDB_WEBAUTHN_ORIGIN=https://cmdb.bergling.net
 ```
 
 The packaged service passes `CMDB_WEBAUTHN_RP_ID` and `CMDB_WEBAUTHN_ORIGIN`

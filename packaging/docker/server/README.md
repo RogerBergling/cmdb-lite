@@ -72,25 +72,19 @@ container port automatically, but the Compose mapping still targets 8080.
 
 ## Optional passkeys
 
-Passkeys are disabled by default. Set both values to the public HTTPS origin
-that browsers use:
+Set both values in the `.env` file copied from `.env.example` to the public
+HTTPS origin browsers use:
 
 ```dotenv
-CMDB_WEBAUTHN_RP_ID=cmdb.example.internal
-CMDB_WEBAUTHN_ORIGIN=https://cmdb.example.internal
-```
-
-Set them in the `.env` file copied from `.env.example`:
-
-```dotenv
-CMDB_WEBAUTHN_RP_ID=cmdb.example.internal
-CMDB_WEBAUTHN_ORIGIN=https://cmdb.example.internal
+CMDB_WEBAUTHN_RP_ID=cmdb.bergling.net
+CMDB_WEBAUTHN_ORIGIN=https://cmdb.bergling.net
 ```
 
 `CMDB_WEBAUTHN_RP_ID` is the hostname only, without a scheme or port.
 `CMDB_WEBAUTHN_ORIGIN` must be the exact public HTTPS origin. Changing either
-value makes previously registered passkeys unusable. TOTP and recovery codes
-remain mandatory and available as fallbacks.
+value makes previously registered passkeys unusable. Comment both out to
+disable passkeys. TOTP and recovery codes remain mandatory and available as
+fallbacks.
 
 ## Health and shutdown
 
