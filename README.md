@@ -368,13 +368,28 @@ Passkeys are optional. To enable them, start the server with both
 
 The origin must be the public HTTPS origin seen by the browser. For local
 testing, `--webauthn-rp-id localhost --webauthn-origin http://localhost:8080`
-works. The Docker deployment exposes the same settings as
-`CMDB_WEBAUTHN_RP_ID` and `CMDB_WEBAUTHN_ORIGIN`; see
-[`packaging/docker/server/.env.example`](packaging/docker/server/.env.example)
-and [`packaging/server/server.env.example`](packaging/server/server.env.example).
-After signing in, users can add up to ten passkeys from **Security** using their
-current password. TOTP and recovery codes remain available as fallbacks, and
-TOTP remains mandatory.
+works.
+
+For the Docker deployment, set these in `packaging/docker/server/.env`:
+
+```dotenv
+CMDB_WEBAUTHN_RP_ID=cmdb.example.internal
+CMDB_WEBAUTHN_ORIGIN=https://cmdb.example.internal
+```
+
+For a systemd install, put the same two variables in
+`/etc/cmdb-lite/server.env`:
+
+```bash
+CMDB_WEBAUTHN_RP_ID=cmdb.example.internal
+CMDB_WEBAUTHN_ORIGIN=https://cmdb.example.internal
+```
+
+See [`packaging/docker/server/.env.example`](packaging/docker/server/.env.example)
+and [`packaging/server/server.env.example`](packaging/server/server.env.example)
+for the complete examples. After signing in, users can add up to ten passkeys
+from **Security** using their current password. TOTP and recovery codes remain
+available as fallbacks, and TOTP remains mandatory.
 
 To use the desktop client against a server instead of opening a local file,
 choose **Connect to server** on the unlock screen, enter the server URL, and

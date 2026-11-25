@@ -112,7 +112,9 @@ CMDB_DB_PASSPHRASE='replace-with-a-long-random-phrase'
 # First-visit theme: dark, light or system. A saved preference wins.
 APP_THEME=dark
 
-# Optional passkeys. Set both or omit both. Use the public HTTPS origin.
+# Optional passkeys. Uncomment and replace both values with the exact public
+# HTTPS origin. The RP ID is the hostname only, without a scheme or port.
+# Leave both commented to keep passkeys disabled.
 # CMDB_WEBAUTHN_RP_ID=cmdb.example.internal
 # CMDB_WEBAUTHN_ORIGIN=https://cmdb.example.internal
 ```

@@ -80,11 +80,17 @@ CMDB_WEBAUTHN_RP_ID=cmdb.example.internal
 CMDB_WEBAUTHN_ORIGIN=https://cmdb.example.internal
 ```
 
-Set them in the `.env` file copied from `.env.example`. `CMDB_WEBAUTHN_RP_ID`
-is the hostname only, without a scheme or port. `CMDB_WEBAUTHN_ORIGIN` must be
-the exact public HTTPS origin. Changing either value makes previously
-registered passkeys unusable. TOTP and recovery codes remain mandatory and
-available as fallbacks.
+Set them in the `.env` file copied from `.env.example`:
+
+```dotenv
+CMDB_WEBAUTHN_RP_ID=cmdb.example.internal
+CMDB_WEBAUTHN_ORIGIN=https://cmdb.example.internal
+```
+
+`CMDB_WEBAUTHN_RP_ID` is the hostname only, without a scheme or port.
+`CMDB_WEBAUTHN_ORIGIN` must be the exact public HTTPS origin. Changing either
+value makes previously registered passkeys unusable. TOTP and recovery codes
+remain mandatory and available as fallbacks.
 
 ## Health and shutdown
 

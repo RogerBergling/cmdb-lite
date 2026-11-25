@@ -491,5 +491,6 @@ clearing. Before a production rollout, also exercise:
   accepted.
 - Desktop local mode has no application-level login.
 - The desktop client does not start a local server automatically.
-- No passkey/WebAuthn support.
+- Passkeys are optional and require an explicitly configured public RP ID and
+  origin; they are not available when those flags are unset.
 - Windows server support is not implemented.
