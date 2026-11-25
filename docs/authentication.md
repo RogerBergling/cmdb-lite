@@ -20,9 +20,12 @@
 - First-run admin, then admin-created accounts. No self-registration.
 - TOTP is mandatory for every account before inventory access. Ten one-time
   recovery codes are required before inventory access; admins can reset both.
+- Optional passkeys are an additional second factor after the password. They do
+  not replace TOTP or the recovery-code requirement.
+- Passkeys require an explicit public HTTPS origin and RP ID. They are disabled
+  until the operator configures both.
 - Admin-created and admin-reset passwords are temporary and must be changed at
   first login.
-- Passkeys/WebAuthn are explicitly out of scope for this phase.
 - Session defaults are 12 hours absolute and 30 minutes idle, configurable at
   server start.
 - Authentication events and inventory changes use the authenticated username as
@@ -124,9 +127,11 @@ Flags:
 | `--agent-interval` | `24h` | Reporting interval advertised to agents (15m–168h). |
 | `--agent-retention-days` | `365` | Days of application report/event history to keep. |
 | `--agent-reports-per-host` | `90` | Maximum reports retained per host. |
+| `--webauthn-rp-id` | disabled | Passkey RP ID, for example `cmdb.example.com`. Must be set with the origin. |
+| `--webauthn-origin` | disabled | Passkey origin, for example `https://cmdb.example.com`. Must be set with the RP ID. |
 | `--create-db` | off | Create a new encrypted database at `--db` with the supplied passphrase, then exit. Refuses to overwrite an existing database. |
 | `--version` | off | Print version, build number, commit, date, target, and build type, then exit. |
-| `--reset-auth` | off | Break-glass: clear accounts/TOTP/recovery state, write an audit entry, and exit. Requires the database passphrase and a stopped server. |
+| `--reset-auth` | off | Break-glass: clear accounts, TOTP, recovery codes, and passkeys, write an audit entry, and exit. Requires the database passphrase and a stopped server. |
 
 The database passphrase is read from `CMDB_DB_PASSPHRASE` or prompted on a TTY.
 The variable is unset after reading. An interactive start is acceptable for the
@@ -167,6 +172,9 @@ key `auth.state`:
       "recovery_codes": [
         {"hash": "$argon2id$…", "used_at": ""}
       ],
+      "passkeys": [
+        {"credential": {"id": "…", "publicKey": "…", "authenticator": {}}, "name": "Laptop", "created_at": "2026-11-25T12:00:00Z"}
+      ],
       "created_at": "2026-11-11T17:27:33Z",
       "updated_at": "2026-11-11T17:27:33Z"
     }
@@ -175,8 +183,8 @@ key `auth.state`:
 ```
 
 Because `auth.state` is inside SQLCipher, a normal `.cmdb` + `.meta` backup
-contains accounts, password hashes, TOTP secrets, and recovery-code hashes.
-Sessions are **memory-only** and are lost on server restart. A restart logs
+contains accounts, password hashes, TOTP secrets, recovery-code hashes, and
+passkey public keys. Sessions are **memory-only** and are lost on server restart. A restart logs
 everyone out but does not remove accounts.
 
 The JSON blob is deliberately simple for this phase. It is bounded to 1 MiB by
@@ -193,6 +201,9 @@ tables and a schema migration.
   passwords, single use.
 - TOTP: 30-second period, 6 digits, SHA-1, 20-byte secret, one step of clock
   skew. The last accepted step is persisted to prevent replay.
+- Passkeys: WebAuthn credentials stored in `auth.state`; public keys only, with
+  user verification required. Registration and login challenges are held in
+  memory for five minutes and are single-use.
 - Session tokens: 256-bit random values. Only SHA-256 hashes are kept in memory.
 - CSRF tokens: 256-bit random values, required on state-changing API requests.
 
@@ -246,11 +257,36 @@ authenticator apps and also shows the secret for manual entry.
    password; generating a new set replaces all previous codes. TOTP setup also
    requires the current password.
 
+### Passkeys
+
+Passkeys are optional and require both `--webauthn-rp-id` and
+`--webauthn-origin`. The RP ID must be the public hostname; the origin must be
+the public HTTPS origin. For local development, `localhost` with
+`http://localhost:<port>` is accepted.
+
+1. After a correct password, a user with a registered passkey can choose
+   **Use a passkey** instead of entering a TOTP code.
+2. `POST /api/v1/auth/passkey/login/begin` creates a pending-session-bound
+   challenge. `POST /api/v1/auth/passkey/login/complete` verifies the assertion
+   and rotates to a full session.
+3. On `/security`, after entering the current password, a user can register up
+   to ten passkeys. Registration and deletion require the CSRF token and the
+   current password.
+4. Passkeys require user verification (biometric or device PIN). The TOTP code
+   and recovery codes remain available as fallbacks.
+5. Admin MFA reset clears TOTP secrets, recovery codes, passkeys, and all
+   sessions, and rotates the password.
+
 ## Sessions and transport security
 
 - Cookie: `cmdb_session`, random 256-bit token, `HttpOnly`,
   `SameSite=Strict`, `Secure` when the request is HTTPS or a trusted proxy says
   `X-Forwarded-Proto: https`.
+- A pending password-stage session may only complete first-time MFA enrollment.
+  Credential-change endpoints (password, TOTP, passkeys) reject a pending
+  session when the account already has a confirmed factor. This prevents a
+  password holder from bypassing MFA by changing credentials before entering a
+  TOTP or recovery code.
 - Absolute and idle expiry are checked on every request. Idle expiry slides
   forward but never beyond the absolute expiry.
 - Logout deletes the session. Changing a password revokes the user's other
@@ -258,8 +294,9 @@ authenticator apps and also shows the secret for manual entry.
   of that user's sessions.
 - State-changing inventory and account API calls require `X-CSRF-Token`
   matching the session. Login, first-run setup, MFA completion, recovery-code
-  login, and logout rely on `SameSite=Strict` cookies and, for setup, the
-  one-time token; they do not take a CSRF header.
+  login, passkey login completion, and logout rely on `SameSite=Strict` cookies
+  and, for setup, the one-time token; they do not take a CSRF header. Passkey
+  registration, deletion, and the begin calls use the setup-auth CSRF check.
 - The server sends `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
   `Referrer-Policy: no-referrer`, and `Cache-Control: no-store`.
 - Login and account pages use a restrictive Content-Security-Policy.
@@ -280,6 +317,7 @@ Authentication events are written to the existing hash-chained `audit_log` with
 - login success, password-stage success, failure, MFA failure;
 - logout;
 - TOTP enrollment and admin reset;
+- passkey registration, deletion, login success/failure, and clone warnings;
 - recovery-code generation, use, and failure;
 - password change and admin password reset;
 - user create, enable, and disable.
@@ -311,6 +349,11 @@ POST /api/v1/auth/setup
 POST /api/v1/auth/login
 POST /api/v1/auth/mfa
 POST /api/v1/auth/recovery
+POST /api/v1/auth/passkey/login/begin
+POST /api/v1/auth/passkey/login/complete
+POST /api/v1/auth/passkey/register/begin
+POST /api/v1/auth/passkey/register/complete
+POST /api/v1/auth/passkey/delete
 POST /api/v1/auth/logout
 GET  /api/v1/auth/session
 POST /api/v1/auth/password
@@ -324,6 +367,13 @@ POST /api/v1/users/{id}/enable
 POST /api/v1/users/{id}/reset-password
 POST /api/v1/users/{id}/reset-mfa
 ```
+
+`reset-mfa` is a full credential-recovery operation. It clears TOTP, recovery
+codes, and passkeys, revokes every session, and rotates the password to a one-time
+temporary value returned once in the response. The old password no longer
+works. Give the temporary password to the user out of band; they must change it
+and enroll a new authenticator on the next sign-in. This prevents a
+password-only takeover during the MFA reset window.
 
 Inventory proxy:
 
@@ -385,14 +435,16 @@ lifetime. Restart the server to release the database.
 
 ## Security test plan
 
-Implemented tests cover password hashing/verification, TOTP validation, and
-recovery-code single use. Before a production rollout, also exercise:
+Implemented tests cover password hashing/verification, TOTP validation,
+recovery-code single use, passkey configuration/name validation, and MFA reset
+clearing. Before a production rollout, also exercise:
 
 - session fixation and rotation;
 - CSRF rejection;
 - login rate limiting and lockout;
 - session idle/absolute expiry;
 - disabled user/session revocation;
+- passkey registration, assertion, replay rejection, and removal;
 - admin reset authorization;
 - auth bypass attempts on inventory endpoints;
 - audit completeness for auth and host changes;
@@ -409,6 +461,9 @@ recovery-code single use. Before a production rollout, also exercise:
 - The database passphrase is a Go string in the server process and cannot be
   reliably wiped. Restrict core dumps and swap for server deployments.
 - No account deletion, password-history policy, or email-based recovery.
+- Passkeys are an optional second factor, not a passwordless login method.
+- Passkey login requires the operator to configure the public RP ID and origin.
+  Changing either value makes previously registered passkeys unusable.
 - Admin-created and admin-reset passwords are known to the administrator until
   the user changes them. The temporary-password flag forces the change before
   inventory access.

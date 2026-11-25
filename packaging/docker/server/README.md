@@ -70,6 +70,22 @@ CMDB_LISTEN=0.0.0.0:8080
 Do not change `CMDB_LISTEN` to the host port. The healthcheck follows the
 container port automatically, but the Compose mapping still targets 8080.
 
+## Optional passkeys
+
+Passkeys are disabled by default. Set both values to the public HTTPS origin
+that browsers use:
+
+```dotenv
+CMDB_WEBAUTHN_RP_ID=cmdb.example.internal
+CMDB_WEBAUTHN_ORIGIN=https://cmdb.example.internal
+```
+
+Set them in the `.env` file copied from `.env.example`. `CMDB_WEBAUTHN_RP_ID`
+is the hostname only, without a scheme or port. `CMDB_WEBAUTHN_ORIGIN` must be
+the exact public HTTPS origin. Changing either value makes previously
+registered passkeys unusable. TOTP and recovery codes remain mandatory and
+available as fallbacks.
+
 ## Health and shutdown
 
 - `GET /healthz` and `GET /readyz` return `{"ok":true}` without authentication

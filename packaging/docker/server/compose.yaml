@@ -19,6 +19,9 @@ services:
       CMDB_AGENT_INTERVAL: "${CMDB_AGENT_INTERVAL:-24h}"
       CMDB_AGENT_RETENTION_DAYS: "${CMDB_AGENT_RETENTION_DAYS:-365}"
       CMDB_AGENT_REPORTS_PER_HOST: "${CMDB_AGENT_REPORTS_PER_HOST:-90}"
+      # Optional passkey configuration. Set both values to enable passkeys.
+      CMDB_WEBAUTHN_RP_ID: "${CMDB_WEBAUTHN_RP_ID:-}"
+      CMDB_WEBAUTHN_ORIGIN: "${CMDB_WEBAUTHN_ORIGIN:-}"
     secrets:
       - cmdb_db_passphrase
     volumes:

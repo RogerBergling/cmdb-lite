@@ -1,5 +1,7 @@
 # cmdb-lite
 
+**Project facts (2026-11-25):** version **0.7.3** · C17/CMake + Go server/agent, SQLCipher and Argon2id · CTest and Go tests · MIT licensed.
+
 A local-first, encrypted Configuration Management Database (CMDB) for Linux and
 Windows.
 
@@ -16,6 +18,10 @@ Windows.
 > WebView2 smoke test and produces the portable ZIP, MSI, and agent packages. A
 > clean-Windows-VM install/uninstall check is still recommended.
 
+> **Security note:** the 2026-11-25 audit's MFA-reset fix is in the working
+> tree and is not part of the published v0.7.3 packages. Rebuild the server and
+> desktop packages before relying on the reset-mfa behaviour.
+>
 > **Release status:** v0.7.3 is the latest published release. It adds TOTP QR
 > enrollment, administrator host deletion, the machine-ID reuse warning, and
 > the unattended DEB installer. v0.7.2 added the production server container
@@ -79,7 +85,7 @@ This repository is being prepared for one specific deployment:
 | Network | Server reachable only on a local private network; do not expose it directly to the internet. |
 | Operating systems | Current Ubuntu and current Fedora for the server; Windows remains desktop-only. Validate the built package on the exact target image. |
 | Backup / RPO | 24-hour RPO; a daily maintenance window may stop the service for a consistent stop/copy backup. |
-| Authentication | Mandatory TOTP plus at least one unused recovery code; temporary passwords must be changed at first use. |
+| Authentication | Mandatory TOTP plus at least one unused recovery code; optional passkeys as an additional second factor; temporary passwords must be changed at first use. |
 | One-admin recovery | Tested `cmdb-server --reset-auth` break-glass procedure; keep recovery codes and the database passphrase separately. |
 | RBAC / SSO | Out of scope for this rollout; all accounts share inventory privileges. |
 | HIBP | Out of scope for this rollout; the export code remains available but no HIBP integration will be deployed. |
@@ -151,6 +157,11 @@ Invalid values fall back to `dark`. The server serves the pre-paint resolver at
 `/theme.js`, so there is no theme flash.
 
 ## Screenshots
+
+These captures show the desktop-local UI. They pre-date the server/agent
+screens (Applications, Satellites and the connect-to-server selector); the
+unlock capture may not show the current build identity. Regenerate them when a
+browser is available.
 
 | Inventory | Network discovery |
 |---|---|
@@ -340,6 +351,31 @@ renders the `otpauth://` URI as a QR code (the secret is also shown for manual
 entry). After setup, create additional accounts from the **Users** page if
 needed.
 
+**MFA reset is a full credential recovery.** Resetting a user's MFA also clears
+recovery codes and passkeys, revokes every session, and rotates the password to
+a one-time temporary value returned once to the administrator. The old password
+stops working. Give the temporary password to the user out of band; they must
+change it and enroll a new authenticator on the next sign-in. This prevents a
+password-only takeover during the reset window.
+
+Passkeys are optional. To enable them, start the server with both
+`--webauthn-rp-id` and `--webauthn-origin`:
+
+```bash
+--webauthn-rp-id cmdb.example.internal \
+--webauthn-origin https://cmdb.example.internal
+```
+
+The origin must be the public HTTPS origin seen by the browser. For local
+testing, `--webauthn-rp-id localhost --webauthn-origin http://localhost:8080`
+works. The Docker deployment exposes the same settings as
+`CMDB_WEBAUTHN_RP_ID` and `CMDB_WEBAUTHN_ORIGIN`; see
+[`packaging/docker/server/.env.example`](packaging/docker/server/.env.example)
+and [`packaging/server/server.env.example`](packaging/server/server.env.example).
+After signing in, users can add up to ten passkeys from **Security** using their
+current password. TOTP and recovery codes remain available as fallbacks, and
+TOTP remains mandatory.
+
 To use the desktop client against a server instead of opening a local file,
 choose **Connect to server** on the unlock screen, enter the server URL, and
 press **Connect to server**. The URL is remembered in local storage. The
@@ -519,8 +555,9 @@ password vault instead.
   interface.
 - **Authenticated server mode** for Linux: Go `cmdb-server`, C `cmdb-rpc`, a
   first-run setup token, Argon2id passwords, mandatory TOTP and recovery codes,
-  forced temporary-password changes, CSRF-protected sessions, admin account
-  management, and per-user audit actors.
+  optional WebAuthn passkeys as a second factor, forced temporary-password
+  changes, CSRF-protected sessions, admin account management, and per-user audit
+  actors.
 - Encrypted SQLCipher database at a user-selected path in desktop-local mode;
   server mode keeps the database behind the server.
 - Master passphrase with Argon2id key derivation (libsodium).
@@ -760,8 +797,8 @@ The Linux package provides a Go `cmdb-server` and the C `cmdb-rpc` bridge:
   server when `CMDB_SERVER_URL` is set;
 - several accounts share inventory privileges; administrators manage accounts
   and credentials, and create/revoke agent enrollment tokens;
-- username/password login, TOTP, and ten one-time recovery codes per user;
-  passkeys are out of scope for this phase;
+- username/password login, TOTP, ten one-time recovery codes per user, and
+  optional passkeys as an alternative second factor when WebAuthn is configured;
 - sessions default to 12 hours absolute and 30 minutes idle and are configurable
   at server start;
 - login, logout, MFA, recovery, user-management, and inventory changes are
@@ -1223,7 +1260,8 @@ file through a native save dialog. The embedded editor is a lightweight
   `app_meta.auth.state`. A database backup includes them.
 - User passwords are Argon2id hashes (64 MiB, 3 iterations). Recovery codes are
   Argon2id hashes. TOTP secrets and the last accepted step are stored in the
-  encrypted database.
+  encrypted database. Optional passkey credentials store public keys, names,
+  and usage timestamps only; private keys never leave the authenticator.
 - Session tokens and CSRF tokens are random 256-bit values. Only session-token
   hashes are kept, in server memory; a restart drops every session.
 - The database passphrase is separate from user passwords and is never given to
@@ -1231,7 +1269,7 @@ file through a native save dialog. The embedded editor is a lightweight
 - Server mode has no TLS listener. It must be reached through HAProxy/VPN, and
   the proxy must set `X-Forwarded-Proto` and `X-Forwarded-For`. A direct HTTP
   listener exposes passwords and session cookies.
-- Login, TOTP, and recovery endpoints have in-memory rate limits. They are
+- Login, TOTP, recovery, and passkey endpoints have in-memory rate limits. They are
   cleared by a restart and are not a persistent lockout system.
 - TOTP requires an accurate server clock. Use NTP/chrony; only one 30-second
   step of skew is accepted.
@@ -1287,8 +1325,8 @@ Not protected against:
   UI.
 - Credential stuffing or password guessing beyond the in-memory rate limits.
   There is no persistent lockout or breached-password check. TOTP and recovery
-  codes are mandatory after first login, but the initial password remains the
-  first factor.
+  codes are mandatory after first login; passkeys are optional. The initial
+  password remains the first factor.
 - A compromised server administrator/root account. The operator can read the
   database passphrase and database.
 
@@ -2200,6 +2238,14 @@ contact process are documented in [`SECURITY.md`](SECURITY.md).
 
 Do not open a public issue containing a working exploit or sensitive data. Use
 GitHub private vulnerability reporting or `github@bergling.net`.
+
+
+## AI assistance
+
+Developed with AI assistance and human review. The maintainer defines the
+requirements, threat model and acceptance criteria; AI helps write and refactor
+code; the maintainer runs, tests and verifies the result. The software is
+provided as-is, without warranty.
 
 ## License
 

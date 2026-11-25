@@ -13,12 +13,16 @@ StateDirectory=cmdb-lite
 StateDirectoryMode=0700
 UMask=0077
 EnvironmentFile=/etc/cmdb-lite/server.env
+Environment=CMDB_WEBAUTHN_RP_ID=
+Environment=CMDB_WEBAUTHN_ORIGIN=
 ExecStart=/usr/bin/cmdb-server \
   --db /var/lib/cmdb-lite/inventory.cmdb \
   --listen 127.0.0.1:8080 \
   --proxy 127.0.0.1/32 \
   --session-idle 30m \
-  --session-absolute 12h
+  --session-absolute 12h \
+  --webauthn-rp-id "${CMDB_WEBAUTHN_RP_ID}" \
+  --webauthn-origin "${CMDB_WEBAUTHN_ORIGIN}"
 Restart=on-failure
 RestartSec=5s
 TimeoutStopSec=30s

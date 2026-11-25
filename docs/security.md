@@ -155,7 +155,9 @@ Server mode moves the database behind a Go server with:
 - username/password accounts and Argon2id password hashes;
 - session tokens kept in memory and stored only as hashes;
 - mandatory TOTP and at least one unused recovery code before inventory
-  access; passkeys are out of scope for this phase;
+  access;
+- optional WebAuthn passkeys as an additional second factor after the password,
+  when a public RP ID and origin are configured;
 - ten one-time recovery-code hashes per user;
 - admin user management and MFA reset;
 - per-request audit actor;
@@ -178,8 +180,8 @@ Server-specific requirements and limitations:
   `X-Forwarded-For`. The rightmost forwarded address is used.
 - TOTP requires accurate server time. Only one 30-second step of skew is
   accepted. Use NTP/chrony.
-- Login, TOTP, and recovery rate limits are in memory and cleared by restart.
-  There is no persistent lockout or global rate limit.
+- Login, TOTP, recovery, and passkey attempt rate limits are in memory and
+  cleared by restart. There is no persistent lockout or global rate limit.
 - The server API is serialized: one process, one database, one `cmdb-rpc` child.
   A long import, scan, or audit verification blocks other users.
 - `/healthz` and `/readyz` are unauthenticated and expose only readiness. There
@@ -330,7 +332,7 @@ The monitored fallback contact is `github@bergling.net`. See
 - Desktop-local mode remains single-user with no application-level login.
 - Sessions are memory-only: a server restart logs everyone out.
 - No passphrase rotation/rekey, local auto-lock, or database passphrase attempt
-  rate limiting. Server login/TOTP/recovery endpoints are rate-limited.
+  rate limiting. Server login/TOTP/recovery/passkey endpoints are rate-limited.
 - No configurable automatic or scheduled backups; the current release has manual
   backup and automatic pre-migration backup only.
 - The derived key is not `sodium_mlock`ed. Swap, hibernation, and core dumps are
@@ -340,7 +342,9 @@ The monitored fallback contact is `github@bergling.net`. See
   until exit. Restrict core dumps and swap for server deployments.
 - Server mode has no persistent lockout, RBAC, or session list. TOTP and at
   least one unused recovery code are required before inventory access;
-  admin-created/reset passwords are forced to change. Treat it as an
+  admin-created/reset passwords are forced to change. Optional passkeys are a
+  second factor only, not passwordless login, and changing the WebAuthn RP
+  ID/origin invalidates previously registered passkeys. Treat it as an
   authenticated inventory for a trusted team, not a hardened multi-tenant
   service.
 - Server mode exposes unauthenticated `/healthz` and `/readyz` endpoints that

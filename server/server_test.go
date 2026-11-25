@@ -122,6 +122,75 @@ func TestPendingEnrollmentSessionCanReachSecurityOnly(t *testing.T) {
 	}
 }
 
+func TestPendingConfirmedSessionCannotChangeCredentials(t *testing.T) {
+	const token = "pending-confirmed-token"
+	user := userRecord{ID: "user-2", Username: "admin", TOTPConfirmed: true}
+	s := &server{
+		sessions: map[string]*session{
+			sha256Hex(token): {
+				tokenHash:       sha256Hex(token),
+				userID:          user.ID,
+				username:        user.Username,
+				csrf:            "csrf-token",
+				mfaVerified:     false,
+				pending:         true,
+				idleExpires:     time.Now().Add(time.Minute),
+				absoluteExpires: time.Now().Add(time.Minute),
+			},
+		},
+		state: authState{Users: []userRecord{user}},
+	}
+
+	nextCalled := false
+	handler := s.requireSetupAuth(func(http.ResponseWriter, *http.Request) { nextCalled = true })
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/password", nil)
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
+	request.Header.Set("X-CSRF-Token", "csrf-token")
+	recorder := httptest.NewRecorder()
+	handler(recorder, request)
+	if recorder.Code != http.StatusForbidden || nextCalled {
+		t.Fatalf("pending confirmed session changed credentials: status=%d next=%v", recorder.Code, nextCalled)
+	}
+}
+
+func TestResetMFAAlsoRotatesThePassword(t *testing.T) {
+	oldHash, err := hashPassword("old-password-123456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	user := &userRecord{
+		ID:            "user-1",
+		Username:      "admin",
+		PasswordHash:  oldHash,
+		TOTPSecret:    "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP",
+		TOTPConfirmed: true,
+		TOTPLastStep:  42,
+		RecoveryCodes: []recoveryCode{{Hash: "hash"}},
+	}
+	temp, err := resetUserMFAAndPassword(user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if temp == "" {
+		t.Fatal("temporary password is empty")
+	}
+	if user.TOTPSecret != "" || user.TOTPConfirmed || user.TOTPLastStep != 0 {
+		t.Fatalf("MFA state was not cleared: %+v", user)
+	}
+	if len(user.RecoveryCodes) != 0 {
+		t.Fatal("recovery codes were not cleared")
+	}
+	if !user.MustChangePassword {
+		t.Fatal("password change was not required")
+	}
+	if user.PasswordHash == oldHash || !verifyPassword(user.PasswordHash, temp) {
+		t.Fatal("password was not rotated to the temporary value")
+	}
+	if verifyPassword(user.PasswordHash, "old-password-123456") {
+		t.Fatal("old password still verifies after MFA reset")
+	}
+}
+
 func TestReadiness(t *testing.T) {
 	user := &userRecord{MustChangePassword: true}
 	if got := readiness(user); got != "password_change_required" {

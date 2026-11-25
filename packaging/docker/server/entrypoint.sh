@@ -13,6 +13,8 @@ SESSION_ABSOLUTE="${CMDB_SESSION_ABSOLUTE:-12h}"
 AGENT_INTERVAL="${CMDB_AGENT_INTERVAL:-24h}"
 AGENT_RETENTION_DAYS="${CMDB_AGENT_RETENTION_DAYS:-365}"
 AGENT_REPORTS_PER_HOST="${CMDB_AGENT_REPORTS_PER_HOST:-90}"
+WEBAUTHN_RP_ID="${CMDB_WEBAUTHN_RP_ID:-}"
+WEBAUTHN_ORIGIN="${CMDB_WEBAUTHN_ORIGIN:-}"
 
 export CMDB_CONFIG_DIR="${CMDB_CONFIG_DIR:-/tmp/cmdb-config}"
 export TMPDIR="${TMPDIR:-/tmp}"
@@ -64,4 +66,6 @@ exec "$SERVER" \
   --session-absolute "$SESSION_ABSOLUTE" \
   --agent-interval "$AGENT_INTERVAL" \
   --agent-retention-days "$AGENT_RETENTION_DAYS" \
-  --agent-reports-per-host "$AGENT_REPORTS_PER_HOST"
+  --agent-reports-per-host "$AGENT_REPORTS_PER_HOST" \
+  --webauthn-rp-id "$WEBAUTHN_RP_ID" \
+  --webauthn-origin "$WEBAUTHN_ORIGIN"

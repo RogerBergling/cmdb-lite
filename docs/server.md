@@ -111,7 +111,14 @@ sudo install -o root -g root -m 0600 /dev/null /etc/cmdb-lite/server.env
 CMDB_DB_PASSPHRASE='replace-with-a-long-random-phrase'
 # First-visit theme: dark, light or system. A saved preference wins.
 APP_THEME=dark
+
+# Optional passkeys. Set both or omit both. Use the public HTTPS origin.
+# CMDB_WEBAUTHN_RP_ID=cmdb.example.internal
+# CMDB_WEBAUTHN_ORIGIN=https://cmdb.example.internal
 ```
+
+The packaged service passes `CMDB_WEBAUTHN_RP_ID` and `CMDB_WEBAUTHN_ORIGIN`
+through to `cmdb-server`. Passkeys are disabled while both are empty.
 
 Keep the file root-owned and mode `0600`; systemd reads it as root and passes
 the variable to the service. Never put the passphrase in a shell profile,
@@ -321,6 +328,10 @@ Current account gaps:
 - TOTP and at least one unused recovery code are mandatory before inventory
   access. The security page guides enrollment and blocks the inventory until
   both are complete.
+- Passkeys are optional. When `CMDB_WEBAUTHN_RP_ID` and
+  `CMDB_WEBAUTHN_ORIGIN` are configured, users can add up to ten passkeys from
+  **Security** and use one after their password instead of a TOTP code. TOTP
+  remains mandatory and available as a fallback.
 - Admin-created and admin-reset passwords are temporary and force a change at
   first login. The administrator knows the temporary password until the user
   replaces it.
@@ -336,7 +347,7 @@ Current account gaps:
 This deployment has one administrator. If the password, TOTP device, and all
 recovery codes are lost, the only safe recovery path is an offline auth-state
 reset using the database passphrase. This preserves inventory and audit data but
-deletes all accounts, TOTP secrets, and recovery-code hashes.
+deletes all accounts, TOTP secrets, passkeys, and recovery-code hashes.
 
 ```bash
 sudo systemctl stop cmdb-server
@@ -355,7 +366,8 @@ expand the passphrase into the command line.
 The command does not start the HTTP listener. It clears `auth.state`, writes a
 `reset-auth-state` audit entry with actor `break-glass`, and exits. On the next
 start the server prints a new first-run setup token. The new administrator must
-repeat TOTP enrollment and recovery-code generation.
+repeat TOTP enrollment and recovery-code generation; any previous passkeys are
+gone.
 
 Protect the database passphrase accordingly: anyone who can run this command can
 take over the inventory. Test the procedure on a copy before relying on it, and
@@ -376,7 +388,8 @@ sudo systemctl start cmdb-server
 ```
 
 The pair includes `auth.state` inside the encrypted database: accounts, Argon2id
-hashes, TOTP secrets, and recovery-code hashes. Sessions are not included.
+hashes, TOTP secrets, recovery-code hashes, and passkey public keys. Sessions are
+not included.
 
 For a 24-hour RPO, schedule this stop/copy/start window daily (cron, systemd timer,
 or your backup system) and ship the pair off-host. Because sessions are

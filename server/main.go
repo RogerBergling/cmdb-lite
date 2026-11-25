@@ -70,6 +70,7 @@ type session struct {
 	absoluteExpires time.Time
 	mfaVerified     bool
 	pending         bool
+	passkey         *passkeyCeremony
 }
 
 type server struct {
@@ -96,6 +97,7 @@ type server struct {
 	agentReportsPerHost int
 	proxies             []*net.IPNet
 	appTheme            string
+	passkeys            *passkeyService
 }
 
 type attemptLimiter struct {
@@ -157,6 +159,10 @@ func main() {
 			"days of application history to keep")
 		agentReportsPerHost = flag.Int("agent-reports-per-host", 90,
 			"application reports to keep per host")
+		webauthnRPID = flag.String("webauthn-rp-id", "",
+			"WebAuthn RP ID for passkeys, for example cmdb.example.com")
+		webauthnOrigin = flag.String("webauthn-origin", "",
+			"WebAuthn origin for passkeys, for example https://cmdb.example.com")
 		resetAuth = flag.Bool("reset-auth", false, "clear accounts/TOTP/recovery state and exit (break-glass)")
 		createDB  = flag.Bool("create-db", false, "create a new encrypted database and exit")
 		showVer   = flag.Bool("version", false, "print version and build information")
@@ -187,6 +193,17 @@ func main() {
 	}
 	if *agentReportsPerHost < 1 || *agentReportsPerHost > 3650 {
 		log.Fatal("--agent-reports-per-host must be between 1 and 3650")
+	}
+	if (*webauthnRPID == "") != (*webauthnOrigin == "") {
+		log.Fatal("--webauthn-rp-id and --webauthn-origin must be set together")
+	}
+	var passkeySvc *passkeyService
+	if *webauthnRPID != "" {
+		var err error
+		passkeySvc, err = newPasskeyService(*webauthnRPID, *webauthnOrigin)
+		if err != nil {
+			log.Fatalf("passkeys: %v", err)
+		}
 	}
 
 	passphrase, err := readPassphrase()
@@ -258,6 +275,7 @@ func main() {
 		agentRetentionDays:  *agentRetentionDays,
 		agentReportsPerHost: *agentReportsPerHost,
 		appTheme:            themeDefault(),
+		passkeys:            passkeySvc,
 	}
 	s.proxies, err = parseProxies(*proxyList)
 	if err != nil {
@@ -450,6 +468,11 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/auth/login", s.handleLogin)
 	mux.HandleFunc("POST /api/v1/auth/mfa", s.handleMFA)
 	mux.HandleFunc("POST /api/v1/auth/recovery", s.handleRecovery)
+	mux.HandleFunc("POST /api/v1/auth/passkey/login/begin", s.handlePasskeyLoginBegin)
+	mux.HandleFunc("POST /api/v1/auth/passkey/login/complete", s.handlePasskeyLoginComplete)
+	mux.HandleFunc("POST /api/v1/auth/passkey/register/begin", s.requireSetupAuth(s.handlePasskeyRegisterBegin))
+	mux.HandleFunc("POST /api/v1/auth/passkey/register/complete", s.requireSetupAuth(s.handlePasskeyRegisterComplete))
+	mux.HandleFunc("POST /api/v1/auth/passkey/delete", s.requireSetupAuth(s.handlePasskeyDelete))
 	mux.HandleFunc("POST /api/v1/auth/logout", s.handleLogout)
 	mux.HandleFunc("GET /api/v1/auth/session", s.handleSession)
 	mux.HandleFunc("POST /api/v1/auth/password", s.requireSetupAuth(s.handlePassword))
@@ -696,6 +719,22 @@ func (s *server) requireSetupAuth(next http.HandlerFunc) http.HandlerFunc {
 			writeAPIError(w, http.StatusUnauthorized, "auth_required", "login required")
 			return
 		}
+		// A pending session exists only for first-time MFA enrollment. It must
+		// never authorize a password, TOTP, passkey or recovery-code change for
+		// an account that already has a confirmed factor: otherwise a password
+		// holder could bypass MFA by changing credentials from the pending
+		// session issued by /auth/login.
+		if sess.pending {
+			if user := s.state.findUserByID(sess.userID); user != nil && user.TOTPConfirmed {
+				writeAPIError(
+					w,
+					http.StatusForbidden,
+					"mfa_required",
+					"verify the authenticator before changing credentials",
+				)
+				return
+			}
+		}
 		if r.Method != http.MethodGet && !s.validCSRF(r, sess) {
 			writeAPIError(w, http.StatusForbidden, "csrf", "invalid CSRF token")
 			return
@@ -926,9 +965,10 @@ func (s *server) trustedProxy(ip net.IP) bool {
 
 func (s *server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 	response := map[string]any{
-		"setup_required": len(s.state.Users) == 0,
-		"authenticated":  false,
-		"server":         serverBuildInfo(),
+		"setup_required":   len(s.state.Users) == 0,
+		"authenticated":    false,
+		"passkeys_enabled": s.passkeysEnabled(),
+		"server":           serverBuildInfo(),
 	}
 	sess := s.sessionFromRequest(r)
 	if sess != nil {
@@ -936,6 +976,7 @@ func (s *server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 		if user != nil {
 			response["authenticated"] = sess.mfaVerified && !sess.pending
 			response["mfa_required"] = sess.pending
+			response["passkey_available"] = s.passkeyLoginAvailable(user)
 			response["user"] = userView(user)
 			if sess.mfaVerified && !sess.pending {
 				response["csrf"] = sess.csrf
@@ -954,6 +995,7 @@ func userView(user *userRecord) map[string]any {
 		"must_change_password":     user.MustChangePassword,
 		"totp_enabled":             user.TOTPConfirmed,
 		"recovery_codes_remaining": recoveryCodesRemaining(user),
+		"passkeys":                 passkeySummaries(user),
 	}
 }
 
@@ -1079,9 +1121,10 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		}
 		s.audit(user.Username, "login-password", "user", user.ID, `{"mfa":"pending"}`)
 		writeJSON(w, http.StatusOK, map[string]any{
-			"ok":           true,
-			"mfa_required": true,
-			"user":         userView(user),
+			"ok":                true,
+			"mfa_required":      true,
+			"passkey_available": s.passkeyLoginAvailable(user),
+			"user":              userView(user),
 		})
 		return
 	}
@@ -1239,10 +1282,12 @@ func (s *server) handleSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"authenticated": true,
-		"user":          userView(user),
-		"csrf":          sess.csrf,
-		"server":        serverBuildInfo(),
+		"authenticated":     true,
+		"passkeys_enabled":  s.passkeysEnabled(),
+		"passkey_available": s.passkeyLoginAvailable(user),
+		"user":              userView(user),
+		"csrf":              sess.csrf,
+		"server":            serverBuildInfo(),
 	})
 }
 
@@ -1553,6 +1598,30 @@ func (s *server) handleResetPassword(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "password": temp})
 }
 
+func resetUserMFAAndPassword(user *userRecord) (string, error) {
+	// Losing an MFA device is a full credential-recovery event: rotate the
+	// password as well. Otherwise an attacker who knows the old password could
+	// log into the password-only window and enroll their own authenticator.
+	suffix, err := randomHex(8)
+	if err != nil {
+		return "", err
+	}
+	temp := "cmdb-" + suffix
+	hash, err := hashPassword(temp)
+	if err != nil {
+		return "", err
+	}
+	user.PasswordHash = hash
+	user.MustChangePassword = true
+	user.TOTPSecret = ""
+	user.TOTPConfirmed = false
+	user.TOTPLastStep = 0
+	user.RecoveryCodes = nil
+	user.Passkeys = nil
+	user.touch()
+	return temp, nil
+}
+
 func (s *server) handleResetMFA(w http.ResponseWriter, r *http.Request) {
 	actor := s.fullSession(r)
 	id := r.PathValue("id")
@@ -1564,11 +1633,11 @@ func (s *server) handleResetMFA(w http.ResponseWriter, r *http.Request) {
 	if demoBlockCredentialChange(w, user) {
 		return
 	}
-	user.TOTPSecret = ""
-	user.TOTPConfirmed = false
-	user.TOTPLastStep = 0
-	user.RecoveryCodes = nil
-	user.touch()
+	temp, err := resetUserMFAAndPassword(user)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "password", err.Error())
+		return
+	}
 	if err := s.saveState(); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "state", err.Error())
 		return
@@ -1579,7 +1648,7 @@ func (s *server) handleResetMFA(w http.ResponseWriter, r *http.Request) {
 		actorName = actor.username
 	}
 	s.audit(actorName, "admin-reset-mfa", "user", user.ID, `{"username":"`+user.Username+`"}`)
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "password": temp})
 }
 
 func (s *server) adminCount() int {

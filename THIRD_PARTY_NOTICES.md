@@ -27,6 +27,15 @@ cJSON, webview, GTK/WebKitGTK, and—for the Flatpak—nmap and libpcap.
 - The application code uses the C API; the dependency itself is implemented in
   C++14 and is compiled into the executable.
 
+### github.com/go-webauthn/webauthn v0.10.2
+
+- Location: fetched by `go build` for `cmdb-server`
+- License: BSD-3-Clause
+- Copyright: Duo Security, Inc. and contributors
+- Purpose: WebAuthn/passkey registration and assertion verification.
+- The module is fetched by `go build`; its license text is available in the Go
+  module cache and the project source repository.
+
 ## Linked system/runtime libraries
 
 ### SQLCipher

@@ -62,6 +62,18 @@ code, .secret { font-family:ui-monospace,monospace; word-break:break-all; }
     <ul id="recovery-codes" class="codes hidden"></ul>
   </section>
 
+  <section id="passkey-section" class="card hidden">
+    <h2>Passkeys</h2>
+    <p>Register a passkey to use your device's biometrics or PIN as an alternative second factor after your password. TOTP remains available as a fallback.</p>
+    <p id="passkey-status">Loading…</p>
+    <div id="passkey-list"></div>
+    <div class="row">
+      <label>Passkey name <input id="passkey-name" maxlength="64" placeholder="e.g. Laptop"></label>
+      <label>Current password <input id="passkey-password" type="password" autocomplete="current-password"></label>
+    </div>
+    <button id="passkey-register" type="button">Add passkey</button>
+  </section>
+
   <section id="password-section" class="card">
     <h2>Change password</h2>
     <form id="password-form">
@@ -75,6 +87,49 @@ code, .secret { font-family:ui-monospace,monospace; word-break:break-all; }
 const $ = (id) => document.getElementById(id);
 let csrf = "";
 let user = null;
+let passkeysEnabled = false;
+function b64urlToBuffer(value) {
+  const padded = value.replace(/-/g, "+").replace(/_/g, "/") +
+    "=".repeat((4 - value.length % 4) % 4);
+  const binary = atob(padded);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0)).buffer;
+}
+function bufferToB64url(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function prepareCreationOptions(data) {
+  const publicKey = data.publicKey;
+  publicKey.challenge = b64urlToBuffer(publicKey.challenge);
+  publicKey.user.id = b64urlToBuffer(publicKey.user.id);
+  if (Array.isArray(publicKey.excludeCredentials)) {
+    publicKey.excludeCredentials = publicKey.excludeCredentials.map((credential) => ({
+      ...credential,
+      id: b64urlToBuffer(credential.id)
+    }));
+  }
+  return publicKey;
+}
+function attestationJSON(credential) {
+  const response = credential.response;
+  const result = {
+    id: credential.id,
+    rawId: bufferToB64url(credential.rawId),
+    type: credential.type,
+    response: {
+      clientDataJSON: bufferToB64url(response.clientDataJSON),
+      attestationObject: bufferToB64url(response.attestationObject),
+      transports: response.getTransports ? response.getTransports() : []
+    },
+    clientExtensionResults: credential.getClientExtensionResults
+      ? credential.getClientExtensionResults()
+      : {}
+  };
+  if (credential.authenticatorAttachment) result.authenticatorAttachment = credential.authenticatorAttachment;
+  return result;
+}
 async function api(url, options = {}) {
   const headers = Object.assign({ "Content-Type": "application/json" }, options.headers || {});
   if (csrf) headers["X-CSRF-Token"] = csrf;
@@ -83,6 +138,36 @@ async function api(url, options = {}) {
   try { data = await response.json(); } catch (_) {}
   if (!response.ok) throw new Error((data.error && data.error.message) || "Request failed");
   return data;
+}
+function renderPasskeys() {
+  const list = $("passkey-list");
+  list.replaceChildren();
+  const passkeys = Array.isArray(user.passkeys) ? user.passkeys : [];
+  $("passkey-status").textContent = passkeys.length === 0
+    ? "No passkeys are registered."
+    : `${passkeys.length} passkey${passkeys.length === 1 ? "" : "s"} registered.`;
+  for (const passkey of passkeys) {
+    const row = document.createElement("div");
+    row.className = "notice";
+    row.style.margin = ".45rem 0";
+    const label = document.createElement("strong");
+    label.textContent = passkey.name || "Passkey";
+    const meta = document.createElement("span");
+    meta.style.marginLeft = ".5rem";
+    meta.style.fontSize = ".8rem";
+    meta.textContent = [
+      passkey.created_at ? `added ${passkey.created_at.replace("T", " ").replace("Z", "")}` : "",
+      passkey.last_used_at ? `last used ${passkey.last_used_at.replace("T", " ").replace("Z", "")}` : ""
+    ].filter(Boolean).join(" · ");
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "secondary";
+    remove.textContent = "Remove";
+    remove.style.marginLeft = ".6rem";
+    remove.addEventListener("click", () => deletePasskey(passkey));
+    row.append(label, meta, remove);
+    list.append(row);
+  }
 }
 function refreshGuidance() {
   const mustChange = !!user.must_change_password;
@@ -100,15 +185,18 @@ function refreshGuidance() {
   $("forced-notice").classList.toggle("hidden", notice === "");
   $("totp-section").classList.toggle("hidden", mustChange);
   $("recovery-section").classList.toggle("hidden", mustChange || !totp);
+  $("passkey-section").classList.toggle("hidden", mustChange || !totp || !passkeysEnabled);
   $("back-line").classList.toggle("hidden", mustChange || !totp || remaining === 0);
   $("totp-status").textContent = totp ? "TOTP is enabled." : "TOTP is not enabled.";
   $("totp-start").classList.toggle("hidden", totp);
+  renderPasskeys();
 }
 async function init() {
   try {
     const session = await api("/api/v1/auth/session");
     csrf = session.csrf;
     user = session.user;
+    passkeysEnabled = !!session.passkeys_enabled;
     $("user-line").textContent = `${user.username}${user.is_admin ? " · administrator" : ""}`;
     refreshGuidance();
   } catch (error) {
@@ -166,6 +254,62 @@ $("recovery-generate").addEventListener("click", async () => {
     user.recovery_codes_remaining = data.codes.length;
     refreshGuidance();
   } catch (error) { $("error").textContent = error.message; }
+});
+async function deletePasskey(passkey) {
+  $("error").textContent = "";
+  if (!confirm(`Remove passkey "${passkey.name || "Passkey"}"?`)) return;
+  if (!$("passkey-password").value) {
+    $("error").textContent = "Enter your current password to remove a passkey.";
+    return;
+  }
+  try {
+    const result = await api("/api/v1/auth/passkey/delete", {
+      method: "POST",
+      body: JSON.stringify({
+        id: passkey.id,
+        current: $("passkey-password").value
+      })
+    });
+    user.passkeys = result.passkeys || [];
+    $("passkey-password").value = "";
+    refreshGuidance();
+  } catch (error) { $("error").textContent = error.message; }
+}
+$("passkey-register").addEventListener("click", async () => {
+  $("error").textContent = "";
+  if (!window.PublicKeyCredential) {
+    $("error").textContent = "This browser does not support passkeys.";
+    return;
+  }
+  if (!$("passkey-password").value) {
+    $("error").textContent = "Enter your current password to add a passkey.";
+    return;
+  }
+  try {
+    const begin = await api("/api/v1/auth/passkey/register/begin", {
+      method: "POST",
+      body: JSON.stringify({
+        current: $("passkey-password").value,
+        name: $("passkey-name").value.trim()
+      })
+    });
+    const credential = await navigator.credentials.create({
+      publicKey: prepareCreationOptions(begin)
+    });
+    if (!credential) throw new Error("Passkey creation was cancelled.");
+    const result = await api("/api/v1/auth/passkey/register/complete", {
+      method: "POST",
+      body: JSON.stringify(attestationJSON(credential))
+    });
+    user.passkeys = result.passkeys || [];
+    $("passkey-name").value = "";
+    $("passkey-password").value = "";
+    refreshGuidance();
+  } catch (error) {
+    $("error").textContent = error.name === "NotAllowedError"
+      ? "Passkey creation was cancelled or timed out."
+      : error.message;
+  }
 });
 $("password-form").addEventListener("submit", async (event) => {
   event.preventDefault();

@@ -101,8 +101,13 @@ async function loadUsers() {
         try { const result = await api(`/api/v1/users/${encodeURIComponent(user.id)}/reset-password`, { method: "POST", body: "{}" }); $("created-password").textContent = `Temporary password for ${user.username}: ${result.password}`; $("created-password").classList.remove("hidden"); } catch (error) { $("error").textContent = error.message; }
       }));
       actions.append(button("Reset MFA", async () => {
-        if (!confirm(`Reset TOTP and recovery codes for ${user.username}?`)) return;
-        try { await api(`/api/v1/users/${encodeURIComponent(user.id)}/reset-mfa`, { method: "POST", body: "{}" }); await loadUsers(); } catch (error) { $("error").textContent = error.message; }
+        if (!confirm(`Reset TOTP and recovery codes for ${user.username}? This also resets the password and signs the user out everywhere.`)) return;
+        try {
+          const result = await api(`/api/v1/users/${encodeURIComponent(user.id)}/reset-mfa`, { method: "POST", body: "{}" });
+          $("created-password").textContent = `MFA reset for ${user.username}. Temporary password: ${result.password}`;
+          $("created-password").classList.remove("hidden");
+          await loadUsers();
+        } catch (error) { $("error").textContent = error.message; }
       }, true));
       row.append(actions);
       table.append(row);
