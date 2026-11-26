@@ -487,6 +487,7 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/users/{id}/enable", s.requireAdmin(s.handleEnableUser))
 	mux.HandleFunc("POST /api/v1/users/{id}/reset-password", s.requireAdmin(s.handleResetPassword))
 	mux.HandleFunc("POST /api/v1/users/{id}/reset-mfa", s.requireAdmin(s.handleResetMFA))
+	mux.HandleFunc("DELETE /api/v1/users/{id}", s.requireAdmin(s.handleDeleteUser))
 	mux.HandleFunc("POST /api/v1/rpc", s.requireReady(s.handleRPC))
 	mux.HandleFunc("GET /", s.handleIndex)
 	mux.HandleFunc("GET /index.html", s.handleIndex)
@@ -1514,6 +1515,55 @@ func (s *server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(actorName, "user-create", "user", user.ID, `{"username":"`+user.Username+`"}`)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "user": userView(&s.state.Users[len(s.state.Users)-1])})
+}
+
+func (s *server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
+	actor := s.fullSession(r)
+	id := r.PathValue("id")
+	user := s.state.findUserByID(id)
+	if user == nil {
+		writeAPIError(w, http.StatusNotFound, "not_found", "user not found")
+		return
+	}
+	if demoBlockCredentialChange(w, user) {
+		return
+	}
+	if actor != nil && actor.userID == user.ID {
+		writeAPIError(w, http.StatusConflict, "self_delete", "cannot delete the signed-in account")
+		return
+	}
+	if user.IsAdmin && !user.Disabled && s.adminCount() <= 1 {
+		writeAPIError(w, http.StatusConflict, "last_admin", "cannot delete the last administrator")
+		return
+	}
+	oldUsers := s.state.Users
+	index := -1
+	for i := range oldUsers {
+		if oldUsers[i].ID == id {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		writeAPIError(w, http.StatusNotFound, "not_found", "user not found")
+		return
+	}
+	nextUsers := make([]userRecord, 0, len(oldUsers)-1)
+	nextUsers = append(nextUsers, oldUsers[:index]...)
+	nextUsers = append(nextUsers, oldUsers[index+1:]...)
+	s.state.Users = nextUsers
+	if err := s.saveState(); err != nil {
+		s.state.Users = oldUsers
+		writeAPIError(w, http.StatusInternalServerError, "state", err.Error())
+		return
+	}
+	s.revokeUserSessions(user.ID)
+	actorName := "system"
+	if actor != nil {
+		actorName = actor.username
+	}
+	s.audit(actorName, "user-delete", "user", user.ID, `{"username":"`+user.Username+`"}`)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func (s *server) handleDisableUser(w http.ResponseWriter, r *http.Request) {

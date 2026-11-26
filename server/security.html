@@ -143,9 +143,17 @@ function renderPasskeys() {
   const list = $("passkey-list");
   list.replaceChildren();
   const passkeys = Array.isArray(user.passkeys) ? user.passkeys : [];
-  $("passkey-status").textContent = passkeys.length === 0
-    ? "No passkeys are registered."
-    : `${passkeys.length} passkey${passkeys.length === 1 ? "" : "s"} registered.`;
+  const supported = Boolean(window.PublicKeyCredential && window.isSecureContext);
+  $("passkey-register").disabled = !supported;
+  if (!supported) {
+    $("passkey-status").textContent = window.isSecureContext
+      ? "This browser does not support passkeys. Use a current browser."
+      : "Passkeys require a secure HTTPS page.";
+  } else {
+    $("passkey-status").textContent = passkeys.length === 0
+      ? "No passkeys are registered."
+      : `${passkeys.length} passkey${passkeys.length === 1 ? "" : "s"} registered.`;
+  }
   for (const passkey of passkeys) {
     const row = document.createElement("div");
     row.className = "notice";
@@ -277,8 +285,8 @@ async function deletePasskey(passkey) {
 }
 $("passkey-register").addEventListener("click", async () => {
   $("error").textContent = "";
-  if (!window.PublicKeyCredential) {
-    $("error").textContent = "This browser does not support passkeys.";
+  if (!window.PublicKeyCredential || !window.isSecureContext) {
+    $("error").textContent = "Passkeys require a current browser on a secure HTTPS page.";
     return;
   }
   if (!$("passkey-password").value) {

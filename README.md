@@ -864,7 +864,7 @@ Before go-live:
 | Concurrency | All API requests are serialized | A long import, scan operation, or audit verification blocks other users. |
 | Backup | Offline copy only; no online API | Stop the service, copy `.cmdb` + `.meta`, restart. Test restore. |
 | Export | Export/save operations are blocked in server mode | There is currently no browser download of inventory or `.drawio` files. |
-| Accounts | First admin + admin-created users, including additional admins; no delete/role change UI | No user deletion or admin demotion after creation. |
+| Accounts | First admin + admin-created users, including additional admins; delete and credential reset | Self-delete and deleting the last enabled administrator are blocked; there is no admin demotion after creation. |
 | MFA | TOTP and at least one unused recovery code are required before inventory access | Enroll during first login; the server blocks inventory until both are present. |
 | Passwords | Admin-created/reset passwords are temporary and force a change | The administrator knows the temporary password; the user must replace it before inventory access. |
 | Sessions | Memory-only; no session list or global revoke UI | Restart logs everyone out; disable/reset actions revoke per user. |
@@ -2041,7 +2041,7 @@ Ready-to-use examples are in [`examples/`](examples/):
 - No server RBAC beyond the admin flag. All non-admin accounts can edit the
   entire inventory, including CI types, relationships, imports, scans, and
   authentication audit views.
-- No user deletion, role change, or active-session list. Admin-created and
+- No role change or active-session list. Admin-created and
   admin-reset passwords are temporary and force a change, but the administrator
   knows the password until the user changes it.
 - No password history or email-based recovery. TOTP and recovery codes are

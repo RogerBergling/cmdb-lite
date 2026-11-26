@@ -323,8 +323,9 @@ Notes:
 
 Current account gaps:
 
-- The Users page can create administrator or non-admin accounts, but there is
-  no role change or user deletion after creation. This deployment uses one
+- The Users page can create administrator or non-admin accounts and delete
+  accounts, but there is no role change after creation. It prevents deleting the
+  signed-in account or the last enabled administrator. This deployment uses one
   administrator; document and test a break-glass procedure for a lost password,
   lost TOTP device, and exhausted recovery codes.
 - TOTP and at least one unused recovery code are mandatory before inventory
@@ -337,9 +338,9 @@ Current account gaps:
 - Admin-created and admin-reset passwords are temporary and force a change at
   first login. The administrator knows the temporary password until the user
   replaces it.
-- There is no user deletion, role change, active-session list, or forced
-  session revocation UI. Disabling a user, resetting a password, or resetting
-  MFA revokes that user's sessions.
+- There is no role change, active-session list, or forced session revocation UI.
+  Deleting a user, disabling a user, resetting a password, or resetting MFA
+  revokes that user's sessions.
 - Sessions are memory-only. Restarting the service logs everyone out.
 - There is no RBAC beyond the admin flag. All non-admin accounts can edit the
   full inventory.

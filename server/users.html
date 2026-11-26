@@ -33,7 +33,7 @@ th, td { text-align:left; padding:.5rem; border-bottom:1px solid var(--line); }
 <main>
   <p><a href="/">← Back to inventory</a></p>
   <h1>User accounts</h1>
-  <p>All accounts have the same inventory privileges. Administrators can manage accounts and reset credentials.</p>
+  <p>All accounts have the same inventory privileges. Administrators can manage accounts and reset credentials. Passkeys are registered by each user from <a href="/security">Security</a>, not from this page.</p>
   <p id="error" class="error" role="alert"></p>
 
   <section class="card">
@@ -52,7 +52,7 @@ th, td { text-align:left; padding:.5rem; border-bottom:1px solid var(--line); }
   <section class="card">
     <h2>Users</h2>
     <table>
-      <thead><tr><th>Username</th><th>Admin</th><th>Disabled</th><th>TOTP</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Username</th><th>Admin</th><th>Disabled</th><th>TOTP</th><th>Passkeys</th><th>Actions</th></tr></thead>
       <tbody id="user-table"></tbody>
     </table>
   </section>
@@ -60,6 +60,7 @@ th, td { text-align:left; padding:.5rem; border-bottom:1px solid var(--line); }
 <script>
 const $ = (id) => document.getElementById(id);
 let csrf = "";
+let currentUserId = "";
 async function api(url, options = {}) {
   const headers = Object.assign({ "Content-Type": "application/json" }, options.headers || {});
   if (csrf) headers["X-CSRF-Token"] = csrf;
@@ -82,12 +83,15 @@ async function loadUsers() {
     const session = await api("/api/v1/auth/session");
     csrf = session.csrf;
     if (!session.user.is_admin) { location.href = "/"; return; }
+    currentUserId = session.user.id;
     const data = await api("/api/v1/users");
+    const enabledAdmins = data.users.filter((user) => user.is_admin && !user.disabled).length;
     const table = $("user-table");
     table.replaceChildren();
     for (const user of data.users) {
       const row = document.createElement("tr");
-      for (const value of [user.username, user.is_admin ? "yes" : "no", user.disabled ? "yes" : "no", user.totp_enabled ? "yes" : "no"]) {
+      const passkeyCount = Array.isArray(user.passkeys) ? user.passkeys.length : 0;
+      for (const value of [user.username, user.is_admin ? "yes" : "no", user.disabled ? "yes" : "no", user.totp_enabled ? "yes" : "no", String(passkeyCount)]) {
         const cell = document.createElement("td");
         cell.textContent = value;
         row.append(cell);
@@ -109,6 +113,16 @@ async function loadUsers() {
           await loadUsers();
         } catch (error) { $("error").textContent = error.message; }
       }, true));
+      if (user.id !== currentUserId &&
+          !(user.is_admin && !user.disabled && enabledAdmins <= 1)) {
+        actions.append(button("Delete", async () => {
+          if (!confirm(`Delete ${user.username}? This removes the account and signs it out everywhere. Audit history is retained.`)) return;
+          try {
+            await api(`/api/v1/users/${encodeURIComponent(user.id)}`, { method: "DELETE", body: "{}" });
+            await loadUsers();
+          } catch (error) { $("error").textContent = error.message; }
+        }, true));
+      }
       row.append(actions);
       table.append(row);
     }

@@ -320,7 +320,7 @@ Authentication events are written to the existing hash-chained `audit_log` with
 - passkey registration, deletion, login success/failure, and clone warnings;
 - recovery-code generation, use, and failure;
 - password change and admin password reset;
-- user create, enable, and disable.
+- user create, enable, disable, and delete.
 
 Inventory requests pass the authenticated username as the top-level `actor`
 field in the JSON request to the C core. `cmdb_app_handle` sets the audit actor
@@ -366,6 +366,7 @@ POST /api/v1/users/{id}/disable
 POST /api/v1/users/{id}/enable
 POST /api/v1/users/{id}/reset-password
 POST /api/v1/users/{id}/reset-mfa
+DELETE /api/v1/users/{id}
 ```
 
 `reset-mfa` is a full credential-recovery operation. It clears TOTP, recovery
@@ -460,15 +461,16 @@ clearing. Before a production rollout, also exercise:
   to the server console and journal while the instance has no users.
 - The database passphrase is a Go string in the server process and cannot be
   reliably wiped. Restrict core dumps and swap for server deployments.
-- No account deletion, password-history policy, or email-based recovery.
+- No password-history policy or email-based recovery. Administrators can delete
+  other accounts, but cannot delete themselves or the last enabled administrator.
 - Passkeys are an optional second factor, not a passwordless login method.
 - Passkey login requires the operator to configure the public RP ID and origin.
   Changing either value makes previously registered passkeys unusable.
 - Admin-created and admin-reset passwords are known to the administrator until
   the user changes them. The temporary-password flag forces the change before
   inventory access.
-- The Users page can create administrators and non-admin users, but there is no
-  role change or user deletion after creation.
+- The Users page can create administrators and non-admin users and delete
+  accounts, but there is no role change after creation.
 - No active-session list or global session-revocation UI. Per-user revocation is
   triggered by disable, password reset, and MFA reset.
 - Admin password/MFA reset actions do not require re-authentication; a stolen
